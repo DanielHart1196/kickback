@@ -7,9 +7,15 @@
   let errorMessage: string = '';
 
   async function submitClaim() {
-    if (!amount || last4.length !== 4) {
+    if (!amount) {
       status = 'error';
-      errorMessage = 'Please enter a valid amount and 4 digits.';
+      errorMessage = 'Please enter a valid amount';
+      return;
+    }
+
+    if (last4.length !== 4) {
+      status = 'error';
+      errorMessage = 'Please enter 4 digits';
       return;
     }
 
@@ -35,6 +41,7 @@
       console.error(e);
     }
   }
+  $: last4 = last4.replace(/\D/g, '');
 </script>
 
 <main class="min-h-screen bg-zinc-950 text-white flex flex-col items-center justify-center p-6">
@@ -64,6 +71,8 @@
           <input 
             id="last4"
             type="text" 
+            inputmode="numeric"
+            pattern="[0-9]*"
             bind:value={last4} 
             placeholder="1234"
             maxlength="4"
