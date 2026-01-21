@@ -1,11 +1,36 @@
 <script lang="ts">
   import { supabase } from '$lib/supabase';
+  import { onMount } from 'svelte';
   import { fade } from 'svelte/transition';
   
   let amount: number | null = null;
   let last4: string = '';
+  let venue: string = '';
+  let referrer: string = '';
+  let purchaseTime: string = '';
   let status: 'idle' | 'loading' | 'success' | 'error' = 'idle';
   let errorMessage: string = '';
+
+  let isReferrerLocked: boolean = false;
+  let isVenueLocked: boolean = false;
+
+  onMount(async () => {
+    // 1. Set default time to "Now"
+    const now = new Date();
+    // This magic line formats it for the HTML datetime-local input
+    purchaseTime = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+
+    // 2. Check URL for pre-fills (e.g., ?venue=BarOne&ref=User123)
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('venue')) venue = params.get('venue') || '';
+    if (params.get('ref')) referrer = params.get('ref') || '';
+
+    // 3. Logic for Locking Referrer
+    // We'll need a Supabase query here later to check if this user + bar exists.
+    // For now, if it comes from a QR code, we'll lock it.
+    if (referrer) isReferrerLocked = true;
+    if (venue) isVenueLocked = true;
+  });
 
   async function submitClaim() {
     if (!amount || amount <= 0) {
@@ -28,7 +53,10 @@
       const { error } = await supabase
         .from('claims') // Make sure your table is named 'claims' in Supabase
         .insert([{ 
+          venue,
+          referrer,
           amount: cleanAmount, 
+          purchased_at: new Date(purchaseTime).toISOString(),
           last_4: last4,
           created_at: new Date().toISOString()
         }]);
@@ -64,6 +92,30 @@
       <div class="space-y-5">
         
         <div>
+          <label for="venue" class="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">Venue</label>
+          <input 
+            id="venue"
+            type="text" 
+            bind:value={venue} 
+            readonly={isVenueLocked}
+            placeholder="Bar Name"
+            class="w-full bg-zinc-800 border-none p-4 rounded-2xl text-lg focus:ring-2 focus:ring-white outline-none {isVenueLocked ? 'opacity-50 cursor-not-allowed' : ''}"
+          />
+        </div>
+
+        <div>
+          <label for="referrer" class="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">Referrer ID</label>
+          <input 
+            id="referrer"
+            type="text" 
+            bind:value={referrer} 
+            readonly={isReferrerLocked}
+            placeholder="Who sent you?"
+            class="w-full bg-zinc-800 border-none p-4 rounded-2xl text-lg focus:ring-2 focus:ring-white outline-none {isReferrerLocked ? 'opacity-50 cursor-not-allowed' : ''}"
+          />
+        </div>
+
+        <div>
           <label for="amount" class="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">Total Bill</label>
           <input 
             id="amount"
@@ -73,6 +125,16 @@
             bind:value={amount} 
             placeholder="10.00"
             class="w-full bg-zinc-800 border-none p-4 rounded-2xl text-xl font-medium focus:ring-2 focus:ring-white transition-all outline-none"
+          />
+        </div>
+
+        <div>
+          <label for="time" class="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">Time of Purchase</label>
+          <input 
+            id="time"
+            type="datetime-local" 
+            bind:value={purchaseTime} 
+            class="w-full bg-zinc-800 border-none p-4 rounded-2xl text-lg focus:ring-2 focus:ring-white outline-none [color-scheme:dark]"
           />
         </div>
 
