@@ -1,7 +1,7 @@
 <script lang="ts">
   import { supabase } from '$lib/supabase';
   import { onMount } from 'svelte';
-  import { fade } from 'svelte/transition';
+  import { fade, fly } from 'svelte/transition';
   
   let amount: number | null = null;
   let last4: string = '';
@@ -81,6 +81,27 @@
 </script>
 
 <main class="min-h-screen bg-zinc-950 text-white flex flex-col items-center justify-center p-6">
+
+  <div class="fixed top-10 left-0 right-0 px-6 z-[100] pointer-events-none">
+    {#if status === 'success'}
+      <div 
+        in:fly={{ y: -20, duration: 400 }} 
+        out:fade={{ duration: 300 }}
+        class="bg-green-500 border border-green-400 text-white p-4 rounded-2xl text-center text-sm font-black shadow-2xl shadow-green-500/40 pointer-events-auto"
+      >
+        ✅ CLAIM SUBMITTED SUCCESSFULLY
+      </div>
+    {:else if status === 'error'}
+      <div 
+        in:fly={{ y: -20, duration: 400 }} 
+        out:fade={{ duration: 300 }}
+        class="bg-red-500 border border-red-400 text-white p-4 rounded-2xl text-center text-sm font-black shadow-2xl shadow-red-500/40 pointer-events-auto"
+      >
+        ⚠️ {errorMessage.toUpperCase()}
+      </div>
+    {/if}
+  </div>
+
   <div class="w-full max-w-sm space-y-8">
     
     <div class="text-center">
@@ -162,17 +183,5 @@
 
       </div>
     </div>
-
-    {#if status === 'success'}
-      <div transition:fade={{ duration: 300 }}
-      class="bg-green-500/10 border border-green-500/50 text-green-500 p-4 rounded-2xl text-center text-sm font-bold animate-bounce">
-        ✅ CLAIM SUBMITTED SUCCESSFULLY
-      </div>
-    {:else if status === 'error'}
-      <div class="bg-red-500/10 border border-red-500/50 text-red-500 p-4 rounded-2xl text-center text-sm font-bold">
-        ⚠️ {errorMessage.toUpperCase()}
-      </div>
-    {/if}
-
   </div>
 </main>
