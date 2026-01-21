@@ -1,7 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { PUBLIC_SUPABASE_URL, PUBLIC_SUPABASE_ANON_KEY } from '$env/static/public';
 
-// PASTE YOUR ACTUAL STRINGS HERE TEMPORARILY
-const supabaseUrl = 'https://zrrdofyetfiybmtllxzh.supabase.co';
-const supabaseAnonKey = 'sb_publishable_XfJGX54Iz2EdIVpt-WZPWg_RqRU_Y7J';
-
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// This creates the connection to your specific database
+export const supabase = createClient(PUBLIC_SUPABASE_URL, PUBLIC_SUPABASE_ANON_KEY);

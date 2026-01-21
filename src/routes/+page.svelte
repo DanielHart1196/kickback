@@ -1,5 +1,6 @@
 <script lang="ts">
   import { supabase } from '$lib/supabase';
+  import { fade } from 'svelte/transition';
   
   let amount: number | null = null;
   let last4: string = '';
@@ -7,11 +8,13 @@
   let errorMessage: string = '';
 
   async function submitClaim() {
-    if (!amount) {
+    if (!amount || amount <= 0) {
       status = 'error';
       errorMessage = 'Please enter a valid amount';
       return;
     }
+
+    const cleanAmount = Math.round(amount * 100) / 100;
 
     if (last4.length !== 4) {
       status = 'error';
@@ -25,7 +28,7 @@
       const { error } = await supabase
         .from('claims') // Make sure your table is named 'claims' in Supabase
         .insert([{ 
-          amount, 
+          amount: cleanAmount, 
           last_4: last4,
           created_at: new Date().toISOString()
         }]);
@@ -35,6 +38,11 @@
       status = 'success';
       amount = null;
       last4 = '';
+      setTimeout(() => {
+        if (status === 'success') {
+          status = 'idle';
+        }
+      }, 4000);
     } catch (e: any) {
       status = 'error';
       errorMessage = e.message || 'Connection failed';
@@ -60,8 +68,10 @@
           <input 
             id="amount"
             type="number" 
+            min="0"
+            step="0.01"
             bind:value={amount} 
-            placeholder="0.00"
+            placeholder="10.00"
             class="w-full bg-zinc-800 border-none p-4 rounded-2xl text-xl font-medium focus:ring-2 focus:ring-white transition-all outline-none"
           />
         </div>
@@ -92,7 +102,8 @@
     </div>
 
     {#if status === 'success'}
-      <div class="bg-green-500/10 border border-green-500/50 text-green-500 p-4 rounded-2xl text-center text-sm font-bold animate-bounce">
+      <div transition:fade={{ duration: 300 }}
+      class="bg-green-500/10 border border-green-500/50 text-green-500 p-4 rounded-2xl text-center text-sm font-bold animate-bounce">
         ✅ CLAIM SUBMITTED SUCCESSFULLY
       </div>
     {:else if status === 'error'}
