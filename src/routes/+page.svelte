@@ -42,7 +42,7 @@
     
     <div class="text-center">
       <h1 class="text-4xl font-black tracking-tighter italic uppercase">Kickback</h1>
-      <p class="text-zinc-500 text-sm mt-2">Pilot Program • Entry Portal</p>
+      <p class="text-zinc-500 text-sm mt-2">Pilot Program • Claim Portal</p>
     </div>
 
     <div class="bg-zinc-900 border border-zinc-800 p-6 rounded-3xl shadow-2xl">
