@@ -79,6 +79,13 @@
   }
   $: last4 = last4.replace(/\D/g, '');
   $: kickback = ((Number(amount) ?? 0) * 0.05).toFixed(2);
+  $: if (amount !== null && amount !== undefined) {
+    const stringAmount = amount.toString();
+    if (stringAmount.includes('.') && stringAmount.split('.')[1].length > 2) {
+      // Chops the string to two decimals and converts back to number
+      amount = parseFloat(stringAmount.slice(0, stringAmount.indexOf('.') + 3));
+    }
+}
 </script>
 
 <main class="min-h-screen bg-zinc-950 text-white flex flex-col items-center justify-center p-6">
