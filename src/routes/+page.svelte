@@ -1,7 +1,7 @@
 <script lang="ts">
   import { supabase } from '$lib/supabase';
   import { onMount } from 'svelte';
-  import { fade, fly } from 'svelte/transition';
+  import { fade, fly, slide } from 'svelte/transition';
   
   let amount: number | null = null;
   let last4: string = '';
@@ -78,6 +78,7 @@
     }
   }
   $: last4 = last4.replace(/\D/g, '');
+  $: kickback = ((Number(amount) ?? 0) * 0.05).toFixed(2);
 </script>
 
 <main class="min-h-screen bg-zinc-950 text-white flex flex-col items-center justify-center p-6">
@@ -173,12 +174,25 @@
           />
         </div>
 
+        {#if amount && amount > 0}
+          <div transition:slide={{ duration: 300 }} class="flex justify-between items-center px-2 mb-4 text-sm font-bold">
+            <span class="text-zinc-500">REWARD (5%)</span>
+            <span class="text-green-500">+ ${kickback}</span>
+          </div>
+        {/if}
+
         <button 
           on:click={submitClaim}
-          disabled={status === 'loading'}
-          class="w-full bg-white text-black font-black p-4 rounded-2xl hover:bg-zinc-200 active:scale-95 transition-all disabled:opacity-50"
+          disabled={status === 'loading' || !amount || amount <= 0}
+          class="w-full bg-white text-black font-black py-4 rounded-2xl text-lg active:scale-95 transition-all disabled:opacity-50 disabled:bg-zinc-800 disabled:text-zinc-600"
         >
-          {status === 'loading' ? 'PROCESSING...' : 'SUBMIT CLAIM'}
+          {#if status === 'loading'}
+            PROCESSING...
+          {:else if amount && amount > 0}
+            CLAIM YOUR ${kickback} KICKBACK
+          {:else}
+            ENTER BILL TOTAL
+          {/if}
         </button>
 
       </div>
