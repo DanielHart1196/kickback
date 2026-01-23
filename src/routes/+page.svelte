@@ -128,7 +128,7 @@
           .from('profiles')
           .select('last_4')
           .eq('id', session.user.id)
-          .single();
+          .maybeSingle();
         if (profile?.last_4) last4 = String(profile.last_4);
       }
 
