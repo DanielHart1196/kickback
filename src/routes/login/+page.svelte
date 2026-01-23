@@ -41,6 +41,7 @@
     let session = signInData?.session ?? null;
 
     if (signInError) {
+      message = signInError.message;
       // 3. Try to sign up if login fails
       const { data: signUpData, error: signUpError } = await supabase.auth.signUp({ 
         email, 
