@@ -62,7 +62,14 @@
       message = "Check your email to confirm!";
     }
 
-    // 4. Sync profile if user exists
+    // 4. Ensure session is persisted, then sync profile if user exists
+    if (session) {
+      await supabase.auth.setSession({
+        access_token: session.access_token,
+        refresh_token: session.refresh_token
+      });
+    }
+
     if (user) {
       const profilePayload: { id: string; updated_at: string; last_4?: string } = {
         id: user.id,
