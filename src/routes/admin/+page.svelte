@@ -1,21 +1,23 @@
 <script lang="ts">
-  import { supabase } from '$lib/supabase';
   import { onMount } from 'svelte';
+  import { fetchAllClaims } from '$lib/claims/repository';
+  import { calculateTotalAmount } from '$lib/claims/utils';
+  import type { Claim } from '$lib/claims/types';
 
-  let claims: any[] = [];
+  let claims: Claim[] = [];
   let loading = true;
 
   onMount(async () => {
-    const { data, error } = await supabase
-      .from('claims')
-      .select('*')
-      .order('created_at', { ascending: false });
-    
-    if (data) claims = data;
-    loading = false;
+    try {
+      claims = await fetchAllClaims();
+    } catch (error) {
+      console.error('Error fetching claims:', error);
+    } finally {
+      loading = false;
+    }
   });
 
-  $: totalAmount = claims.reduce((sum, c) => sum + Number(c.amount), 0);
+  $: totalAmount = calculateTotalAmount(claims);
 </script>
 
 <div class="p-4 md:p-10 bg-zinc-950 min-h-screen text-zinc-100 font-sans">
@@ -50,7 +52,7 @@
               ${Number(claim.amount).toFixed(2)}
             </td>
             <td class="p-4 text-center">
-              <span class="bg-zinc-800 px-2 py-1 rounded text-xs text-zinc-300">•••• {claim.last_4}</span>
+              <span class="bg-zinc-800 px-2 py-1 rounded text-xs text-zinc-300">**** {claim.last_4}</span>
             </td>
           </tr>
         {:else}

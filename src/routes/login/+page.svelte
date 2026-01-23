@@ -2,6 +2,7 @@
   import { supabase } from '$lib/supabase';
   import { onMount } from 'svelte';
   import { fade } from 'svelte/transition';
+  import { buildDraftFromParams, draftToQuery, getDraftFromUrl, saveDraftToStorage } from '$lib/claims/draft';
 
   let email = '';
   let password = '';
@@ -10,55 +11,60 @@
   let pendingAmount: string | null = null;
 
   onMount(() => {
-    // Grab the amount from the URL so we don't lose it!
-    const params = new URLSearchParams(window.location.search);
-    pendingAmount = params.get('amount');
+    const draft = getDraftFromUrl(window.location.search);
+    pendingAmount = draft?.amount ?? null;
   });
 
   async function handleAuth() {
-  loading = true;
-  message = '';
+    loading = true;
+    message = '';
 
-  const params = new URLSearchParams(window.location.search);
-  const l4 = params.get('last4') || '';
+    const params = new URLSearchParams(window.location.search);
+    const draft = buildDraftFromParams(params);
+    const draftQuery = draftToQuery(draft);
+    const redirectUrl = draftQuery ? `https://kkbk.app/?${draftQuery}` : 'https://kkbk.app/';
 
-  // 1. Try to sign in
-  const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+    saveDraftToStorage(localStorage, draft);
 
-  let user = signInData?.user;
+    // 2. Try to sign in
+    const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({ email, password });
 
-  if (signInError) {
-    // 2. If login fails, try to sign up
-    const { data: signUpData, error: signUpError } = await supabase.auth.signUp({ email, password });
-    
-    if (signUpError) {
-      message = signUpError.message;
-      loading = false;
-      return;
+    let user = signInData?.user;
+
+    if (signInError) {
+      // 3. Try to sign up if login fails
+      const { data: signUpData, error: signUpError } = await supabase.auth.signUp({ 
+        email, 
+        password,
+        options: {
+          // IMPORTANT: This tells Supabase where to send them after email confirmation
+          emailRedirectTo: redirectUrl
+        }
+      });
+      
+      if (signUpError) {
+        message = signUpError.message;
+        loading = false;
+        return;
+      }
+      user = signUpData?.user;
+      message = "Check your email to confirm!";
     }
-    user = signUpData?.user;
-    message = "Account created!";
-  }
 
-  // 3. NEW: If we have a user and a last4, save it to the profiles table RIGHT NOW
-  if (user && l4) {
-    const { error: profileError } = await supabase
-      .from('profiles')
-      .upsert({ 
+    // 4. Sync profile if user exists
+    if (user && draft.last4) {
+      await supabase.from('profiles').upsert({ 
         id: user.id, 
-        last_4: l4, 
+        last_4: draft.last4, 
         updated_at: new Date().toISOString() 
       });
-    
-    if (profileError) console.error("Profile sync error:", profileError.message);
-  }
+    }
 
-  // 4. Redirect back
-  const amt = params.get('amount') || '';
-  const vn = params.get('venue') || '';
-  const rf = params.get('ref') || '';
-  window.location.href = `/?amount=${amt}&venue=${vn}&ref=${rf}&last4=${l4}`;
-}
+    // 5. Final Redirect
+    if (user) {
+      window.location.href = draftQuery ? `/?${draftQuery}` : '/';
+    }
+  }
 </script>
 
 <main class="min-h-screen bg-zinc-950 text-white flex flex-col items-center justify-center p-6">
@@ -101,7 +107,7 @@
     </div>
     
     <button on:click={() => window.history.back()} class="w-full text-zinc-600 text-xs font-bold uppercase tracking-widest">
-      ← Go Back
+      Go Back
     </button>
   </div>
 </main>
