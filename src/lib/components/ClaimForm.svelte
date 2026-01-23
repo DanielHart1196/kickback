@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { fade, fly, slide } from 'svelte/transition';
   import type { Session } from '@supabase/supabase-js';
 
@@ -7,6 +8,8 @@
   export let status: 'idle' | 'loading' | 'success' | 'error' = 'idle';
   export let errorMessage = '';
   export let amount: number | null = null;
+  export let canSubmit = false;
+  export let amountInput = '';
   export let maxBill = 0;
   export let kickback = '0.00';
   export let purchaseTime = '';
@@ -21,6 +24,15 @@
   export let onSubmit: () => void = () => {};
   export let onConfirmGuest: () => void = () => {};
   export let onAmountInput: (e: Event & { currentTarget: HTMLInputElement }) => void = () => {};
+  export let onAmountHydrate: (value: string) => void = () => {};
+
+  let amountField: HTMLInputElement | null = null;
+
+  onMount(() => {
+    if (amountField && amountField.value && !amountInput) {
+      onAmountHydrate(amountField.value);
+    }
+  });
 </script>
 
 <div class="w-full max-w-sm space-y-8" in:fly={{ y: 20 }}>
@@ -90,7 +102,8 @@
             id="amount"
             type="number" 
             step="0.01"
-            value={amount}
+            bind:value={amountInput}
+            bind:this={amountField}
             on:input={onAmountInput}
             placeholder="0.00"
             inputmode="decimal"
@@ -140,16 +153,20 @@
           {#if session}
             <button 
               on:click={onSubmit}
-              disabled={status === 'loading' || (amount ?? 0) <= 0}
+              disabled={status === 'loading' || !canSubmit}
               class="w-full bg-green-500 text-black font-black py-4 rounded-2xl text-lg active:scale-95 transition-all disabled:opacity-50"
+              class:opacity-50={!canSubmit || status === 'loading'}
+              class:cursor-not-allowed={!canSubmit || status === 'loading'}
             >
               {status === 'loading' ? 'PROCESSING...' : `SUBMIT & CLAIM $${kickback}`}
             </button>
           {:else}
             <button 
               on:click={() => window.location.href = loginUrl}
-              disabled={status === 'loading' || (amount ?? 0) <= 0}
+              disabled={status === 'loading' || !canSubmit}
               class="w-full bg-white text-black font-black py-4 rounded-2xl text-lg active:scale-95 transition-all shadow-xl shadow-white/5"
+              class:opacity-50={!canSubmit || status === 'loading'}
+              class:cursor-not-allowed={!canSubmit || status === 'loading'}
             >
               SIGN UP & CLAIM ${kickback}
             </button>

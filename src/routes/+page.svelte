@@ -42,6 +42,7 @@
   let totalPending = 0;
 
   let amount: number | null = null;
+  let amountInput = '';
 
   let showGuestWarning = false;
 
@@ -49,8 +50,15 @@
 
   $: userRefCode = session?.user?.email?.split('@')[0] || 'member';
   $: last4 = normalizeLast4(last4);
-  $: kickbackAmount = calculateKickback(Number(amount ?? 0));
+  $: amount = parseAmount(amountInput);
+  $: kickbackAmount = calculateKickback(Number(amountInput || 0));
   $: kickback = kickbackAmount.toFixed(2);
+  $: canSubmit = Boolean(
+    (amount ?? 0) > 0 &&
+    venue.trim().length > 0 &&
+    last4.length === 4 &&
+    purchaseTime.trim().length > 0
+  );
 
   async function fetchDashboardData() {
     if (!session) return;
@@ -71,7 +79,8 @@
       e.currentTarget.value = normalized;
     }
 
-    amount = parseAmount(normalized);
+    amountInput = normalized;
+    amountInput = normalized;
   }
 
   function confirmGuestSubmit() {
@@ -97,7 +106,7 @@
     const draft = urlDraft ?? storedDraft;
 
     if (draft) {
-      amount = parseAmount(draft.amount) ?? null;
+      amountInput = draft.amount ?? '';
       venue = draft.venue || '';
       referrer = draft.ref || '';
       last4 = draft.last4 || '';
@@ -161,7 +170,7 @@
       });
 
       status = 'success';
-      amount = null;
+      amountInput = '';
       if (!session) {
         last4 = '';
       }
@@ -188,17 +197,27 @@
     }
   }
 
-  function buildLoginUrl() {
+  function buildLoginUrl(
+    draftAmount: number | null,
+    draftVenue: string,
+    draftReferrer: string,
+    draftLast4: string
+  ) {
     const query = draftToQuery({
-      amount: amount ? amount.toString() : '',
-      venue,
-      ref: referrer,
-      last4
+      amount: draftAmount ? draftAmount.toString() : '',
+      venue: draftVenue,
+      ref: draftReferrer,
+      last4: draftLast4
     });
     return query ? `/login?${query}` : '/login';
   }
 
-  $: loginUrl = buildLoginUrl();
+  $: loginUrl = buildLoginUrl(amount, venue, referrer, last4);
+
+  function hydrateAmountInput(value: string) {
+    const normalized = normalizeAmountInput(value, MAX_BILL);
+    amountInput = normalized;
+  }
 </script>
 
 <main class="min-h-screen bg-zinc-950 text-white flex flex-col items-center p-6">
@@ -218,6 +237,8 @@
       {status}
       {errorMessage}
       {amount}
+      {canSubmit}
+      bind:amountInput
       maxBill={MAX_BILL}
       {kickback}
       bind:venue
@@ -231,6 +252,7 @@
       onSubmit={submitClaim}
       onConfirmGuest={confirmGuestSubmit}
       onAmountInput={handleInput}
+      onAmountHydrate={hydrateAmountInput}
       onLogout={handleSignOut}
     />
     {#if showGuestWarning}

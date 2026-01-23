@@ -2,17 +2,25 @@
   import { supabase } from '$lib/supabase';
   import { onMount } from 'svelte';
   import { fade } from 'svelte/transition';
-  import { buildDraftFromParams, draftToQuery, getDraftFromUrl, saveDraftToStorage } from '$lib/claims/draft';
+  import {
+    buildDraftFromParams,
+    draftToQuery,
+    getDraftFromStorage,
+    getDraftFromUrl,
+    saveDraftToStorage
+  } from '$lib/claims/draft';
 
   let email = '';
   let password = '';
   let loading = false;
   let message = '';
-  let pendingAmount: string | null = null;
+  let pendingKickback: string | null = null;
 
   onMount(() => {
-    const draft = getDraftFromUrl(window.location.search);
-    pendingAmount = draft?.amount ?? null;
+    const draft = getDraftFromUrl(window.location.search) ?? getDraftFromStorage(localStorage);
+    const amountValue = Number(draft?.amount ?? '');
+    pendingKickback =
+      Number.isFinite(amountValue) && amountValue > 0 ? (amountValue * 0.05).toFixed(2) : null;
   });
 
   async function handleAuth() {
@@ -72,8 +80,8 @@
     
     <div class="text-center">
       <h1 class="text-3xl font-black italic uppercase tracking-tighter">Join Kickback</h1>
-      {#if pendingAmount}
-        <p class="text-green-500 font-bold mt-2">Finish claiming your ${((Number(pendingAmount) * 0.05).toFixed(2))} reward</p>
+      {#if pendingKickback}
+        <p class="text-green-500 font-bold mt-2">Sign up to claim your ${pendingKickback} kickback</p>
       {:else}
         <p class="text-zinc-500 mt-2">Start earning 5% on every round.</p>
       {/if}
