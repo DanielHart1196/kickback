@@ -90,7 +90,7 @@
       {/if}
     </div>
 
-    <div class="bg-zinc-900 border border-zinc-800 p-6 rounded-3xl space-y-4">
+    <form class="bg-zinc-900 border border-zinc-800 p-6 rounded-3xl space-y-4" on:submit|preventDefault={handleAuth}>
       <input 
         type="email" 
         bind:value={email} 
@@ -105,7 +105,7 @@
       />
       
       <button 
-        on:click={handleAuth}
+        type="submit"
         disabled={loading || !email || !password}
         class="w-full bg-white text-black font-black py-4 rounded-2xl uppercase tracking-tight active:scale-95 transition-all disabled:opacity-50"
       >
@@ -115,7 +115,7 @@
       {#if message}
         <p transition:fade class="text-center text-xs font-bold text-zinc-400 uppercase">{message}</p>
       {/if}
-    </div>
+    </form>
     
     <button on:click={() => window.history.back()} class="w-full text-zinc-600 text-xs font-bold uppercase tracking-widest">
       Go Back
