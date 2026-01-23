@@ -7,12 +7,14 @@
   export let showBack = false;
   export let status: 'idle' | 'loading' | 'success' | 'error' = 'idle';
   export let errorMessage = '';
+  export let successMessage = '';
   export let amount: number | null = null;
   export let canSubmit = false;
   export let amountInput = '';
   export let maxBill = 0;
   export let kickback = '0.00';
   export let purchaseTime = '';
+  export let maxPurchaseTime = '';
   export let last4 = '';
   export let venue = '';
   export let referrer = '';
@@ -47,9 +49,9 @@
       <div 
         in:fly={{ y: -20, duration: 400 }} 
         out:fade={{ duration: 300 }}
-        class="bg-green-500 border border-green-400 text-white p-4 rounded-2xl text-center text-sm font-black shadow-2xl shadow-green-500/40 pointer-events-auto"
+        class="bg-orange-500 border border-orange-400 text-white p-4 rounded-2xl text-center text-sm font-black shadow-2xl shadow-orange-500/40 pointer-events-auto"
       >
-        CLAIM SUBMITTED SUCCESSFULLY
+        {successMessage || 'CLAIM SUBMITTED SUCCESSFULLY'}
       </div>
     {:else if status === 'error'}
       <div 
@@ -124,6 +126,7 @@
             id="time"
             type="datetime-local" 
             bind:value={purchaseTime} 
+            max={maxPurchaseTime || undefined}
             class="w-full bg-zinc-800 border-none p-4 rounded-2xl text-lg focus:ring-2 focus:ring-white outline-none [color-scheme:dark]"
           />
         </div>
@@ -145,7 +148,7 @@
         {#if amount && amount > 0}
           <div transition:slide={{ duration: 300 }} class="flex justify-between items-center px-2 mb-4 text-sm font-bold">
             <span class="text-zinc-500">REWARD (5%)</span>
-            <span class="text-green-500">+ ${kickback}</span>
+            <span class="text-orange-500">+ ${kickback}</span>
           </div>
         {/if}
 
@@ -154,7 +157,7 @@
             <button 
               on:click={onSubmit}
               disabled={status === 'loading' || !canSubmit}
-              class="w-full bg-green-500 text-black font-black py-4 rounded-2xl text-lg active:scale-95 transition-all disabled:opacity-50"
+              class="w-full bg-orange-500 text-black font-black py-4 rounded-2xl text-lg active:scale-95 transition-all disabled:opacity-50"
               class:opacity-50={!canSubmit || status === 'loading'}
               class:cursor-not-allowed={!canSubmit || status === 'loading'}
             >
@@ -191,3 +194,4 @@
     </div>
   {/if}
 </div>
+

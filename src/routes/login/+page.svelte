@@ -15,6 +15,7 @@
   let loading = false;
   let message = '';
   let pendingKickback: string | null = null;
+  let mode: 'signup' | 'signin' = 'signup';
 
   onMount(() => {
     const draft = getDraftFromUrl(window.location.search) ?? getDraftFromStorage(localStorage);
@@ -35,15 +36,18 @@
     saveDraftToStorage(localStorage, draft);
 
     try {
-      // 2. Try to sign in
-      const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+      let user = null;
+      let session = null;
 
-      let user = signInData?.user ?? null;
-      let session = signInData?.session ?? null;
-
-      if (signInError) {
-        message = signInError.message;
-        // 3. Try to sign up if login fails
+      if (mode === 'signin') {
+        const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+        if (signInError) {
+          message = signInError.message;
+          return;
+        }
+        user = signInData?.user ?? null;
+        session = signInData?.session ?? null;
+      } else {
         const { data: signUpData, error: signUpError } = await supabase.auth.signUp({ 
           email, 
           password,
@@ -52,7 +56,7 @@
             emailRedirectTo: redirectUrl
           }
         });
-        
+
         if (signUpError) {
           message = signUpError.message;
           return;
@@ -81,7 +85,17 @@
 
       // 5. Final Redirect (only when session is established)
       if (session) {
-        window.location.href = draftQuery ? `/?${draftQuery}` : '/';
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('role')
+          .eq('id', user?.id ?? '')
+          .maybeSingle();
+        const role = profile?.role ?? 'member';
+        if (role === 'owner' || role === 'admin') {
+          window.location.href = '/admin';
+        } else {
+          window.location.href = draftQuery ? `/?${draftQuery}` : '/';
+        }
       }
     } catch (error) {
       message = error instanceof Error ? error.message : 'Login failed';
@@ -95,9 +109,11 @@
   <div class="w-full max-w-sm space-y-8">
     
     <div class="text-center">
-      <h1 class="text-3xl font-black italic uppercase tracking-tighter">Join Kickback</h1>
+      <h1 class="text-3xl font-black italic uppercase tracking-tighter">
+        {mode === 'signin' ? 'Welcome Back' : 'Join Kickback'}
+      </h1>
       {#if pendingKickback}
-        <p class="text-green-500 font-bold mt-2">Sign up to claim your ${pendingKickback} kickback</p>
+        <p class="text-orange-500 font-bold mt-2">Sign up to claim your ${pendingKickback} kickback</p>
       {:else}
         <p class="text-zinc-500 mt-2">Start earning 5% on every round.</p>
       {/if}
@@ -122,16 +138,27 @@
         disabled={loading || !email || !password}
         class="w-full bg-white text-black font-black py-4 rounded-2xl uppercase tracking-tight active:scale-95 transition-all disabled:opacity-50"
       >
-        {loading ? 'Processing...' : 'Continue'}
+        {loading ? 'Processing...' : mode === 'signin' ? 'Sign In' : 'Continue'}
       </button>
 
       {#if message}
         <p transition:fade class="text-center text-xs font-bold text-zinc-400 uppercase">{message}</p>
       {/if}
     </form>
+
+    {#if mode === 'signup'}
+      <button type="button" on:click={() => { mode = 'signin'; message = ''; }} class="w-full text-zinc-600 text-xs font-bold uppercase tracking-widest">
+        Already have an account? Sign in
+      </button>
+    {:else}
+      <button type="button" on:click={() => { mode = 'signup'; message = ''; }} class="w-full text-zinc-600 text-xs font-bold uppercase tracking-widest">
+        New here? Join Kickback
+      </button>
+    {/if}
     
     <button on:click={() => window.history.back()} class="w-full text-zinc-600 text-xs font-bold uppercase tracking-widest">
       Go Back
     </button>
   </div>
 </main>
+

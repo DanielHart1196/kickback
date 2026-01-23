@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import type { Session } from '@supabase/supabase-js';
   import { supabase } from '$lib/supabase';
   import { MAX_BILL } from '$lib/claims/constants';
@@ -16,7 +16,12 @@
     getDraftFromStorage,
     getDraftFromUrl
   } from '$lib/claims/draft';
-  import { fetchClaimsForUser, insertClaim, upsertProfileLast4 } from '$lib/claims/repository';
+  import {
+    deleteClaim,
+    fetchClaimsForUser,
+    insertClaim,
+    upsertProfileLast4
+  } from '$lib/claims/repository';
   import type { Claim } from '$lib/claims/types';
   import Dashboard from '$lib/components/Dashboard.svelte';
   import ClaimForm from '$lib/components/ClaimForm.svelte';
@@ -27,8 +32,10 @@
   let venue = '';
   let referrer = '';
   let purchaseTime = '';
+  let maxPurchaseTime = '';
   let status: 'idle' | 'loading' | 'success' | 'error' = 'idle';
   let errorMessage = '';
+  let successMessage = '';
 
   let showReferModal = false;
 
@@ -37,9 +44,11 @@
   let isReferrerLocked = false;
   let isVenueLocked = false;
   let showForm = false;
+  let referrerLockedByVenue = false;
 
   let claims: Claim[] = [];
   let totalPending = 0;
+  let highlightClaimKey: string | null = null;
 
   let amount: number | null = null;
   let amountInput = '';
@@ -56,9 +65,21 @@
   $: canSubmit = Boolean(
     (amount ?? 0) > 0 &&
     venue.trim().length > 0 &&
+    referrer.trim().length > 0 &&
     last4.length === 4 &&
     purchaseTime.trim().length > 0
   );
+  $: if (session && venue.trim()) {
+    const lockedReferrer = getVenueLockedReferrer(venue);
+    if (lockedReferrer) {
+      if (referrer !== lockedReferrer) referrer = lockedReferrer;
+      isReferrerLocked = true;
+      referrerLockedByVenue = true;
+    } else if (referrerLockedByVenue) {
+      isReferrerLocked = false;
+      referrerLockedByVenue = false;
+    }
+  }
 
   async function fetchDashboardData() {
     if (!session) return;
@@ -93,10 +114,16 @@
   }
 
   onMount(async () => {
-    const now = new Date();
-    purchaseTime = new Date(now.getTime() - now.getTimezoneOffset() * 60000)
-      .toISOString()
-      .slice(0, 16);
+    showReferModal = false;
+    showGuestWarning = false;
+    if (typeof document !== 'undefined') {
+      document.body.style.overflow = 'auto';
+      document.documentElement.style.overflow = 'auto';
+    }
+
+    const localNow = getLocalNowInputValue();
+    purchaseTime = localNow;
+    maxPurchaseTime = localNow;
 
     const { data } = await supabase.auth.getSession();
     session = data.session;
@@ -116,9 +143,18 @@
 
       clearDraftFromStorage(localStorage);
 
-      if (session && (amount ?? 0) > 0) {
-        await submitClaim();
-        window.history.replaceState({}, '', '/');
+      if (session) {
+        await tick();
+        if (canSubmit) {
+          const submitted = await submitClaim();
+          if (submitted) {
+            window.history.replaceState({}, '', '/');
+          } else {
+            showForm = true;
+          }
+        } else {
+          showForm = true;
+        }
       }
     }
 
@@ -136,11 +172,11 @@
     }
   });
 
-  async function submitClaim() {
+  async function submitClaim(): Promise<boolean> {
     if (!amount || amount <= 0) {
       status = 'error';
       errorMessage = 'Please enter a valid amount';
-      return;
+      return false;
     }
 
     const cleanAmount = Number(amount.toFixed(2));
@@ -148,7 +184,28 @@
     if (last4.length !== 4) {
       status = 'error';
       errorMessage = 'Please enter 4 digits';
-      return;
+      return false;
+    }
+    if (!referrer.trim()) {
+      status = 'error';
+      errorMessage = 'Please enter a referrer';
+      return false;
+    }
+    if (!purchaseTime.trim()) {
+      status = 'error';
+      errorMessage = 'Please enter a purchase time';
+      return false;
+    }
+    const purchaseDate = new Date(purchaseTime);
+    if (Number.isNaN(purchaseDate.getTime())) {
+      status = 'error';
+      errorMessage = 'Please enter a valid purchase time';
+      return false;
+    }
+    if (purchaseDate.getTime() > Date.now() + 60000) {
+      status = 'error';
+      errorMessage = 'Purchase time cannot be in the future';
+      return false;
     }
 
     status = 'loading';
@@ -159,41 +216,74 @@
         await upsertProfileLast4(user.id, last4);
       }
 
+      const createdAt = new Date().toISOString();
       await insertClaim({
         venue,
         referrer: referrer || null,
         amount: cleanAmount,
         purchased_at: new Date(purchaseTime).toISOString(),
         last_4: last4,
-        created_at: new Date().toISOString(),
+        created_at: createdAt,
         submitter_id: session?.user?.id ?? null
       });
 
+      successMessage = `Submitted ${venue} claim for $${cleanAmount.toFixed(2)}.`;
       status = 'success';
       amountInput = '';
       if (!session) {
         last4 = '';
       }
-      if (session) await fetchDashboardData();
-      setTimeout(() => {
-        if (status === 'success') {
-          status = 'idle';
-          if (session) showForm = false;
+      if (session) {
+        showForm = false;
+        status = 'idle';
+        successMessage = '';
+        highlightClaimKey = null;
+        await tick();
+        await fetchDashboardData();
+        highlightClaimKey = claims[0]?.id ?? claims[0]?.created_at ?? null;
+        if (highlightClaimKey) {
+          setTimeout(() => {
+            if (highlightClaimKey) highlightClaimKey = null;
+          }, 2000);
         }
-      }, 2000);
+        return true;
+      } else {
+        setTimeout(() => {
+          if (status === 'success') status = 'idle';
+        }, 2000);
+        return true;
+      }
     } catch (e: any) {
       status = 'error';
       errorMessage = e.message || 'Connection failed';
       console.error(e);
+      return false;
     }
   }
 
   async function handleSignOut() {
-    const { error } = await supabase.auth.signOut();
-    if (error) {
-      console.error('Error logging out:', error.message);
-    } else {
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) {
+        console.error('Error logging out:', error.message);
+      }
+    } finally {
       window.location.href = '/login';
+    }
+  }
+
+  async function handleDeleteClaim(claim: Claim) {
+    if (!claim.id) return;
+    const confirmed = window.confirm('Remove this claim? This cannot be undone.');
+    if (!confirmed) return;
+
+    try {
+      await deleteClaim(claim.id);
+      await fetchDashboardData();
+    } catch (error) {
+      console.error('Error deleting claim:', error);
+      status = 'error';
+      errorMessage = 'Failed to remove claim';
     }
   }
 
@@ -218,6 +308,48 @@
     const normalized = normalizeAmountInput(value, MAX_BILL);
     amountInput = normalized;
   }
+
+  function getVenueLockedReferrer(venueName: string): string | null {
+    const normalizedVenue = venueName.trim().toLowerCase();
+    if (!normalizedVenue) return null;
+
+    let earliestTime = Number.POSITIVE_INFINITY;
+    let ref: string | null = null;
+
+    for (const claim of claims) {
+      if (claim.venue.trim().toLowerCase() !== normalizedVenue) continue;
+      if (!claim.referrer) continue;
+      const time = new Date(claim.purchased_at).getTime();
+      if (Number.isNaN(time)) continue;
+      if (time < earliestTime) {
+        earliestTime = time;
+        ref = claim.referrer;
+      }
+    }
+
+    return ref;
+  }
+
+  function getLocalNowInputValue(): string {
+    const now = new Date();
+    return new Date(now.getTime() - now.getTimezoneOffset() * 60000)
+      .toISOString()
+      .slice(0, 16);
+  }
+
+  function startNewClaim() {
+    const latestVenue = claims[0]?.venue ?? '';
+    const lockedReferrer = latestVenue ? getVenueLockedReferrer(latestVenue) : null;
+    venue = latestVenue;
+    referrer = lockedReferrer ?? '';
+    isVenueLocked = false;
+    isReferrerLocked = Boolean(lockedReferrer);
+    referrerLockedByVenue = Boolean(lockedReferrer);
+    amountInput = '';
+    purchaseTime = getLocalNowInputValue();
+    maxPurchaseTime = purchaseTime;
+    showForm = true;
+  }
 </script>
 
 <main class="min-h-screen bg-zinc-950 text-white flex flex-col items-center p-6">
@@ -225,8 +357,10 @@
     <Dashboard
       {claims}
       {totalPending}
+      {highlightClaimKey}
       userEmail={session?.user?.email ?? ''}
-      onNewClaim={() => showForm = true}
+      onNewClaim={startNewClaim}
+      onDeleteClaim={handleDeleteClaim}
       onLogout={handleSignOut}
       onOpenRefer={() => showReferModal = true}
     />
@@ -236,6 +370,7 @@
       showBack={Boolean(session)}
       {status}
       {errorMessage}
+      {successMessage}
       {amount}
       {canSubmit}
       bind:amountInput
@@ -245,6 +380,7 @@
       bind:referrer
       bind:purchaseTime
       bind:last4
+      {maxPurchaseTime}
       {isVenueLocked}
       {isReferrerLocked}
       loginUrl={loginUrl}
@@ -256,7 +392,7 @@
       onLogout={handleSignOut}
     />
     {#if showGuestWarning}
-      <GuestWarningModal kickback={kickback} onProceed={proceedAsGuest} />
+      <GuestWarningModal kickback={kickback} {loginUrl} onProceed={proceedAsGuest} />
     {/if}
   {/if}
 

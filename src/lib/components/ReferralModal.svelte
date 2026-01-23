@@ -111,7 +111,7 @@
         <select 
           id="ref-venue"
           bind:value={referralVenue}
-          class="w-full bg-black border border-zinc-800 text-white p-4 rounded-2xl text-xs font-bold uppercase tracking-widest outline-none focus:ring-2 focus:ring-green-500 transition-all appearance-none text-center"
+          class="w-full bg-black border border-zinc-800 text-white p-4 rounded-2xl text-xs font-bold uppercase tracking-widest outline-none focus:ring-2 focus:ring-orange-500 transition-all appearance-none text-center"
         >
           <option value="">General Invite</option>
           {#each registeredBars as bar}
@@ -137,7 +137,7 @@
 
         <button 
           on:click={shareLink}
-          class="w-full bg-green-500 text-black font-black py-5 rounded-[2rem] text-sm uppercase tracking-widest active:scale-95 transition-all shadow-xl shadow-green-500/20"
+          class="w-full bg-orange-500 text-black font-black py-5 rounded-[2rem] text-sm uppercase tracking-widest active:scale-95 transition-all shadow-xl shadow-orange-500/20"
         >
           Share My {referralVenue ? referralVenue : ''} Link
         </button>
@@ -145,3 +145,4 @@
     </div>
   </div>  
 </div>
+

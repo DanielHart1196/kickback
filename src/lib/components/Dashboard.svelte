@@ -1,13 +1,20 @@
 <script lang="ts">
   import { fade, fly, slide } from 'svelte/transition';
+  import { flip } from 'svelte/animate';
   import { GOAL_DAYS } from '$lib/claims/constants';
-  import { calculateKickback, getDaysAtVenue } from '$lib/claims/utils';
+  import {
+    calculateKickback,
+    calculateTotalKickbackAtVenue,
+    getDaysAtVenue
+  } from '$lib/claims/utils';
   import type { Claim } from '$lib/claims/types';
 
   export let claims: Claim[] = [];
   export let totalPending = 0;
   export let userEmail = '';
+  export let highlightClaimKey: string | null = null;
   export let onNewClaim: () => void = () => {};
+  export let onDeleteClaim: (claim: Claim) => void = () => {};
   export let onLogout: () => void = () => {};
   export let onOpenRefer: () => void = () => {};
 </script>
@@ -21,7 +28,7 @@
   <div class="bg-zinc-900 border border-zinc-800 p-8 rounded-[2.5rem] text-center shadow-2xl">
     <p class="text-zinc-500 text-xs font-bold uppercase tracking-widest mb-2">Pending Balance</p>
     <div class="flex items-center justify-center gap-3">
-      <h2 class="text-6xl font-black text-green-500">${totalPending.toFixed(2)}</h2>
+      <h2 class="text-6xl font-black text-orange-500">${totalPending.toFixed(2)}</h2>
     </div>
   </div>
 
@@ -34,35 +41,51 @@
 
   <div class="space-y-4 mt-12">
     <div class="flex justify-between items-end border-b border-zinc-900 pb-4">
-      <h3 class="text-xs font-black uppercase tracking-[0.3em] text-zinc-500">History</h3>
-      <p class="text-xs font-bold text-zinc-600 uppercase">{claims.length} Claims</p>
+      <h3 class="text-base font-black uppercase tracking-[0.18em] text-zinc-400">History</h3>
+      <p class="text-sm font-bold text-zinc-500 uppercase">{claims.length} Claims</p>
     </div>
 
-    {#each claims as claim}
-      <details class="group bg-zinc-900/20 border border-zinc-900 rounded-2xl overflow-hidden mb-4">
+    {#each claims as claim (claim.id ?? claim.created_at)}
+      <details
+        class={`group bg-zinc-900/20 border border-zinc-900 rounded-2xl overflow-hidden mb-4 ${
+          (claim.id ?? claim.created_at) === highlightClaimKey
+            ? 'ring-2 ring-orange-500/60 shadow-lg shadow-orange-500/20'
+            : ''
+        }`}
+        in:fade={{ duration: 400 }}
+        animate:flip={{ duration: 300 }}
+      >
         <summary class="list-none p-5 flex justify-between items-center cursor-pointer active:bg-zinc-900/50">
           <div>
-            <p class="text-xl font-black text-white">+${calculateKickback(claim.amount).toFixed(2)}</p>
-              <p class="text-xs text-zinc-500 font-bold uppercase tracking-tighter">
-                {claim.venue} - {new Date(claim.purchased_at).toLocaleDateString()} {new Date(claim.purchased_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-              </p>
+            <p class="text-xl font-black text-orange-500">+${calculateKickback(claim.amount).toFixed(2)}</p>
+              <div class="flex items-center justify-between gap-3 text-sm font-bold">
+                <p class="text-zinc-300 uppercase tracking-tight">{claim.venue}</p>
+                <p class="text-zinc-500">
+                  {new Date(claim.purchased_at).toLocaleDateString()} {new Date(claim.purchased_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </p>
+              </div>
           </div>
-          <div class="text-xs font-black text-zinc-700 group-open:rotate-180 transition-transform">v</div>
+          <div class="text-sm font-black text-zinc-600 group-open:rotate-180 transition-transform">v</div>
         </summary>
 
         <div class="px-5 pb-6 pt-2 space-y-6" transition:slide>
           
           <div class="space-y-3">
-            <div class="flex justify-between items-end">
-              <p class="text-[10px] font-black uppercase text-zinc-500 tracking-widest">Trial Progress at {claim.venue}</p>
-                <p class="text-xs font-black text-white">
-                  {GOAL_DAYS - getDaysAtVenue(claims, claim.venue)} DAYS LEFT
-                </p>
-              </div>
-            
+            <div class="flex flex-col gap-1 text-sm font-black uppercase text-zinc-400 tracking-widest md:flex-row md:items-center md:justify-between">
+              <p>Total kickback at {claim.venue}</p>
+              <p class="text-base font-black text-orange-500">
+                ${calculateTotalKickbackAtVenue(claims, claim.venue).toFixed(2)}
+              </p>
+            </div>
+            <div class="flex items-center justify-between">
+              <p class="text-sm font-black uppercase text-zinc-400 tracking-widest">30-day progress</p>
+              <p class="text-sm font-black text-white">
+                {GOAL_DAYS - getDaysAtVenue(claims, claim.venue)} DAYS LEFT
+              </p>
+            </div>
             <div class="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden">
-              <div 
-                class="h-full bg-green-500 transition-all duration-1000" 
+              <div
+                class="h-full bg-orange-500 transition-all duration-1000"
                 style="width: {(getDaysAtVenue(claims, claim.venue) / GOAL_DAYS) * 100}%"
               ></div>
             </div>
@@ -70,20 +93,30 @@
 
           <div class="grid grid-cols-2 gap-4 pt-4 border-t border-zinc-800/50">
             <div>
-              <p class="text-[9px] font-black text-zinc-500 uppercase mb-1">Total Bill</p>
-              <p class="text-xs font-bold text-white">${claim.amount.toFixed(2)}</p>
+              <p class="text-xs font-black text-zinc-400 uppercase mb-1">Total Bill</p>
+              <p class="text-sm font-bold text-white">${claim.amount.toFixed(2)}</p>
             </div>
             <div>
-              <p class="text-[9px] font-black text-zinc-500 uppercase mb-1">Referrer</p>
-              <p class="text-xs font-bold text-green-500 uppercase">{claim.referrer || 'Direct'}</p>
+              <p class="text-xs font-black text-zinc-400 uppercase mb-1">Referrer</p>
+              <p class="text-sm font-bold uppercase">
+                <span class="text-white">{claim.referrer || 'Direct'}</span>
+                <span class="text-orange-500"> +${calculateKickback(claim.amount).toFixed(2)}</span>
+              </p>
             </div>
             <div>
-              <p class="text-[9px] font-black text-zinc-500 uppercase mb-1">Card Last 4</p>
-              <p class="text-xs font-bold text-white">**** {claim.last_4}</p>
+              <p class="text-xs font-black text-zinc-400 uppercase mb-1">Card Last 4</p>
+              <p class="text-sm font-bold text-white">**** {claim.last_4}</p>
             </div>
-            <div>
-              <p class="text-[9px] font-black text-zinc-500 uppercase mb-1">Referrer Earned</p>
-              <p class="text-xs font-bold text-white">+${calculateKickback(claim.amount).toFixed(2)}</p>
+            <div class="flex items-end justify-end">
+              {#if claim.id}
+                <button
+                  type="button"
+                  on:click={() => onDeleteClaim(claim)}
+                  class="text-xs font-black uppercase tracking-widest text-red-500 hover:text-red-400 transition-colors"
+                >
+                  Remove
+                </button>
+              {/if}
             </div>
           </div>
         </div>
@@ -114,3 +147,4 @@
     Refer a Friend
   </button>
 </div>
+

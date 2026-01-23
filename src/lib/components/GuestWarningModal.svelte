@@ -2,6 +2,7 @@
   import { fade, fly } from 'svelte/transition';
 
   export let kickback = '0.00';
+  export let loginUrl = '/login';
   export let onProceed: () => void = () => {};
 </script>
 
@@ -23,8 +24,8 @@
 
     <div class="space-y-3">
       <button 
-        on:click={() => window.location.href = '/login'}
-        class="w-full bg-green-500 text-black font-black py-4 rounded-2xl uppercase tracking-tight"
+        on:click={() => window.location.href = loginUrl}
+        class="w-full bg-orange-500 text-black font-black py-4 rounded-2xl uppercase tracking-tight"
       >
         Sign Up & Get My ${kickback}
       </button>
@@ -38,3 +39,4 @@
     </div>
   </div>
 </div>
+

@@ -48,7 +48,7 @@
               {new Date(claim.created_at).toLocaleDateString()} 
               <span class="text-zinc-600 ml-1">{new Date(claim.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
             </td>
-            <td class="p-4 text-right font-mono font-bold text-green-400">
+            <td class="p-4 text-right font-mono font-bold text-orange-400">
               ${Number(claim.amount).toFixed(2)}
             </td>
             <td class="p-4 text-center">
@@ -66,3 +66,4 @@
     </table>
   </div>
 </div>
+

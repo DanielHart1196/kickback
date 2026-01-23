@@ -6,7 +6,7 @@ export async function fetchClaimsForUser(userId: string): Promise<Claim[]> {
     .from('claims')
     .select('*')
     .eq('submitter_id', userId)
-    .order('created_at', { ascending: false });
+    .order('purchased_at', { ascending: false });
 
   if (error) throw error;
   return data ?? [];
@@ -16,7 +16,7 @@ export async function fetchAllClaims(): Promise<Claim[]> {
   const { data, error } = await supabase
     .from('claims')
     .select('*')
-    .order('created_at', { ascending: false });
+    .order('purchased_at', { ascending: false });
 
   if (error) throw error;
   return data ?? [];
@@ -34,5 +34,10 @@ export async function upsertProfileLast4(userId: string, last4: string): Promise
     updated_at: new Date().toISOString()
   });
 
+  if (error) throw error;
+}
+
+export async function deleteClaim(claimId: string): Promise<void> {
+  const { error } = await supabase.from('claims').delete().eq('id', claimId);
   if (error) throw error;
 }

@@ -14,6 +14,15 @@ export function calculateTotalAmount(claims: Claim[]): number {
   return claims.reduce((sum, c) => sum + Number(c.amount || 0), 0);
 }
 
+export function calculateTotalAtVenue(claims: Claim[], venueName: string): number {
+  return claims.reduce((sum, c) => sum + (c.venue === venueName ? Number(c.amount || 0) : 0), 0);
+}
+
+export function calculateTotalKickbackAtVenue(claims: Claim[], venueName: string): number {
+  const totalBills = calculateTotalAtVenue(claims, venueName);
+  return calculateKickback(totalBills);
+}
+
 export function getDaysAtVenue(
   claims: Claim[],
   venueName: string,
