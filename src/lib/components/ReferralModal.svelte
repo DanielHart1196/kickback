@@ -4,15 +4,17 @@
   import QRCode from 'qrcode';
 
   export let userRefCode = 'member';
-  export let registeredBars: string[] = [];
+  export let venues: { id: string; name: string }[] = [];
   export let onClose: () => void = () => {};
 
-  let referralVenue = '';
+  let referralVenueId = '';
+  let referralVenueName = '';
   let qrDataUrl = '';
   let touchStart = 0;
   let currentYOffset = 0;
 
-  $: referralLink = buildReferralLink(userRefCode, referralVenue);
+  $: referralVenueName = venues.find((venue) => venue.id === referralVenueId)?.name ?? '';
+  $: referralLink = buildReferralLink(userRefCode, referralVenueId, referralVenueName);
 
   $: if (referralLink) {
     QRCode.toDataURL(referralLink, { margin: 2, scale: 8, color: { dark: '#000000', light: '#ffffff' } })
@@ -24,10 +26,11 @@
       });
   }
 
-  function buildReferralLink(code: string, venue: string): string {
+  function buildReferralLink(code: string, venueId: string, venueName: string): string {
     const params = new URLSearchParams();
     params.set('ref', code);
-    if (venue) params.set('venue', venue);
+    if (venueId) params.set('venue_id', venueId);
+    if (venueName) params.set('venue', venueName);
     return `https://kkbk.app/?${params.toString()}`;
   }
 
@@ -39,7 +42,7 @@
   async function shareLink() {
     const shareData = {
       title: 'Kickback Pilot',
-      text: `Join me at ${referralVenue || 'Kickback'} and get 5% back on your bill!`,
+      text: `Join me at ${referralVenueName || 'Kickback'} and get 5% back on your bill!`,
       url: referralLink
     };
 
@@ -110,12 +113,12 @@
         <label for="ref-venue" class="block text-[10px] font-black uppercase text-zinc-500 tracking-widest mb-3 px-1 text-center">Refer to a specific bar?</label>
         <select 
           id="ref-venue"
-          bind:value={referralVenue}
+          bind:value={referralVenueId}
           class="w-full bg-black border border-zinc-800 text-white p-4 rounded-2xl text-xs font-bold uppercase tracking-widest outline-none focus:ring-2 focus:ring-orange-500 transition-all appearance-none text-center"
         >
           <option value="">General Invite</option>
-          {#each registeredBars as bar}
-            <option value={bar}>{bar}</option>
+          {#each venues as venue}
+            <option value={venue.id}>{venue.name}</option>
           {/each}
         </select>
       </div>
@@ -139,7 +142,7 @@
           on:click={shareLink}
           class="w-full bg-orange-500 text-black font-black py-5 rounded-[2rem] text-sm uppercase tracking-widest active:scale-95 transition-all shadow-xl shadow-orange-500/20"
         >
-          Share My {referralVenue ? referralVenue : ''} Link
+          Share My {referralVenueName ? referralVenueName : ''} Link
         </button>
       </div>
     </div>

@@ -2,6 +2,7 @@
   import { fade, fly } from 'svelte/transition';
 
   export let kickback = '0.00';
+  export let kickbackRatePercent = '5';
   export let loginUrl = '/login';
   export let onProceed: () => void = () => {};
 </script>
@@ -19,7 +20,7 @@
     <p class="text-zinc-400 text-sm leading-relaxed mb-8">
       By submitting as a guest, your friend gets <span class="text-white font-bold">${kickback}</span>, but you'll receive <span class="text-red-400 font-bold">$0.00</span>. 
       <br/><br/>
-      Join Kickback to keep 5% for yourself!
+      Join Kickback to keep {kickbackRatePercent}% for yourself!
     </p>
 
     <div class="space-y-3">

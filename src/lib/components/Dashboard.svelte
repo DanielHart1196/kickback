@@ -1,22 +1,46 @@
 <script lang="ts">
   import { fade, fly, slide } from 'svelte/transition';
   import { flip } from 'svelte/animate';
-  import { GOAL_DAYS } from '$lib/claims/constants';
-  import {
-    calculateKickback,
-    calculateTotalKickbackAtVenue,
-    getDaysAtVenue
-  } from '$lib/claims/utils';
+  import { GOAL_DAYS, KICKBACK_RATE } from '$lib/claims/constants';
+  import { calculateKickbackWithRate, getDaysAtVenue } from '$lib/claims/utils';
   import type { Claim } from '$lib/claims/types';
+  import type { Venue } from '$lib/venues/types';
 
   export let claims: Claim[] = [];
   export let totalPending = 0;
+  export let venues: Venue[] = [];
   export let userEmail = '';
   export let highlightClaimKey: string | null = null;
   export let onNewClaim: () => void = () => {};
   export let onDeleteClaim: (claim: Claim) => void = () => {};
   export let onLogout: () => void = () => {};
   export let onOpenRefer: () => void = () => {};
+
+  function getVenueRate(claim: Claim): number {
+    if (claim.venue_id) {
+      const venue = venues.find((v) => v.id === claim.venue_id);
+      const rate = venue?.kickback_referrer ?? KICKBACK_RATE * 100;
+      return Number(rate) / 100;
+    }
+    const normalizedName = claim.venue.trim().toLowerCase();
+    const venue = venues.find((v) => v.name.trim().toLowerCase() === normalizedName);
+    const rate = venue?.kickback_referrer ?? KICKBACK_RATE * 100;
+    return Number(rate) / 100;
+  }
+
+  function getClaimRate(claim: Claim): number {
+    const storedRate = claim.kickback_referrer_rate ?? null;
+    if (storedRate != null) return Number(storedRate) / 100;
+    return getVenueRate(claim);
+  }
+
+  function getTotalKickbackAtVenue(venueName: string): number {
+    return claims.reduce((sum, claim) => {
+      if (claim.venue.trim().toLowerCase() !== venueName.trim().toLowerCase()) return sum;
+      const claimRate = getClaimRate(claim) * 100;
+      return sum + calculateKickbackWithRate(Number(claim.amount || 0), Number(claimRate) / 100);
+    }, 0);
+  }
 </script>
 
 <div class="w-full max-w-sm space-y-10" in:fade>
@@ -57,7 +81,9 @@
       >
         <summary class="list-none p-5 flex justify-between items-center cursor-pointer active:bg-zinc-900/50">
           <div>
-            <p class="text-xl font-black text-orange-500">+${calculateKickback(claim.amount).toFixed(2)}</p>
+            <p class="text-xl font-black text-orange-500">
+              +${calculateKickbackWithRate(claim.amount, getClaimRate(claim)).toFixed(2)}
+            </p>
               <div class="flex items-center justify-between gap-3 text-sm font-bold">
                 <p class="text-zinc-300 uppercase tracking-tight">{claim.venue}</p>
                 <p class="text-zinc-500">
@@ -74,7 +100,7 @@
             <div class="flex flex-col gap-1 text-sm font-black uppercase text-zinc-400 tracking-widest md:flex-row md:items-center md:justify-between">
               <p>Total kickback at {claim.venue}</p>
               <p class="text-base font-black text-orange-500">
-                ${calculateTotalKickbackAtVenue(claims, claim.venue).toFixed(2)}
+                ${getTotalKickbackAtVenue(claim.venue).toFixed(2)}
               </p>
             </div>
             <div class="flex items-center justify-between">
@@ -100,7 +126,9 @@
               <p class="text-xs font-black text-zinc-400 uppercase mb-1">Referrer</p>
               <p class="text-sm font-bold uppercase">
                 <span class="text-white">{claim.referrer || 'Direct'}</span>
-                <span class="text-orange-500"> +${calculateKickback(claim.amount).toFixed(2)}</span>
+                <span class="text-orange-500">
+                  +${calculateKickbackWithRate(claim.amount, getClaimRate(claim)).toFixed(2)}
+                </span>
               </p>
             </div>
             <div>

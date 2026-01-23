@@ -17,7 +17,9 @@
   export let maxPurchaseTime = '';
   export let last4 = '';
   export let venue = '';
+  export let venues: { id: string; name: string }[] = [];
   export let referrer = '';
+  export let kickbackRatePercent = '5';
   export let isVenueLocked = false;
   export let isReferrerLocked = false;
   export let loginUrl = '/login';
@@ -80,8 +82,16 @@
             bind:value={venue} 
             readonly={isVenueLocked}
             placeholder="Bar Name"
+            list="venue-options"
+            autocomplete="off"
+            spellcheck="false"
             class="w-full bg-zinc-800 border-none p-4 rounded-2xl text-lg focus:ring-2 focus:ring-white outline-none {isVenueLocked ? 'opacity-50 cursor-not-allowed' : ''}"
           />
+          <datalist id="venue-options">
+            {#each venues as venueOption}
+              <option value={venueOption.name} />
+            {/each}
+          </datalist>
         </div>
 
         <div>
@@ -147,7 +157,7 @@
 
         {#if amount && amount > 0}
           <div transition:slide={{ duration: 300 }} class="flex justify-between items-center px-2 mb-4 text-sm font-bold">
-            <span class="text-zinc-500">REWARD (5%)</span>
+            <span class="text-zinc-500">REWARD ({kickbackRatePercent}%)</span>
             <span class="text-orange-500">+ ${kickback}</span>
           </div>
         {/if}

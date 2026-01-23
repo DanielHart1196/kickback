@@ -3,13 +3,8 @@
   import type { Session } from '@supabase/supabase-js';
   import { supabase } from '$lib/supabase';
   import { MAX_BILL } from '$lib/claims/constants';
-  import {
-    calculateKickback,
-    calculateTotalPending,
-    normalizeAmountInput,
-    normalizeLast4,
-    parseAmount
-  } from '$lib/claims/utils';
+  import { calculateKickbackWithRate, normalizeAmountInput, normalizeLast4, parseAmount } from '$lib/claims/utils';
+  import { KICKBACK_RATE } from '$lib/claims/constants';
   import {
     clearDraftFromStorage,
     draftToQuery,
@@ -23,6 +18,8 @@
     upsertProfileLast4
   } from '$lib/claims/repository';
   import type { Claim } from '$lib/claims/types';
+  import type { Venue } from '$lib/venues/types';
+  import { fetchActiveVenues } from '$lib/venues/repository';
   import Dashboard from '$lib/components/Dashboard.svelte';
   import ClaimForm from '$lib/components/ClaimForm.svelte';
   import GuestWarningModal from '$lib/components/GuestWarningModal.svelte';
@@ -30,6 +27,7 @@
 
   let last4 = '';
   let venue = '';
+  let venueId = '';
   let referrer = '';
   let purchaseTime = '';
   let maxPurchaseTime = '';
@@ -39,7 +37,7 @@
 
   let showReferModal = false;
 
-  const registeredBars = ['The Alibi', 'Electric Cure', 'Neon Palms', 'Dive Bar'];
+  let venues: Venue[] = [];
 
   let isReferrerLocked = false;
   let isVenueLocked = false;
@@ -60,11 +58,14 @@
   $: userRefCode = session?.user?.email?.split('@')[0] || 'member';
   $: last4 = normalizeLast4(last4);
   $: amount = parseAmount(amountInput);
-  $: kickbackAmount = calculateKickback(Number(amountInput || 0));
+  $: venueId = getVenueIdByName(venue);
+  $: kickbackRate = getKickbackRate(venueId, session ? 'referrer' : 'guest');
+  $: kickbackRatePercent = formatRatePercent(kickbackRate);
+  $: kickbackAmount = calculateKickbackWithRate(Number(amountInput || 0), kickbackRate);
   $: kickback = kickbackAmount.toFixed(2);
   $: canSubmit = Boolean(
     (amount ?? 0) > 0 &&
-    venue.trim().length > 0 &&
+    venueId.length > 0 &&
     referrer.trim().length > 0 &&
     last4.length === 4 &&
     purchaseTime.trim().length > 0
@@ -86,9 +87,18 @@
 
     try {
       claims = await fetchClaimsForUser(session.user.id);
-      totalPending = calculateTotalPending(claims);
+      totalPending = calculateTotalPendingWithRates(claims);
     } catch (error) {
       console.error('Error fetching claims:', error);
+    }
+  }
+
+  async function fetchVenues() {
+    try {
+      venues = await fetchActiveVenues();
+    } catch (error) {
+      console.error('Error fetching venues:', error);
+      venues = [];
     }
   }
 
@@ -125,6 +135,8 @@
     purchaseTime = localNow;
     maxPurchaseTime = localNow;
 
+    await fetchVenues();
+
     const { data } = await supabase.auth.getSession();
     session = data.session;
 
@@ -134,12 +146,12 @@
 
     if (draft) {
       amountInput = draft.amount ?? '';
-      venue = draft.venue || '';
+      venue = draft.venueId ? getVenueNameById(draft.venueId) || draft.venue || '' : draft.venue || '';
       referrer = draft.ref || '';
       last4 = draft.last4 || '';
 
       isReferrerLocked = Boolean(referrer);
-      isVenueLocked = Boolean(venue);
+      isVenueLocked = Boolean(getVenueIdByName(venue));
 
       clearDraftFromStorage(localStorage);
 
@@ -191,6 +203,11 @@
       errorMessage = 'Please enter a referrer';
       return false;
     }
+    if (!venueId) {
+      status = 'error';
+      errorMessage = 'Please select a valid venue';
+      return false;
+    }
     if (!purchaseTime.trim()) {
       status = 'error';
       errorMessage = 'Please enter a purchase time';
@@ -217,10 +234,21 @@
       }
 
       const createdAt = new Date().toISOString();
+      const venueName = getVenueNameById(venueId);
+      if (!venueName) {
+        status = 'error';
+        errorMessage = 'Please select a valid venue';
+        return false;
+      }
+
+      const rates = getVenueRates(venueId);
       await insertClaim({
-        venue,
+        venue: venueName,
+        venue_id: venueId,
         referrer: referrer || null,
         amount: cleanAmount,
+        kickback_guest_rate: rates.guestRate,
+        kickback_referrer_rate: rates.referrerRate,
         purchased_at: new Date(purchaseTime).toISOString(),
         last_4: last4,
         created_at: createdAt,
@@ -290,23 +318,81 @@
   function buildLoginUrl(
     draftAmount: number | null,
     draftVenue: string,
+    draftVenueId: string,
     draftReferrer: string,
     draftLast4: string
   ) {
     const query = draftToQuery({
       amount: draftAmount ? draftAmount.toString() : '',
       venue: draftVenue,
+      venueId: draftVenueId,
       ref: draftReferrer,
       last4: draftLast4
     });
     return query ? `/login?${query}` : '/login';
   }
 
-  $: loginUrl = buildLoginUrl(amount, venue, referrer, last4);
+  $: loginUrl = buildLoginUrl(amount, venue, venueId, referrer, last4);
 
   function hydrateAmountInput(value: string) {
     const normalized = normalizeAmountInput(value, MAX_BILL);
     amountInput = normalized;
+  }
+
+  function getVenueIdByName(name: string): string {
+    const normalizedName = name.trim().toLowerCase();
+    if (!normalizedName) return '';
+    const match = venues.find((v) => v.name.trim().toLowerCase() === normalizedName);
+    return match?.id ?? '';
+  }
+
+  function getVenueNameById(id: string): string {
+    if (!id) return '';
+    const match = venues.find((v) => v.id === id);
+    return match?.name ?? '';
+  }
+
+  function getVenueRates(id: string): { guestRate: number; referrerRate: number } {
+    const match = venues.find((v) => v.id === id);
+    const fallback = KICKBACK_RATE * 100;
+    const guestRate = match?.kickback_guest ?? fallback;
+    const referrerRate = match?.kickback_referrer ?? fallback;
+    return {
+      guestRate: Number(guestRate),
+      referrerRate: Number(referrerRate)
+    };
+  }
+
+  function getKickbackRate(id: string, kind: 'guest' | 'referrer'): number {
+    const rates = getVenueRates(id);
+    const selected = kind === 'guest' ? rates.guestRate : rates.referrerRate;
+    return Number(selected) / 100;
+  }
+
+  function formatRatePercent(rate: number): string {
+    const percent = (rate * 100).toFixed(1);
+    return percent.endsWith('.0') ? percent.slice(0, -2) : percent;
+  }
+
+  function calculateTotalPendingWithRates(claimList: Claim[]): number {
+    return claimList.reduce((sum, claim) => {
+      const savedRate = claim.kickback_referrer_rate ?? null;
+      if (savedRate != null) {
+        return sum + calculateKickbackWithRate(Number(claim.amount || 0), Number(savedRate) / 100);
+      }
+
+      if (claim.venue_id) {
+        const venueMatch = venues.find((venueItem) => venueItem.id === claim.venue_id);
+        const rate = venueMatch?.kickback_referrer ?? 5;
+        return sum + calculateKickbackWithRate(Number(claim.amount || 0), Number(rate) / 100);
+      }
+
+      const venueMatch = venues.find(
+        (venueItem) => venueItem.name.trim().toLowerCase() === claim.venue.trim().toLowerCase()
+      );
+      const rate = venueMatch?.kickback_referrer ?? 5;
+      return sum + calculateKickbackWithRate(Number(claim.amount || 0), Number(rate) / 100);
+    }, 0);
   }
 
   function getVenueLockedReferrer(venueName: string): string | null {
@@ -339,8 +425,9 @@
 
   function startNewClaim() {
     const latestVenue = claims[0]?.venue ?? '';
-    const lockedReferrer = latestVenue ? getVenueLockedReferrer(latestVenue) : null;
-    venue = latestVenue;
+    const validVenue = getVenueIdByName(latestVenue) ? latestVenue : '';
+    const lockedReferrer = validVenue ? getVenueLockedReferrer(validVenue) : null;
+    venue = validVenue;
     referrer = lockedReferrer ?? '';
     isVenueLocked = false;
     isReferrerLocked = Boolean(lockedReferrer);
@@ -358,6 +445,7 @@
       {claims}
       {totalPending}
       {highlightClaimKey}
+      {venues}
       userEmail={session?.user?.email ?? ''}
       onNewClaim={startNewClaim}
       onDeleteClaim={handleDeleteClaim}
@@ -373,6 +461,8 @@
       {successMessage}
       {amount}
       {canSubmit}
+      {venues}
+      {kickbackRatePercent}
       bind:amountInput
       maxBill={MAX_BILL}
       {kickback}
@@ -392,13 +482,18 @@
       onLogout={handleSignOut}
     />
     {#if showGuestWarning}
-      <GuestWarningModal kickback={kickback} {loginUrl} onProceed={proceedAsGuest} />
+      <GuestWarningModal
+        kickback={kickback}
+        {kickbackRatePercent}
+        {loginUrl}
+        onProceed={proceedAsGuest}
+      />
     {/if}
   {/if}
 
   {#if showReferModal}
     <ReferralModal
-      {registeredBars}
+      {venues}
       userRefCode={userRefCode}
       onClose={() => showReferModal = false}
     />

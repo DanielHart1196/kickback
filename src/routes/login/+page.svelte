@@ -1,6 +1,9 @@
 <script lang="ts">
   import { supabase } from '$lib/supabase';
   import { onMount } from 'svelte';
+  import { fetchActiveVenues } from '$lib/venues/repository';
+  import { calculateKickbackWithRate } from '$lib/claims/utils';
+  import { KICKBACK_RATE } from '$lib/claims/constants';
   import { fade } from 'svelte/transition';
   import {
     buildDraftFromParams,
@@ -16,12 +19,32 @@
   let message = '';
   let pendingKickback: string | null = null;
   let mode: 'signup' | 'signin' = 'signup';
+  let venueRates: { id: string; name: string; kickback_guest?: number | null }[] = [];
 
-  onMount(() => {
+  onMount(async () => {
+    try {
+      venueRates = await fetchActiveVenues();
+    } catch (error) {
+      console.error('Error loading venues:', error);
+      venueRates = [];
+    }
+
     const draft = getDraftFromUrl(window.location.search) ?? getDraftFromStorage(localStorage);
     const amountValue = Number(draft?.amount ?? '');
+    const venueId = draft?.venueId ?? '';
+    const venueName = draft?.venue ?? '';
+    const rateFromVenue =
+      venueRates.find((venue) => venue.id === venueId)?.kickback_guest ??
+      venueRates.find(
+        (venue) => venue.name.trim().toLowerCase() === venueName.trim().toLowerCase()
+      )?.kickback_guest ??
+      KICKBACK_RATE * 100;
+    const rate = Number(rateFromVenue) / 100;
+
     pendingKickback =
-      Number.isFinite(amountValue) && amountValue > 0 ? (amountValue * 0.05).toFixed(2) : null;
+      Number.isFinite(amountValue) && amountValue > 0
+        ? calculateKickbackWithRate(amountValue, rate).toFixed(2)
+        : null;
   });
 
   async function handleAuth() {

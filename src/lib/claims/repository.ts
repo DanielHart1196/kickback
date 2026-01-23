@@ -22,6 +22,17 @@ export async function fetchAllClaims(): Promise<Claim[]> {
   return data ?? [];
 }
 
+export async function fetchClaimsForVenueId(venueId: string): Promise<Claim[]> {
+  const { data, error } = await supabase
+    .from('claims')
+    .select('*')
+    .eq('venue_id', venueId)
+    .order('purchased_at', { ascending: false });
+
+  if (error) throw error;
+  return data ?? [];
+}
+
 export async function insertClaim(claim: ClaimInsert): Promise<void> {
   const { error } = await supabase.from('claims').insert([claim]);
   if (error) throw error;

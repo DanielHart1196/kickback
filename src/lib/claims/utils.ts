@@ -5,6 +5,10 @@ export function calculateKickback(amount: number): number {
   return Number((amount * KICKBACK_RATE).toFixed(2));
 }
 
+export function calculateKickbackWithRate(amount: number, rate: number): number {
+  return Number((amount * rate).toFixed(2));
+}
+
 export function calculateTotalPending(claims: Claim[]): number {
   const totalBills = claims.reduce((sum, c) => sum + (c.amount || 0), 0);
   return calculateKickback(totalBills);
