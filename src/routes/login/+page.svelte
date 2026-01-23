@@ -34,54 +34,59 @@
 
     saveDraftToStorage(localStorage, draft);
 
-    // 2. Try to sign in
-    const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+    try {
+      // 2. Try to sign in
+      const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({ email, password });
 
-    let user = signInData?.user ?? null;
-    let session = signInData?.session ?? null;
+      let user = signInData?.user ?? null;
+      let session = signInData?.session ?? null;
 
-    if (signInError) {
-      message = signInError.message;
-      // 3. Try to sign up if login fails
-      const { data: signUpData, error: signUpError } = await supabase.auth.signUp({ 
-        email, 
-        password,
-        options: {
-          // IMPORTANT: This tells Supabase where to send them after email confirmation
-          emailRedirectTo: redirectUrl
+      if (signInError) {
+        message = signInError.message;
+        // 3. Try to sign up if login fails
+        const { data: signUpData, error: signUpError } = await supabase.auth.signUp({ 
+          email, 
+          password,
+          options: {
+            // IMPORTANT: This tells Supabase where to send them after email confirmation
+            emailRedirectTo: redirectUrl
+          }
+        });
+        
+        if (signUpError) {
+          message = signUpError.message;
+          return;
         }
-      });
-      
-      if (signUpError) {
-        message = signUpError.message;
-        loading = false;
-        return;
+        user = signUpData?.user ?? null;
+        session = signUpData?.session ?? null;
+        message = "Check your email to confirm!";
       }
-      user = signUpData?.user ?? null;
-      session = signUpData?.session ?? null;
-      message = "Check your email to confirm!";
-    }
 
-    // 4. Ensure session is persisted, then sync profile if user exists
-    if (session) {
-      await supabase.auth.setSession({
-        access_token: session.access_token,
-        refresh_token: session.refresh_token
-      });
-    }
+      // 4. Ensure session is persisted, then sync profile if user exists
+      if (session) {
+        await supabase.auth.setSession({
+          access_token: session.access_token,
+          refresh_token: session.refresh_token
+        });
+      }
 
-    if (user) {
-      const profilePayload: { id: string; updated_at: string; last_4?: string } = {
-        id: user.id,
-        updated_at: new Date().toISOString()
-      };
-      if (draft.last4) profilePayload.last_4 = draft.last4;
-      await supabase.from('profiles').upsert(profilePayload);
-    }
+      if (user) {
+        const profilePayload: { id: string; updated_at: string; last_4?: string } = {
+          id: user.id,
+          updated_at: new Date().toISOString()
+        };
+        if (draft.last4) profilePayload.last_4 = draft.last4;
+        await supabase.from('profiles').upsert(profilePayload);
+      }
 
-    // 5. Final Redirect (only when session is established)
-    if (session) {
-      window.location.href = draftQuery ? `/?${draftQuery}` : '/';
+      // 5. Final Redirect (only when session is established)
+      if (session) {
+        window.location.href = draftQuery ? `/?${draftQuery}` : '/';
+      }
+    } catch (error) {
+      message = error instanceof Error ? error.message : 'Login failed';
+    } finally {
+      loading = false;
     }
   }
 </script>
