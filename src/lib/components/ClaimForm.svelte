@@ -31,6 +31,9 @@
   export let onAmountHydrate: (value: string) => void = () => {};
 
   let amountField: HTMLInputElement | null = null;
+  let venueDirty = false;
+  let referrerDirty = false;
+  let last4Dirty = false;
 
   onMount(() => {
     if (amountField && amountField.value && !amountInput) {
@@ -88,6 +91,7 @@
             list="venue-options"
             autocomplete="off"
             spellcheck="false"
+            on:blur={() => venueDirty = true}
             class="w-full bg-zinc-800 border-none p-4 rounded-2xl text-lg focus:ring-2 focus:ring-white outline-none {isVenueLocked ? 'opacity-50 cursor-not-allowed' : ''}"
           />
           <datalist id="venue-options">
@@ -95,6 +99,9 @@
               <option value={venueOption.name} />
             {/each}
           </datalist>
+          {#if venueDirty && !venue.trim()}
+            <p class="mt-2 text-[11px] font-bold uppercase tracking-widest text-orange-500/70">Select a venue</p>
+          {/if}
         </div>
 
         <div>
@@ -105,8 +112,12 @@
             bind:value={referrer} 
             readonly={isReferrerLocked}
             placeholder="Who sent you?"
+            on:blur={() => referrerDirty = true}
             class="w-full bg-zinc-800 border-none p-4 rounded-2xl text-lg focus:ring-2 focus:ring-white outline-none {isReferrerLocked ? 'opacity-50 cursor-not-allowed' : ''}"
           />
+          {#if referrerDirty && !referrer.trim()}
+            <p class="mt-2 text-[11px] font-bold uppercase tracking-widest text-orange-500/70">Referrer required</p>
+          {/if}
         </div>
 
         <div>
@@ -154,8 +165,12 @@
             bind:value={last4} 
             placeholder="1234"
             maxlength="4"
+            on:blur={() => last4Dirty = true}
             class="w-full bg-zinc-800 border-none p-4 rounded-2xl text-xl font-medium focus:ring-2 focus:ring-white transition-all outline-none"
           />
+          {#if last4Dirty && last4 && last4.length < 4}
+            <p class="mt-2 text-[11px] font-bold uppercase tracking-widest text-orange-500/70">Enter 4 digits</p>
+          {/if}
         </div>
 
         {#if amount && amount > 0}
@@ -165,12 +180,12 @@
           </div>
         {/if}
 
-        <div class="space-y-4">
+        <div class="space-y-4 sticky bottom-4 z-20 bg-zinc-950/80 backdrop-blur-xl p-4 rounded-3xl border border-zinc-800 sm:static sm:bg-transparent sm:p-0 sm:border-0">
           {#if session}
             <button 
               on:click={onSubmit}
               disabled={status === 'loading' || !canSubmit}
-              class="w-full bg-orange-500 text-black font-black py-4 rounded-2xl text-lg active:scale-95 transition-all disabled:opacity-50"
+              class="w-full bg-orange-500 text-black font-black py-5 rounded-2xl text-lg active:scale-95 transition-all disabled:opacity-50"
               class:opacity-50={!canSubmit || status === 'loading'}
               class:cursor-not-allowed={!canSubmit || status === 'loading'}
             >
@@ -180,14 +195,14 @@
             <button 
               on:click={() => window.location.href = loginUrl}
               disabled={status === 'loading' || !canSubmit}
-              class="w-full bg-white text-black font-black py-4 rounded-2xl text-lg active:scale-95 transition-all shadow-xl shadow-white/5"
+              class="w-full bg-white text-black font-black py-5 rounded-2xl text-lg active:scale-95 transition-all shadow-xl shadow-white/5"
               class:opacity-50={!canSubmit || status === 'loading'}
               class:cursor-not-allowed={!canSubmit || status === 'loading'}
             >
               SIGN UP & CLAIM ${kickback}
             </button>
 
-            <button on:click={onConfirmGuest} type="button" class="w-full py-2 text-zinc-500 font-bold text-xs uppercase tracking-[0.2em]">
+            <button on:click={onConfirmGuest} type="button" class="w-full py-3 text-zinc-500 font-bold text-sm uppercase tracking-[0.2em]">
               Submit as Guest
             </button>
           {/if}
