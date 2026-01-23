@@ -398,12 +398,17 @@
   function getVenueLockedReferrer(venueName: string): string | null {
     const normalizedVenue = venueName.trim().toLowerCase();
     if (!normalizedVenue) return null;
+    const venueIdMatch = getVenueIdByName(venueName);
 
     let earliestTime = Number.POSITIVE_INFINITY;
     let ref: string | null = null;
 
     for (const claim of claims) {
-      if (claim.venue.trim().toLowerCase() !== normalizedVenue) continue;
+      if (venueIdMatch) {
+        if (claim.venue_id !== venueIdMatch) continue;
+      } else if (claim.venue.trim().toLowerCase() !== normalizedVenue) {
+        continue;
+      }
       if (!claim.referrer) continue;
       const time = new Date(claim.purchased_at).getTime();
       if (Number.isNaN(time)) continue;
@@ -424,7 +429,9 @@
   }
 
   function startNewClaim() {
-    const latestVenue = claims[0]?.venue ?? '';
+    const latestClaim = claims[0];
+    const venueFromId = latestClaim?.venue_id ? getVenueNameById(latestClaim.venue_id) : '';
+    const latestVenue = venueFromId || latestClaim?.venue || '';
     const validVenue = getVenueIdByName(latestVenue) ? latestVenue : '';
     const lockedReferrer = validVenue ? getVenueLockedReferrer(validVenue) : null;
     venue = validVenue;

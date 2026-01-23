@@ -261,7 +261,9 @@
 
     <section class="flex justify-between items-end">
       <div>
-        <h1 class="text-zinc-500 uppercase tracking-tighter text-sm font-bold">Kickback Dashboard</h1>
+        <h1 class="text-zinc-500 uppercase tracking-tighter text-sm font-bold">
+          <span class="text-white">Kick</span><span class="text-orange-500">back</span> Dashboard
+        </h1>
         <div class="text-6xl font-black text-white mt-1">${totalAmount.toFixed(2)}</div>
       </div>
       <div class="text-right">

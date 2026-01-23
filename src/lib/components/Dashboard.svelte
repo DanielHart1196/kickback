@@ -45,7 +45,9 @@
 
 <div class="w-full max-w-sm space-y-10" in:fade>
   <header class="text-center">
-    <h1 class="text-4xl font-black tracking-tighter italic uppercase">Kickback</h1>
+    <h1 class="text-4xl font-black tracking-tighter italic uppercase">
+      <span class="text-white">Kick</span><span class="text-orange-500">back</span>
+    </h1>
     <p class="text-zinc-500 text-[10px] font-black uppercase tracking-[0.3em] mt-2">Member Dashboard</p>
   </header>
 

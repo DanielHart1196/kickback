@@ -106,7 +106,9 @@
 
     <div class="px-8">
       <header class="text-center mb-6">
-        <h2 class="text-2xl font-black italic uppercase tracking-tighter text-white">Share the Kickback</h2>
+        <h2 class="text-2xl font-black italic uppercase tracking-tighter text-white">
+          Share the <span class="text-white">Kick</span><span class="text-orange-500">back</span>
+        </h2>
       </header>
 
       <div class="mb-8">
@@ -140,7 +142,7 @@
 
         <button 
           on:click={shareLink}
-          class="w-full bg-orange-500 text-black font-black py-5 rounded-[2rem] text-sm uppercase tracking-widest active:scale-95 transition-all shadow-xl shadow-orange-500/20"
+          class="w-full bg-orange-500 text-black font-black py-5 rounded-[2rem] text-lg uppercase tracking-widest active:scale-95 transition-all"
         >
           Share My {referralVenueName ? referralVenueName : ''} Link
         </button>
@@ -148,4 +150,3 @@
     </div>
   </div>  
 </div>
-

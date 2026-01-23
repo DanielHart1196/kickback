@@ -42,6 +42,7 @@
 <div class="w-full max-w-sm space-y-8" in:fly={{ y: 20 }}>
   {#if showBack}
     <button on:click={onBack} class="text-zinc-600 font-bold text-xs uppercase tracking-widest flex items-center gap-2 mb-4">
+      <span aria-hidden="true">←</span>
       Back to Balance
     </button>
   {/if}
@@ -68,7 +69,9 @@
 
   <div class="w-full max-w-sm space-y-8">
     <div class="text-center">
-      <h1 class="text-4xl font-black tracking-tighter italic uppercase">Kickback</h1>
+      <h1 class="text-4xl font-black tracking-tighter italic uppercase">
+        <span class="text-white">Kick</span><span class="text-orange-500">back</span>
+      </h1>
       <p class="text-zinc-500 text-sm mt-2">Pilot Program - Claim Portal</p>
     </div>
 

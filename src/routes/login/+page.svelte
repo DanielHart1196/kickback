@@ -133,7 +133,11 @@
     
     <div class="text-center">
       <h1 class="text-3xl font-black italic uppercase tracking-tighter">
-        {mode === 'signin' ? 'Welcome Back' : 'Join Kickback'}
+        {#if mode === 'signin'}
+          Welcome Back
+        {:else}
+          Join <span class="text-white">Kick</span><span class="text-orange-500">back</span>
+        {/if}
       </h1>
       {#if pendingKickback}
         <p class="text-orange-500 font-bold mt-2">Sign up to claim your ${pendingKickback} kickback</p>
@@ -175,7 +179,7 @@
       </button>
     {:else}
       <button type="button" on:click={() => { mode = 'signup'; message = ''; }} class="w-full text-zinc-600 text-xs font-bold uppercase tracking-widest">
-        New here? Join Kickback
+        New here? Join <span class="text-white">Kick</span><span class="text-orange-500">back</span>
       </button>
     {/if}
     
