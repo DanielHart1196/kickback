@@ -2,6 +2,7 @@
   import { supabase } from '$lib/supabase';
   import { onMount } from 'svelte';
   import { fade, fly, slide } from 'svelte/transition';
+  import QRCode from 'qrcode';
   
   let last4: string = '';
   let venue: string = '';
@@ -10,8 +11,103 @@
   let status: 'idle' | 'loading' | 'success' | 'error' = 'idle';
   let errorMessage: string = '';
 
-  let daysActive = 12; // You can hardcode this to test, or calculate it
   const GOAL_DAYS = 30;
+
+  let showReferModal = false;
+  let qrDataUrl = '';
+  let referralVenue = ''; // The venue the user chooses to refer to
+
+  // Example bar list (Later you can fetch this from Supabase)
+  const registeredBars = ['The Alibi', 'Electric Cure', 'Neon Palms', 'Dive Bar'];
+
+  // This is the user's "Referrer ID" (usually their email prefix or a UUID)
+  $: userRefCode = session?.user?.email?.split('@')[0] || 'member';
+
+  // The dynamic link generator
+  $: referralLink = `https://kkbk.app/?ref=${userRefCode}${referralVenue ? `&venue=${encodeURIComponent(referralVenue)}` : ''}`;
+
+  // Generate the QR whenever the link changes
+  $: if (showReferModal || referralVenue) {
+    QRCode.toDataURL(referralLink, { margin: 2, scale: 8, color: { dark: '#000000', light: '#ffffff' } })
+      .then((url: string) => { // Added : string here
+        qrDataUrl = url;
+      })
+      .catch((err: Error) => { // Good practice to add error handling too
+        console.error(err);
+      });
+  }
+
+  let showCopyToast = false;
+
+  function copyToClipboard() {
+    // We want to copy the link, or just the code? 
+    // Usually, users want the Link to send to friends.
+    navigator.clipboard.writeText(referralLink); 
+    
+    showCopyToast = true;
+    
+    // Haptics (Optional but great for mobile)
+    if (navigator.vibrate) navigator.vibrate(50); 
+
+    setTimeout(() => {
+      showCopyToast = false;
+    }, 2000);
+  }
+
+  // This watches showReferModal and adds/removes a CSS class to the body
+  $: if (typeof document !== 'undefined') {
+    if (showReferModal) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = 'auto';
+    }
+  }
+
+  let touchStart = 0;
+  let currentYOffset = 0; // This tracks the "rubbery" movement
+
+  function handleTouchStart(e: TouchEvent) {
+    touchStart = e.targetTouches[0].clientY;
+  }
+
+  function handleTouchMove(e: TouchEvent) {
+    const currentTouchY = e.targetTouches[0].clientY;
+    const dragDistance = currentTouchY - touchStart;
+
+    // Only allow dragging downwards (positive numbers)
+    if (dragDistance > 0) {
+      currentYOffset = dragDistance;
+    }
+  }
+
+  function handleTouchEnd() {
+    // If dragged more than 120px, close it. Otherwise, snap back to 0.
+    if (currentYOffset > 120) {
+      showReferModal = false;
+    }
+    currentYOffset = 0; // Snap back if not closed
+  }
+
+  async function shareLink() {
+    const shareData = {
+      title: 'Kickback Pilot',
+      text: `Join me at ${referralVenue || 'Kickback'} and get 5% back on your bill!`,
+      url: referralLink
+    };
+
+    try {
+      if (navigator.share && navigator.canShare(shareData)) {
+        await navigator.share(shareData);
+      } else {
+        // Fallback for browsers that don't support sharing (like some Chrome versions on desktop)
+        await navigator.clipboard.writeText(referralLink);
+        showCopyToast = true;
+        setTimeout(() => showCopyToast = false, 2000);
+      }
+    } catch (err) {
+      console.error('Share failed:', err);
+    }
+  }
 
   function getDaysAtVenue(venueName: string) {
     // Filter all claims to find only those from this venue
@@ -225,7 +321,7 @@ async function handleSignOut() {
 
 </script>
 
-<main class="min-h-screen bg-zinc-950 text-white flex flex-col items-center justify-center p-6">
+<main class="min-h-screen bg-zinc-950 text-white flex flex-col items-center p-6">
 
   {#if session && !showForm}
   <div class="w-full max-w-sm space-y-10" in:fade>
@@ -511,9 +607,75 @@ async function handleSignOut() {
 
 {#if session && !showForm}
   <div class="fixed bottom-8 left-0 right-0 px-6 z-50 flex justify-center" in:fly={{ y: 100 }}>
-    <button class="w-full max-w-sm bg-zinc-900/80 backdrop-blur-xl border border-zinc-700 text-white font-black py-4 rounded-2xl flex items-center justify-center gap-3 shadow-2xl active:scale-95 transition-all uppercase text-xs tracking-[0.2em]">
+    <button 
+    on:click={() => showReferModal = true}
+    class="w-full max-w-sm bg-zinc-900/80 backdrop-blur-xl border border-zinc-700 text-white font-black py-4 rounded-2xl flex items-center justify-center gap-3 shadow-2xl active:scale-95 transition-all uppercase text-xs tracking-[0.2em]">
       🤝 Refer a Friend
     </button>
+  </div>
+{/if}
+
+{#if showReferModal}
+  <div class="fixed inset-0 bg-black/90 backdrop-blur-md z-[300] flex items-end justify-center" transition:fade>
+    <button on:click={() => showReferModal = false} class="absolute inset-0 w-full h-full cursor-default" aria-label="Close"></button>
+
+    <div 
+      class="bg-zinc-900 w-full max-w-md rounded-t-[2.5rem] relative pb-12 transition-transform"
+      style="transform: translateY({currentYOffset}px); transition: {currentYOffset === 0 ? 'transform 0.3s ease-out' : 'none'};"
+      in:fly={{ y: 600, duration: 500, opacity: 1 }} 
+      out:fly={{ y: 600, duration: 400, opacity: 1 }}
+      on:touchstart={handleTouchStart}
+      on:touchmove={handleTouchMove}
+      on:touchend={handleTouchEnd}
+    >
+
+        <div class="pt-6 pb-4 flex justify-center w-full">
+        <div class="w-12 h-1.5 bg-zinc-800 rounded-full opacity-50"></div>
+      </div>
+
+      <div class="px-8">
+      <header class="text-center mb-6">
+        <h2 class="text-2xl font-black italic uppercase tracking-tighter text-white">Share the Kickback</h2>
+      </header>
+
+      <div class="mb-8">
+        <label for="ref-venue" class="block text-[10px] font-black uppercase text-zinc-500 tracking-widest mb-3 px-1 text-center">Refer to a specific bar?</label>
+        <select 
+          id="ref-venue"
+          bind:value={referralVenue}
+          class="w-full bg-black border border-zinc-800 text-white p-4 rounded-2xl text-xs font-bold uppercase tracking-widest outline-none focus:ring-2 focus:ring-green-500 transition-all appearance-none text-center"
+        >
+          <option value="">General Invite</option>
+          {#each registeredBars as bar}
+            <option value={bar}>{bar}</option>
+          {/each}
+        </select>
+      </div>
+
+      <div class="bg-white p-4 rounded-[2.5rem] w-48 h-48 mx-auto mb-8 flex items-center justify-center shadow-xl shadow-white/5">
+        {#if qrDataUrl}
+          <img src={qrDataUrl} alt="Referral QR Code" class="w-full h-full" />
+        {/if}
+      </div>
+
+      <div class="space-y-4">
+        <div class="bg-black rounded-2xl p-4 flex justify-between items-center border border-zinc-800">
+          <div>
+            <p class="text-[8px] font-black text-zinc-600 uppercase mb-0.5">Your Code</p>
+            <p class="text-sm font-black text-white uppercase tracking-widest">{userRefCode}</p>
+          </div>
+          <button on:click={copyToClipboard} class="bg-zinc-800 text-white text-[10px] font-black px-4 py-2 rounded-xl uppercase hover:bg-zinc-700">Copy</button>
+        </div>
+
+        <button 
+          on:click={shareLink}
+          class="w-full bg-green-500 text-black font-black py-5 rounded-[2rem] text-sm uppercase tracking-widest active:scale-95 transition-all shadow-xl shadow-green-500/20"
+        >
+          Share My {referralVenue ? referralVenue : ''} Link
+        </button>
+      </div>
+    </div>
+    </div>  
   </div>
 {/if}
 
