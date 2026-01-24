@@ -1,5 +1,6 @@
 <script lang="ts">
   import { fade, fly, slide } from 'svelte/transition';
+  import { tick } from 'svelte';
   import { flip } from 'svelte/animate';
   import { GOAL_DAYS, KICKBACK_RATE } from '$lib/claims/constants';
   import { calculateKickbackWithRate, getDaysAtVenue, isClaimDenied } from '$lib/claims/utils';
@@ -15,6 +16,28 @@
   export let onDeleteClaim: (claim: Claim) => void = () => {};
   export let onLogout: () => void = () => {};
   export let onOpenRefer: () => void = () => {};
+
+  let lastHighlightKey: string | null = null;
+
+  async function scrollToHighlightedClaim(key: string) {
+    if (typeof document === 'undefined') return;
+    await tick();
+    requestAnimationFrame(() => {
+      const escaped =
+        typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
+          ? CSS.escape(key)
+          : key.replace(/"/g, '\\"');
+      const el = document.querySelector(`[data-claim-key="${escaped}"]`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    });
+  }
+
+  $: if (highlightClaimKey && highlightClaimKey !== lastHighlightKey) {
+    lastHighlightKey = highlightClaimKey;
+    scrollToHighlightedClaim(highlightClaimKey);
+  }
 
   function getVenueRate(claim: Claim): number {
     if (claim.venue_id) {
@@ -89,27 +112,32 @@
             ? 'ring-2 ring-orange-500/60 shadow-lg shadow-orange-500/20'
             : ''
         }`}
+        data-claim-key={claim.id ?? claim.created_at}
         in:fade={{ duration: 400 }}
         animate:flip={{ duration: 300 }}
       >
-        <summary class="list-none p-5 flex justify-between items-center cursor-pointer active:bg-zinc-900/50">
-          <div>
-            <p class={`text-xl font-black ${isClaimDenied(claim) ? 'text-zinc-500' : 'text-orange-500'}`}>
-              +${calculateKickbackWithRate(claim.amount, getClaimRate(claim)).toFixed(2)}
-            </p>
-              <div class="flex items-center justify-between gap-3 text-sm font-bold">
-                <p class="text-zinc-300 uppercase tracking-tight">{claim.venue}</p>
-                <div class="flex items-center gap-2">
-                  <p class="text-zinc-500">
-                    {new Date(claim.purchased_at).toLocaleDateString()} {new Date(claim.purchased_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  </p>
-                  <span class={`border rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-widest ${getStatusBadgeClass(getClaimStatus(claim))}`}>
-                    {getClaimStatus(claim).toUpperCase()}
-                  </span>
-                </div>
-              </div>
+        <summary class="list-none p-5 flex items-center justify-between gap-4 cursor-pointer active:bg-zinc-900/50">
+          <div class="flex items-center justify-between flex-1 gap-4">
+            <div class="flex flex-col justify-center">
+              <p class={`text-xl font-black ${isClaimDenied(claim) ? 'text-zinc-500' : 'text-orange-500'}`}>
+                +${calculateKickbackWithRate(claim.amount, getClaimRate(claim)).toFixed(2)}
+              </p>
+              <p class="text-zinc-300 uppercase tracking-tight text-sm font-bold">{claim.venue}</p>
+            </div>
+            <div class="flex items-center gap-2">
+              <p class="text-zinc-500 text-sm font-bold">
+                {new Date(claim.purchased_at).toLocaleDateString()} {new Date(claim.purchased_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </p>
+              <span class={`border rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-widest ${getStatusBadgeClass(getClaimStatus(claim))}`}>
+                {getClaimStatus(claim).toUpperCase()}
+              </span>
+            </div>
           </div>
-          <div class="text-sm font-black text-zinc-600 group-open:rotate-180 transition-transform">v</div>
+          <div class="text-zinc-600 group-open:rotate-180 transition-transform">
+            <svg viewBox="0 0 24 24" aria-hidden="true" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M6 9l6 6 6-6" />
+            </svg>
+          </div>
         </summary>
 
         <div class="px-5 pb-6 pt-2 space-y-6" transition:slide>

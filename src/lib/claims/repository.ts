@@ -33,9 +33,10 @@ export async function fetchClaimsForVenueId(venueId: string): Promise<Claim[]> {
   return data ?? [];
 }
 
-export async function insertClaim(claim: ClaimInsert): Promise<void> {
-  const { error } = await supabase.from('claims').insert([claim]);
+export async function insertClaim(claim: ClaimInsert): Promise<Claim> {
+  const { data, error } = await supabase.from('claims').insert([claim]).select('*').single();
   if (error) throw error;
+  return data;
 }
 
 export async function upsertProfileLast4(userId: string, last4: string): Promise<void> {

@@ -31,15 +31,64 @@
   export let onAmountHydrate: (value: string) => void = () => {};
 
   let amountField: HTMLInputElement | null = null;
+  let venueWrap: HTMLDivElement | null = null;
   let venueDirty = false;
   let referrerDirty = false;
   let last4Dirty = false;
+  let venueOpen = false;
 
   onMount(() => {
     if (amountField && amountField.value && !amountInput) {
       onAmountHydrate(amountField.value);
     }
+
+    const handleClick = (event: MouseEvent) => {
+      if (!venueWrap) return;
+      const target = event.target as Node;
+      if (!venueWrap.contains(target)) {
+        venueOpen = false;
+      }
+    };
+
+    document.addEventListener('click', handleClick);
+    return () => document.removeEventListener('click', handleClick);
   });
+
+  $: filteredVenues =
+    venues.filter((venueOption) =>
+      venueOption.name.toLowerCase().includes(venue.trim().toLowerCase())
+    );
+
+  function handleVenueFocus() {
+    if (!isVenueLocked) {
+      venueOpen = true;
+    }
+  }
+
+  function handleVenueInput() {
+    if (!isVenueLocked) {
+      venueOpen = true;
+    }
+  }
+
+  function handleVenueSelect(name: string) {
+    venue = name;
+    venueDirty = true;
+    venueOpen = false;
+  }
+
+  function getLocalNowInputValue(): string {
+    const now = new Date();
+    return new Date(now.getTime() - now.getTimezoneOffset() * 60000)
+      .toISOString()
+      .slice(0, 16);
+  }
+
+  function handleTimeReset() {
+    const now = getLocalNowInputValue();
+    purchaseTime = now;
+    maxPurchaseTime = now;
+  }
 </script>
 
 <div class="w-full max-w-sm space-y-8" in:fly={{ y: 20 }}>
@@ -82,23 +131,45 @@
       <div class="space-y-5">
         <div>
           <label for="venue" class="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">Venue</label>
-          <input 
-            id="venue"
-            type="text" 
-            bind:value={venue} 
-            readonly={isVenueLocked}
-            placeholder="Bar Name"
-            list="venue-options"
-            autocomplete="off"
-            spellcheck="false"
-            on:blur={() => venueDirty = true}
-            class="w-full bg-zinc-800 border-none p-4 rounded-2xl text-lg focus:ring-2 focus:ring-white outline-none {isVenueLocked ? 'opacity-50 cursor-not-allowed' : ''}"
-          />
-          <datalist id="venue-options">
-            {#each venues as venueOption}
-              <option value={venueOption.name} />
-            {/each}
-          </datalist>
+          <div class="relative" bind:this={venueWrap}>
+            <input 
+              id="venue"
+              type="text" 
+              bind:value={venue} 
+              readonly={isVenueLocked}
+              placeholder="Bar Name"
+              autocomplete="off"
+              spellcheck="false"
+              on:blur={() => venueDirty = true}
+              on:focus={handleVenueFocus}
+              on:input={handleVenueInput}
+              class="venue-input w-full appearance-none bg-zinc-800 border-none p-4 pr-12 rounded-2xl text-lg focus:ring-2 focus:ring-white outline-none {isVenueLocked ? 'opacity-50 cursor-not-allowed' : ''}"
+            />
+            {#if !isVenueLocked}
+              <span class="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-zinc-500">
+                <svg viewBox="0 0 24 24" aria-hidden="true" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M6 9l6 6 6-6" />
+                </svg>
+              </span>
+            {/if}
+            {#if !isVenueLocked && venueOpen}
+              <div class="absolute z-20 mt-2 w-full rounded-2xl border border-zinc-800 bg-zinc-900/95 backdrop-blur-xl shadow-xl max-h-56 overflow-auto">
+                {#if filteredVenues.length === 0}
+                  <div class="px-4 py-3 text-xs font-bold uppercase tracking-widest text-zinc-500">No matches</div>
+                {:else}
+                  {#each filteredVenues as venueOption}
+                    <button
+                      type="button"
+                      on:click={() => handleVenueSelect(venueOption.name)}
+                      class="w-full text-left px-4 py-3 text-sm font-bold uppercase tracking-wide text-zinc-200 hover:bg-zinc-800/60 transition-colors"
+                    >
+                      {venueOption.name}
+                    </button>
+                  {/each}
+                {/if}
+              </div>
+            {/if}
+          </div>
           {#if venueDirty && !venue.trim()}
             <p class="mt-2 text-[11px] font-bold uppercase tracking-widest text-orange-500/70">Select a venue</p>
           {/if}
@@ -145,14 +216,31 @@
         {/if}
 
         <div>
-          <label for="time" class="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">Time of Purchase</label>
-          <input 
-            id="time"
-            type="datetime-local" 
-            bind:value={purchaseTime} 
-            max={maxPurchaseTime || undefined}
-            class="w-full bg-zinc-800 border-none p-4 rounded-2xl text-lg focus:ring-2 focus:ring-white outline-none [color-scheme:dark]"
-          />
+          <div class="flex items-center justify-between mb-2">
+            <label for="time" class="block text-xs font-bold uppercase tracking-widest text-zinc-500">Time of Purchase</label>
+            <button
+              type="button"
+              on:click={handleTimeReset}
+              class="text-[10px] font-black uppercase tracking-[0.3em] text-zinc-500 hover:text-white transition-colors"
+            >
+              Reset
+            </button>
+          </div>
+          <div class="relative">
+            <input 
+              id="time"
+              type="datetime-local" 
+              bind:value={purchaseTime} 
+              max={maxPurchaseTime || undefined}
+              class="time-input w-full appearance-none bg-zinc-800 border-none p-4 pr-12 rounded-2xl text-lg focus:ring-2 focus:ring-white outline-none [color-scheme:dark]"
+            />
+            <span class="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-zinc-500">
+              <svg viewBox="0 0 24 24" aria-hidden="true" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="8" />
+                <path d="M12 8v4l3 2" />
+              </svg>
+            </span>
+          </div>
         </div>
 
         <div>
@@ -222,4 +310,30 @@
     </div>
   {/if}
 </div>
+
+<style>
+  .venue-input::-webkit-calendar-picker-indicator,
+  .venue-input::-webkit-list-button {
+    display: none;
+  }
+
+  .time-input::-webkit-calendar-picker-indicator {
+    opacity: 0;
+    width: 0;
+    height: 0;
+    margin: 0;
+    padding: 0;
+  }
+
+  .time-input::-webkit-inner-spin-button,
+  .time-input::-webkit-clear-button {
+    display: none;
+  }
+
+  .time-input {
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: textfield;
+  }
+</style>
 

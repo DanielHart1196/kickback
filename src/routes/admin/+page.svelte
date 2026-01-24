@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { supabase } from '$lib/supabase';
   import { fetchClaimsForVenueId, updateClaimStatus } from '$lib/claims/repository';
-  import { calculateTotalAmount } from '$lib/claims/utils';
+  import { calculateKickbackWithRate, calculateTotalAmount } from '$lib/claims/utils';
   import type { Claim, ClaimStatus } from '$lib/claims/types';
   import type { Venue } from '$lib/venues/types';
 
@@ -21,6 +21,8 @@
   let userEmail = '';
   let logoDeleting = false;
   let updatingClaimId: string | null = null;
+  let showRatesTip = false;
+  let ratesTipTimer: ReturnType<typeof setTimeout> | null = null;
 
   onMount(async () => {
     try {
@@ -38,6 +40,8 @@
   });
 
   $: totalAmount = calculateTotalAmount(claims);
+  $: totalFee = calculateTotalFee(claims);
+  $: weekGroups = groupClaimsByWeek(claims);
 
   async function fetchVenue() {
     const { data: sessionData } = await supabase.auth.getSession();
@@ -215,6 +219,63 @@
     return 'border-zinc-700 bg-zinc-800 text-zinc-300';
   }
 
+  function calculateTotalFee(claimList: Claim[]): number {
+    return claimList.reduce((sum, claim) => {
+      if (getClaimStatus(claim) === 'denied') return sum;
+      return sum + getFeeAmount(claim);
+    }, 0);
+  }
+
+  function formatRate(value: number | null | undefined): string {
+    return Number(value ?? 5).toFixed(1).replace('.0', '');
+  }
+
+  function getWeekStart(date: Date): Date {
+    const start = new Date(date);
+    const day = (start.getDay() + 6) % 7;
+    start.setDate(start.getDate() - day);
+    start.setHours(0, 0, 0, 0);
+    return start;
+  }
+
+  function formatWeekLabel(weekStart: Date): string {
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekStart.getDate() + 6);
+    const startLabel = weekStart.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    const endLabel = weekEnd.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    return `${startLabel} - ${endLabel}`;
+  }
+
+  function groupClaimsByWeek(claimList: Claim[]): { weekStart: Date; label: string; claims: Claim[] }[] {
+    const groups = new Map<string, { weekStart: Date; label: string; claims: Claim[] }>();
+    for (const claim of claimList) {
+      const purchasedAt = new Date(claim.purchased_at);
+      if (Number.isNaN(purchasedAt.getTime())) continue;
+      const weekStart = getWeekStart(purchasedAt);
+      const key = weekStart.toISOString().slice(0, 10);
+      const existing = groups.get(key);
+      if (existing) {
+        existing.claims.push(claim);
+      } else {
+        groups.set(key, { weekStart, label: formatWeekLabel(weekStart), claims: [claim] });
+      }
+    }
+
+    return Array.from(groups.values()).sort((a, b) => b.weekStart.getTime() - a.weekStart.getTime());
+  }
+
+  function getCombinedRate(claim: Claim): number {
+    const guestRate = Number(claim.kickback_guest_rate ?? 5);
+    const referrerRate = Number(claim.kickback_referrer_rate ?? 5);
+    const platformRate = 1;
+    return guestRate + referrerRate + platformRate;
+  }
+
+  function getFeeAmount(claim: Claim): number {
+    const combinedRate = getCombinedRate(claim) / 100;
+    return calculateKickbackWithRate(Number(claim.amount || 0), combinedRate);
+  }
+
   async function handleClaimStatus(claim: Claim, status: ClaimStatus) {
     if (!claim.id) return;
     updatingClaimId = claim.id;
@@ -356,84 +417,130 @@
       />
     </section>
 
-    <section class="flex justify-between items-end">
-      <div>
+    <section class="flex items-start justify-between gap-4">
+      <div class="min-w-0">
         <h1 class="text-zinc-500 uppercase tracking-tighter text-sm font-bold">
           <span class="text-white">Kick</span><span class="text-orange-500">back</span> Dashboard
         </h1>
-        <div class="text-6xl font-black text-white mt-1">${totalAmount.toFixed(2)}</div>
+        <div class="text-[3.4rem] sm:text-6xl md:text-6xl font-black text-white mt-1">${totalAmount.toFixed(2)}</div>
+        <p class="text-xs font-black uppercase tracking-widest text-zinc-500 mt-1">Total Claimed</p>
       </div>
-      <div class="text-right">
-        <div class="text-zinc-500 text-sm uppercase font-bold">Total Claims</div>
-        <div class="text-2xl font-bold">{claims.length}</div>
+      <div class="text-right space-y-4">
+        <div>
+          <div class="text-zinc-500 text-sm uppercase font-bold">Total Fee</div>
+          <div class="text-2xl font-bold text-orange-400 mt-1">${totalFee.toFixed(2)}</div>
+        </div>
+        <div>
+          <div class="text-zinc-500 text-sm uppercase font-bold">Total Claims</div>
+          <div class="text-2xl font-bold mt-1">{claims.length}</div>
+        </div>
       </div>
     </section>
 
     <div class="bg-zinc-900/50 border border-zinc-800 rounded-2xl overflow-hidden">
-      <table class="w-full text-left border-collapse">
+      <div class="relative">
+        <div class="w-full overflow-x-auto">
+        <table class="min-w-[720px] w-full text-left border-collapse">
         <thead>
           <tr class="bg-zinc-800/50 text-zinc-400 text-xs uppercase">
-            <th class="p-4 font-semibold">Date/Time</th>
-            <th class="p-4 font-semibold text-right">Amount</th>
+            <th class="p-3 pl-4 font-semibold">Date/Time</th>
+            <th class="p-4 font-semibold text-center">Total Claimed</th>
+            <th class="p-4 font-semibold text-center">
+              <span class="relative inline-flex items-center">
+                <button
+                  type="button"
+                  class="text-zinc-400 hover:text-white transition-colors"
+                  on:click={() => {
+                    showRatesTip = !showRatesTip;
+                    if (showRatesTip) {
+                      if (ratesTipTimer) clearTimeout(ratesTipTimer);
+                      ratesTipTimer = setTimeout(() => {
+                        showRatesTip = false;
+                        ratesTipTimer = null;
+                      }, 1600);
+                    }
+                  }}
+                  on:blur={() => showRatesTip = false}
+                >
+                  RATES (%)
+                </button>
+                <span class={`rates-tip ${showRatesTip ? 'is-visible' : ''}`}>Guest / Referrer / Platform</span>
+              </span>
+            </th>
+            <th class="p-4 font-semibold text-center">Fee</th>
             <th class="p-4 font-semibold text-center">Last 4</th>
             <th class="p-4 font-semibold text-center">Status</th>
             <th class="p-4 font-semibold text-right">Actions</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-zinc-800">
-          {#each claims as claim}
-            <tr class="hover:bg-zinc-800/30 transition-colors">
-              <td class="p-4 text-zinc-400 text-sm">
-                {new Date(claim.purchased_at).toLocaleDateString()} 
-                <span class="text-zinc-600 ml-1">{new Date(claim.purchased_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
-              </td>
-              <td class={`p-4 text-right font-mono font-bold ${getClaimStatus(claim) === 'denied' ? 'text-zinc-600' : 'text-orange-400'}`}>
-                ${Number(claim.amount).toFixed(2)}
-              </td>
-              <td class="p-4 text-center">
-                <span class="bg-zinc-800 px-2 py-1 rounded text-xs text-zinc-300">**** {claim.last_4}</span>
-              </td>
-              <td class="p-4 text-center">
-                <span class={`inline-flex items-center border rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-widest ${getStatusBadgeClass(getClaimStatus(claim))}`}>
-                  {getClaimStatus(claim).toUpperCase()}
-                </span>
-              </td>
-              <td class="p-4 text-right">
-                {#if claim.id}
-                  <div class="flex justify-end gap-2">
-                    {#if getClaimStatus(claim) !== 'approved'}
-                      <button
-                        type="button"
-                        on:click={() => handleClaimStatus(claim, 'approved')}
-                        disabled={updatingClaimId === claim.id}
-                        class="text-xs font-black uppercase tracking-widest text-green-400 hover:text-green-300 transition-colors disabled:opacity-50"
-                      >
-                        Approve
-                      </button>
-                    {/if}
-                    {#if getClaimStatus(claim) !== 'denied'}
-                      <button
-                        type="button"
-                        on:click={() => handleClaimStatus(claim, 'denied')}
-                        disabled={updatingClaimId === claim.id}
-                        class="text-xs font-black uppercase tracking-widest text-red-400 hover:text-red-300 transition-colors disabled:opacity-50"
-                      >
-                        Deny
-                      </button>
-                    {/if}
-                  </div>
-                {/if}
-              </td>
+          {#each weekGroups as weekGroup}
+            <tr class="bg-zinc-950/60 text-zinc-400 text-[10px] uppercase tracking-[0.3em]">
+              <td colspan="7" class="px-4 py-3 font-black">{weekGroup.label}</td>
             </tr>
+            {#each weekGroup.claims as claim}
+              <tr class="hover:bg-zinc-800/30 transition-colors">
+                <td class="p-3 pl-4 text-zinc-400 text-sm">
+                  {new Date(claim.purchased_at).toLocaleDateString()} 
+                  <span class="text-zinc-600 ml-1">{new Date(claim.purchased_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                </td>
+                <td class={`p-4 text-center font-mono font-bold ${getClaimStatus(claim) === 'denied' ? 'text-zinc-600' : 'text-orange-400'}`}>
+                  ${Number(claim.amount).toFixed(2)}
+                </td>
+                <td class="p-4 text-center text-xs font-bold uppercase tracking-widest text-zinc-400 whitespace-nowrap">
+                  {formatRate(claim.kickback_guest_rate)} / {formatRate(claim.kickback_referrer_rate)} / 1
+                </td>
+                <td class={`p-4 text-center font-mono font-bold ${getClaimStatus(claim) === 'denied' ? 'text-zinc-600' : 'text-zinc-200'}`}>
+                  ${getFeeAmount(claim).toFixed(2)}
+                </td>
+                <td class="p-4 text-center whitespace-nowrap">
+                  <span class="bg-zinc-800 px-2 py-1 rounded text-xs text-zinc-300">*{claim.last_4}</span>
+                </td>
+                <td class="p-4 text-center">
+                  <span class={`inline-flex items-center border rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-widest ${getStatusBadgeClass(getClaimStatus(claim))}`}>
+                    {getClaimStatus(claim).toUpperCase()}
+                  </span>
+                </td>
+                <td class="p-4 text-right">
+                  {#if claim.id}
+                    <div class="flex justify-end gap-2">
+                      {#if getClaimStatus(claim) !== 'approved'}
+                        <button
+                          type="button"
+                          on:click={() => handleClaimStatus(claim, 'approved')}
+                          disabled={updatingClaimId === claim.id}
+                          class="text-xs font-black uppercase tracking-widest text-green-400 hover:text-green-300 transition-colors disabled:opacity-50"
+                        >
+                          Approve
+                        </button>
+                      {/if}
+                      {#if getClaimStatus(claim) !== 'denied'}
+                        <button
+                          type="button"
+                          on:click={() => handleClaimStatus(claim, 'denied')}
+                          disabled={updatingClaimId === claim.id}
+                          class="text-xs font-black uppercase tracking-widest text-red-400 hover:text-red-300 transition-colors disabled:opacity-50"
+                        >
+                          Deny
+                        </button>
+                      {/if}
+                    </div>
+                  {/if}
+                </td>
+              </tr>
+            {/each}
           {:else}
             {#if !loading}
               <tr>
-                <td colspan="5" class="p-10 text-center text-zinc-500 italic">No claims found yet. Go get some!</td>
+                <td colspan="7" class="p-10 text-center text-zinc-500 italic">No claims found yet. Go get some!</td>
               </tr>
             {/if}
           {/each}
         </tbody>
-      </table>
+        </table>
+        </div>
+        <div class="pointer-events-none absolute top-0 right-0 h-full w-8 bg-gradient-to-l from-zinc-900/80 to-transparent md:hidden"></div>
+      </div>
     </div>
   </div>
   <div class="max-w-4xl mx-auto mt-12 text-center">
@@ -500,6 +607,40 @@
     50% {
       background-color: #ffffff;
       opacity: 1;
+    }
+  }
+
+  .rates-tip {
+    position: absolute;
+    top: 140%;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(9, 9, 11, 0.95);
+    border: 1px solid rgba(63, 63, 70, 0.6);
+    padding: 6px 8px;
+    border-radius: 8px;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: #e4e4e7;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 120ms ease;
+    z-index: 10;
+  }
+
+  .rates-tip.is-visible {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    th:hover .rates-tip,
+    th:focus-within .rates-tip {
+      opacity: 1;
+      pointer-events: auto;
     }
   }
 </style>

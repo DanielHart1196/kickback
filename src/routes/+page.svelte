@@ -242,7 +242,7 @@
       }
 
       const rates = getVenueRates(venueId);
-      await insertClaim({
+      const insertedClaim = await insertClaim({
         venue: venueName,
         venue_id: venueId,
         referrer: referrer || null,
@@ -269,7 +269,10 @@
         highlightClaimKey = null;
         await tick();
         await fetchDashboardData();
-        highlightClaimKey = claims[0]?.id ?? claims[0]?.created_at ?? null;
+        const newClaim =
+          claims.find((claim) => claim.id && claim.id === insertedClaim.id) ??
+          claims.find((claim) => claim.created_at === insertedClaim.created_at);
+        highlightClaimKey = newClaim?.id ?? newClaim?.created_at ?? null;
         if (highlightClaimKey) {
           setTimeout(() => {
             if (highlightClaimKey) highlightClaimKey = null;
