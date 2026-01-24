@@ -1,3 +1,5 @@
+export type ClaimStatus = 'pending' | 'approved' | 'denied';
+
 export type Claim = {
   id?: string;
   venue: string;
@@ -6,6 +8,7 @@ export type Claim = {
   amount: number;
   kickback_guest_rate?: number | null;
   kickback_referrer_rate?: number | null;
+  status?: ClaimStatus | null;
   purchased_at: string;
   created_at: string;
   last_4: string;

@@ -1,5 +1,5 @@
 import { supabase } from '$lib/supabase';
-import type { Claim, ClaimInsert } from './types';
+import type { Claim, ClaimInsert, ClaimStatus } from './types';
 
 export async function fetchClaimsForUser(userId: string): Promise<Claim[]> {
   const { data, error } = await supabase
@@ -50,5 +50,10 @@ export async function upsertProfileLast4(userId: string, last4: string): Promise
 
 export async function deleteClaim(claimId: string): Promise<void> {
   const { error } = await supabase.from('claims').delete().eq('id', claimId);
+  if (error) throw error;
+}
+
+export async function updateClaimStatus(claimId: string, status: ClaimStatus): Promise<void> {
+  const { error } = await supabase.from('claims').update({ status }).eq('id', claimId);
   if (error) throw error;
 }

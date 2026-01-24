@@ -1,6 +1,10 @@
 import { GOAL_DAYS, KICKBACK_RATE } from './constants';
 import type { Claim } from './types';
 
+export function isClaimDenied(claim: Claim): boolean {
+  return claim.status === 'denied';
+}
+
 export function calculateKickback(amount: number): number {
   return Number((amount * KICKBACK_RATE).toFixed(2));
 }
@@ -10,16 +14,25 @@ export function calculateKickbackWithRate(amount: number, rate: number): number 
 }
 
 export function calculateTotalPending(claims: Claim[]): number {
-  const totalBills = claims.reduce((sum, c) => sum + (c.amount || 0), 0);
+  const totalBills = claims.reduce((sum, c) => {
+    if (isClaimDenied(c)) return sum;
+    return sum + (c.amount || 0);
+  }, 0);
   return calculateKickback(totalBills);
 }
 
 export function calculateTotalAmount(claims: Claim[]): number {
-  return claims.reduce((sum, c) => sum + Number(c.amount || 0), 0);
+  return claims.reduce((sum, c) => {
+    if (isClaimDenied(c)) return sum;
+    return sum + Number(c.amount || 0);
+  }, 0);
 }
 
 export function calculateTotalAtVenue(claims: Claim[], venueName: string): number {
-  return claims.reduce((sum, c) => sum + (c.venue === venueName ? Number(c.amount || 0) : 0), 0);
+  return claims.reduce((sum, c) => {
+    if (isClaimDenied(c)) return sum;
+    return sum + (c.venue === venueName ? Number(c.amount || 0) : 0);
+  }, 0);
 }
 
 export function calculateTotalKickbackAtVenue(claims: Claim[], venueName: string): number {
@@ -32,7 +45,7 @@ export function getDaysAtVenue(
   venueName: string,
   goalDays: number = GOAL_DAYS
 ): number {
-  const venueClaims = claims.filter((c) => c.venue === venueName);
+  const venueClaims = claims.filter((c) => c.venue === venueName && !isClaimDenied(c));
   if (venueClaims.length === 0) return 0;
 
   const dates = venueClaims.map((c) => new Date(c.purchased_at).getTime());

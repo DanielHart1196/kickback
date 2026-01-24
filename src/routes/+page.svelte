@@ -53,7 +53,7 @@
 
   let showGuestWarning = false;
 
-  let session: Session | null = null;
+  let session: Session | null | undefined = undefined;
 
   $: userRefCode = session?.user?.email?.split('@')[0] || 'member';
   $: last4 = normalizeLast4(last4);
@@ -247,6 +247,7 @@
         venue_id: venueId,
         referrer: referrer || null,
         amount: cleanAmount,
+        status: 'pending',
         kickback_guest_rate: rates.guestRate,
         kickback_referrer_rate: rates.referrerRate,
         purchased_at: new Date(purchaseTime).toISOString(),
@@ -376,6 +377,7 @@
 
   function calculateTotalPendingWithRates(claimList: Claim[]): number {
     return claimList.reduce((sum, claim) => {
+      if (claim.status === 'denied') return sum;
       const savedRate = claim.kickback_referrer_rate ?? null;
       if (savedRate != null) {
         return sum + calculateKickbackWithRate(Number(claim.amount || 0), Number(savedRate) / 100);
@@ -447,7 +449,9 @@
 </script>
 
 <main class="min-h-screen bg-zinc-950 text-white flex flex-col items-center p-6">
-  {#if session && !showForm}
+  {#if session === undefined}
+    <div class="min-h-screen"></div>
+  {:else if session && !showForm}
     <Dashboard
       {claims}
       {totalPending}

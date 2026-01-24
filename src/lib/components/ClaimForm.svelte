@@ -180,12 +180,12 @@
           </div>
         {/if}
 
-        <div class="space-y-4 sticky bottom-4 z-20 bg-zinc-950/80 backdrop-blur-xl p-4 rounded-3xl border border-zinc-800 sm:static sm:bg-transparent sm:p-0 sm:border-0">
+        <div class="space-y-4">
           {#if session}
             <button 
               on:click={onSubmit}
               disabled={status === 'loading' || !canSubmit}
-              class="w-full bg-orange-500 text-black font-black py-5 rounded-2xl text-lg active:scale-95 transition-all disabled:opacity-50"
+              class="w-full bg-orange-500 text-black font-black py-4 rounded-2xl text-lg active:scale-95 transition-all disabled:opacity-50"
               class:opacity-50={!canSubmit || status === 'loading'}
               class:cursor-not-allowed={!canSubmit || status === 'loading'}
             >
@@ -195,7 +195,7 @@
             <button 
               on:click={() => window.location.href = loginUrl}
               disabled={status === 'loading' || !canSubmit}
-              class="w-full bg-white text-black font-black py-5 rounded-2xl text-lg active:scale-95 transition-all shadow-xl shadow-white/5"
+              class="w-full bg-white text-black font-black py-4 rounded-2xl text-lg active:scale-95 transition-all shadow-xl shadow-white/5"
               class:opacity-50={!canSubmit || status === 'loading'}
               class:cursor-not-allowed={!canSubmit || status === 'loading'}
             >

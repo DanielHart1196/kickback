@@ -85,8 +85,10 @@
   - “Share the Kickback” header uses split color.
   - Share button text set to `text-lg`.
 - Claim form:
-  - “Back to Balance” has arrow icon.
+  - "Back to Balance" has arrow icon.
   - Future times are blocked; input `max` is set to now.
+  - Inline validation hints show after blur for venue/referrer/last4.
+  - Mobile sticky action bar with larger touch targets.
 
 ## SQL Snippets (Used or Expected)
 ```sql
@@ -144,3 +146,25 @@ using (auth.uid() = submitter_id);
 - Multi-venue owner UI (list + switch).
 - Optional backfill of `venue_id` on historical claims.
 - Optional time-based kickback rates per venue (future).
+
+## Recent Session Notes (2026-01-24)
+- Refactor: split `src/routes/+page.svelte` into components `Dashboard`, `ClaimForm`, `ReferralModal`, `GuestWarningModal` under `src/lib/components/` to reduce page complexity and keep UI logic isolated.
+- Claims helpers: added `src/lib/claims/constants.ts`, `src/lib/claims/types.ts`, `src/lib/claims/utils.ts`, `src/lib/claims/draft.ts`, `src/lib/claims/repository.ts` to centralize math, parsing, draft storage, and Supabase access.
+- Dashboard history: added claim time next to date in summary line, added last 4 and referrer earned in details, enlarged history text slightly, removed "Verifying with bank" line.
+- Claim form: restored Amount label; submit button disabled until required fields are present (amount, venue, last4, purchase time); explicit disabled styling applied.
+- Amount persistence: introduced `amountInput` string binding and on-mount hydration to handle browser back cache so kickback stays correct after navigating back from `/login`.
+- Login CTA handoff: `/login` URL now includes amount/venue/ref/last4; login page computes pending kickback from URL or localStorage and shows "Sign up to claim your $xx kickback".
+- Login UX: converted inputs into a real `<form>` so Enter submits; added explicit signup/signin toggle with copy changes; removed silent auto-signup from sign-in failures.
+- Auth flow: redirect to `/` only when a session exists; error messages now show for sign-in failures; profile upsert performed on auth.
+- Session persistence: forced `supabase.auth.setSession(...)` before redirect to help mobile persistence.
+- Profile fetch: switched to `.maybeSingle()` to avoid 406 when profile row is missing.
+- Logout: always redirects to `/login` even if signOut errors.
+- Refer modal: moved into its own component; added mount cleanup to re-enable body scrolling; page mount now resets overlays and scroll to prevent dark unclickable state after refresh.
+- UI polish: replaced Svelte favicon with KB monogram in `src/lib/assets/favicon.svg`.
+- Supabase config: production Auth URL must be `https://kkbk.app` and Redirect URLs include `https://kkbk.app/*`; mobile auth issues traced to incorrect Site URL and cached site data.
+- Key files updated: `src/routes/+page.svelte`, `src/routes/login/+page.svelte`, `src/lib/components/Dashboard.svelte`, `src/lib/components/ClaimForm.svelte`, `src/lib/components/ReferralModal.svelte`, `src/lib/components/GuestWarningModal.svelte`.
+- Auth helpers: `handleSignOut()` now always redirects; login `handleAuth()` uses explicit mode and `setSession()` before redirect.
+- Draft helpers: `getDraftFromUrl`, `getDraftFromStorage`, `draftToQuery`, `buildDraftFromParams` used in login and claim flow to preserve claim data.
+- Claim math helpers: `calculateKickback`, `calculateTotalPending`, `getDaysAtVenue`, `normalizeAmountInput`, `normalizeLast4`, `parseAmount` used across dashboard and form.
+- Repository helpers: `fetchClaimsForUser`, `fetchAllClaims`, `insertClaim`, `upsertProfileLast4` centralize Supabase queries.
+- Component wiring: `Dashboard` uses `onNewClaim`, `onLogout`, `onOpenRefer`; `ClaimForm` accepts `canSubmit`, `amountInput`, `onAmountHydrate`, `onSubmit`, `onConfirmGuest`; `ReferralModal` handles share/copy and body scroll lock.

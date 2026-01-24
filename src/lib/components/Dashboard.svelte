@@ -2,7 +2,7 @@
   import { fade, fly, slide } from 'svelte/transition';
   import { flip } from 'svelte/animate';
   import { GOAL_DAYS, KICKBACK_RATE } from '$lib/claims/constants';
-  import { calculateKickbackWithRate, getDaysAtVenue } from '$lib/claims/utils';
+  import { calculateKickbackWithRate, getDaysAtVenue, isClaimDenied } from '$lib/claims/utils';
   import type { Claim } from '$lib/claims/types';
   import type { Venue } from '$lib/venues/types';
 
@@ -36,10 +36,21 @@
 
   function getTotalKickbackAtVenue(venueName: string): number {
     return claims.reduce((sum, claim) => {
+      if (isClaimDenied(claim)) return sum;
       if (claim.venue.trim().toLowerCase() !== venueName.trim().toLowerCase()) return sum;
       const claimRate = getClaimRate(claim) * 100;
       return sum + calculateKickbackWithRate(Number(claim.amount || 0), Number(claimRate) / 100);
     }, 0);
+  }
+
+  function getClaimStatus(claim: Claim): 'pending' | 'approved' | 'denied' {
+    return claim.status ?? 'approved';
+  }
+
+  function getStatusBadgeClass(status: 'pending' | 'approved' | 'denied'): string {
+    if (status === 'approved') return 'border-green-500/30 bg-green-500/10 text-green-400';
+    if (status === 'denied') return 'border-red-500/30 bg-red-500/10 text-red-400';
+    return 'border-zinc-700 bg-zinc-800 text-zinc-300';
   }
 </script>
 
@@ -83,14 +94,19 @@
       >
         <summary class="list-none p-5 flex justify-between items-center cursor-pointer active:bg-zinc-900/50">
           <div>
-            <p class="text-xl font-black text-orange-500">
+            <p class={`text-xl font-black ${isClaimDenied(claim) ? 'text-zinc-500' : 'text-orange-500'}`}>
               +${calculateKickbackWithRate(claim.amount, getClaimRate(claim)).toFixed(2)}
             </p>
               <div class="flex items-center justify-between gap-3 text-sm font-bold">
                 <p class="text-zinc-300 uppercase tracking-tight">{claim.venue}</p>
-                <p class="text-zinc-500">
-                  {new Date(claim.purchased_at).toLocaleDateString()} {new Date(claim.purchased_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                </p>
+                <div class="flex items-center gap-2">
+                  <p class="text-zinc-500">
+                    {new Date(claim.purchased_at).toLocaleDateString()} {new Date(claim.purchased_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </p>
+                  <span class={`border rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-widest ${getStatusBadgeClass(getClaimStatus(claim))}`}>
+                    {getClaimStatus(claim).toUpperCase()}
+                  </span>
+                </div>
               </div>
           </div>
           <div class="text-sm font-black text-zinc-600 group-open:rotate-180 transition-transform">v</div>
@@ -128,7 +144,7 @@
               <p class="text-xs font-black text-zinc-400 uppercase mb-1">Referrer</p>
               <p class="text-sm font-bold uppercase">
                 <span class="text-white">{claim.referrer || 'Direct'}</span>
-                <span class="text-orange-500">
+                <span class={isClaimDenied(claim) ? 'text-zinc-500' : 'text-orange-500'}>
                   +${calculateKickbackWithRate(claim.amount, getClaimRate(claim)).toFixed(2)}
                 </span>
               </p>
