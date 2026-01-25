@@ -36,6 +36,7 @@
   let referrerDirty = false;
   let last4Dirty = false;
   let venueOpen = false;
+  let timeInput: HTMLInputElement | null = null;
 
   onMount(() => {
     if (amountField && amountField.value && !amountInput) {
@@ -88,6 +89,16 @@
     const now = getLocalNowInputValue();
     purchaseTime = now;
     maxPurchaseTime = now;
+  }
+
+  function openTimePicker() {
+    if (!timeInput) return;
+    if (typeof timeInput.showPicker === 'function') {
+      timeInput.showPicker();
+      return;
+    }
+    timeInput.focus();
+    timeInput.click();
   }
 </script>
 
@@ -231,15 +242,21 @@
               id="time"
               type="datetime-local" 
               bind:value={purchaseTime} 
+              bind:this={timeInput}
               max={maxPurchaseTime || undefined}
               class="time-input w-full appearance-none bg-zinc-800 border-none p-4 pr-12 rounded-2xl text-lg focus:ring-2 focus:ring-white outline-none [color-scheme:dark]"
             />
-            <span class="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-zinc-500">
+            <button
+              type="button"
+              aria-label="Open time picker"
+              on:click={openTimePicker}
+              class="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white transition-colors"
+            >
               <svg viewBox="0 0 24 24" aria-hidden="true" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <circle cx="12" cy="12" r="8" />
                 <path d="M12 8v4l3 2" />
               </svg>
-            </span>
+            </button>
           </div>
         </div>
 
@@ -264,7 +281,7 @@
         {#if amount && amount > 0}
           <div transition:slide={{ duration: 300 }} class="flex justify-between items-center px-2 mb-4 text-sm font-bold">
             <span class="text-zinc-500">REWARD ({kickbackRatePercent}%)</span>
-            <span class="text-orange-500">+ ${kickback}</span>
+            <span class="text-green-500">+ ${kickback}</span>
           </div>
         {/if}
 

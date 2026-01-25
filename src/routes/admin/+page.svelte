@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { slide } from 'svelte/transition';
   import { supabase } from '$lib/supabase';
   import { fetchClaimsForVenueId, updateClaimStatus } from '$lib/claims/repository';
   import { calculateKickbackWithRate, calculateTotalAmount } from '$lib/claims/utils';
@@ -23,6 +24,19 @@
   let updatingClaimId: string | null = null;
   let showRatesTip = false;
   let ratesTipTimer: ReturnType<typeof setTimeout> | null = null;
+  let csvFileName = '';
+  let csvParsedCount = 0;
+  let csvMatches: { claimId: string; transactionId: string; amount: number; last4: string; time: Date }[] = [];
+  let csvUnmatchedCount = 0;
+  let csvUnmatchedClaimIds: string[] = [];
+  let csvError = '';
+  let csvApplying = false;
+  let csvRangeStart: Date | null = null;
+  let csvRangeEnd: Date | null = null;
+  let csvApprovedClaimIds: string[] = [];
+  let csvDeniedClaimIds: string[] = [];
+  let selectedClaimIds = new Set<string>();
+  let bulkApplying = false;
 
   onMount(async () => {
     try {
@@ -42,6 +56,7 @@
   $: totalAmount = calculateTotalAmount(claims);
   $: totalFee = calculateTotalFee(claims);
   $: weekGroups = groupClaimsByWeek(claims);
+  $: selectedCount = selectedClaimIds.size;
 
   async function fetchVenue() {
     const { data: sessionData } = await supabase.auth.getSession();
@@ -289,6 +304,94 @@
     }
   }
 
+  function isSelected(id: string | null | undefined): boolean {
+    if (!id) return false;
+    return selectedClaimIds.has(id);
+  }
+
+  function toggleSelect(id: string | null | undefined) {
+    if (!id) return;
+    const next = new Set(selectedClaimIds);
+    if (next.has(id)) {
+      next.delete(id);
+    } else {
+      next.add(id);
+    }
+    selectedClaimIds = next;
+  }
+
+  function clearSelection() {
+    selectedClaimIds = new Set();
+  }
+
+  function getSelectableClaimIds(): string[] {
+    return claims.map((claim) => claim.id).filter(Boolean) as string[];
+  }
+
+  function selectAllClaims() {
+    const next = new Set<string>();
+    for (const id of getSelectableClaimIds()) {
+      next.add(id);
+    }
+    selectedClaimIds = next;
+  }
+
+  function toggleSelectAllClaims() {
+    const ids = getSelectableClaimIds();
+    if (ids.length === 0) return;
+    const allSelected = ids.every((id) => selectedClaimIds.has(id));
+    const next = new Set(selectedClaimIds);
+    for (const id of ids) {
+      if (allSelected) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+    }
+    selectedClaimIds = next;
+  }
+
+  function getWeekSelectableIds(weekClaims: Claim[]): string[] {
+    return weekClaims.map((claim) => claim.id).filter(Boolean) as string[];
+  }
+
+  function isWeekSelected(weekClaims: Claim[]): boolean {
+    const ids = getWeekSelectableIds(weekClaims);
+    return ids.length > 0 && ids.every((id) => selectedClaimIds.has(id));
+  }
+
+  function toggleWeekSelection(weekClaims: Claim[]) {
+    const ids = getWeekSelectableIds(weekClaims);
+    if (ids.length === 0) return;
+    const allSelected = ids.every((id) => selectedClaimIds.has(id));
+    const next = new Set(selectedClaimIds);
+    for (const id of ids) {
+      if (allSelected) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+    }
+    selectedClaimIds = next;
+  }
+
+  async function applyBulkStatus(status: ClaimStatus) {
+    if (selectedClaimIds.size === 0) return;
+    bulkApplying = true;
+    try {
+      const ids = Array.from(selectedClaimIds);
+      for (const id of ids) {
+        await updateClaimStatus(id, status);
+        claims = claims.map((claim) => (claim.id === id ? { ...claim, status } : claim));
+      }
+      selectedClaimIds = new Set();
+    } catch (error) {
+      console.error('Error applying bulk status:', error);
+    } finally {
+      bulkApplying = false;
+    }
+  }
+
   async function handleSignOut() {
     signingOut = true;
     try {
@@ -296,6 +399,228 @@
     } finally {
       window.location.href = '/admin/login';
     }
+  }
+
+  function parseMoney(value: string): number | null {
+    const cleaned = value.replace(/[^0-9.-]/g, '');
+    if (!cleaned) return null;
+    const parsed = Number(cleaned);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  function parseCsvLine(line: string): string[] {
+    const result: string[] = [];
+    let current = '';
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i += 1) {
+      const char = line[i];
+      if (char === '"') {
+        const next = line[i + 1];
+        if (inQuotes && next === '"') {
+          current += '"';
+          i += 1;
+        } else {
+          inQuotes = !inQuotes;
+        }
+      } else if (char === ',' && !inQuotes) {
+        result.push(current);
+        current = '';
+      } else {
+        current += char;
+      }
+    }
+    result.push(current);
+    return result;
+  }
+
+  function buildMatchesFromCsv(csvText: string) {
+    csvError = '';
+    csvParsedCount = 0;
+    csvMatches = [];
+    csvUnmatchedCount = 0;
+    csvUnmatchedClaimIds = [];
+    csvRangeStart = null;
+    csvRangeEnd = null;
+    csvApprovedClaimIds = [];
+    csvDeniedClaimIds = [];
+
+    const lines = csvText.split(/\r?\n/).filter((line) => line.trim().length > 0);
+    if (lines.length < 2) {
+      csvError = 'CSV file is empty or missing data rows.';
+      return;
+    }
+
+    const headers = parseCsvLine(lines[0]).map((header) => header.trim());
+    const headerIndex = (name: string) => headers.findIndex((header) => header === name);
+    const dateIndex = headerIndex('Date');
+    const timeIndex = headerIndex('Time');
+    const amountIndex = headerIndex('Total Collected');
+    const last4Index = headerIndex('PAN Suffix');
+    const transactionIdIndex = headerIndex('Transaction ID');
+
+    if ([dateIndex, timeIndex, amountIndex, last4Index].some((idx) => idx === -1)) {
+      csvError = 'Missing required columns: Date, Time, Total Collected, PAN Suffix.';
+      return;
+    }
+
+    const pendingClaims = claims.filter((claim) => getClaimStatus(claim) === 'pending');
+    const unmatchedClaims = new Set(pendingClaims.map((claim) => claim.id).filter(Boolean) as string[]);
+
+    const parsedRows = lines.slice(1).map((line) => parseCsvLine(line));
+    csvParsedCount = parsedRows.length;
+    const transactionTimes: Date[] = [];
+
+    for (const row of parsedRows) {
+      const date = row[dateIndex]?.trim();
+      const time = row[timeIndex]?.trim();
+      const amountValue = row[amountIndex]?.trim();
+      const last4 = row[last4Index]?.trim();
+      const transactionId = row[transactionIdIndex]?.trim() || 'unknown';
+
+      if (!date || !time || !amountValue || !last4) {
+        csvUnmatchedCount += 1;
+        continue;
+      }
+
+      const amount = parseMoney(amountValue);
+      if (amount == null) {
+        csvUnmatchedCount += 1;
+        continue;
+      }
+
+      const transactionTime = new Date(`${date}T${time}`);
+      if (Number.isNaN(transactionTime.getTime())) {
+        csvUnmatchedCount += 1;
+        continue;
+      }
+      transactionTimes.push(transactionTime);
+
+      let bestClaim: Claim | null = null;
+      let bestDiff = Number.POSITIVE_INFINITY;
+
+      for (const claim of pendingClaims) {
+        if (!claim.id || !unmatchedClaims.has(claim.id)) continue;
+        if (String(claim.last_4 || '').trim() !== last4) continue;
+        if (Number(claim.amount || 0).toFixed(2) !== amount.toFixed(2)) continue;
+        const claimTime = new Date(claim.purchased_at);
+        const diffMs = Math.abs(claimTime.getTime() - transactionTime.getTime());
+        if (diffMs <= 3 * 60 * 1000 && diffMs < bestDiff) {
+          bestDiff = diffMs;
+          bestClaim = claim;
+        }
+      }
+
+      if (bestClaim?.id) {
+        unmatchedClaims.delete(bestClaim.id);
+        csvMatches = [
+          ...csvMatches,
+          { claimId: bestClaim.id, transactionId, amount, last4, time: transactionTime }
+        ];
+      } else {
+        csvUnmatchedCount += 1;
+      }
+    }
+
+    if (transactionTimes.length > 0) {
+      const start = new Date(Math.min(...transactionTimes.map((t) => t.getTime())));
+      const end = new Date(Math.max(...transactionTimes.map((t) => t.getTime())));
+      csvRangeStart = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+      csvRangeEnd = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+    }
+
+    if (csvRangeStart && csvRangeEnd) {
+      const minMs = csvRangeStart.getTime();
+      const maxMs = csvRangeEnd.getTime() + 24 * 60 * 60 * 1000 - 1;
+      const inRangeIds = new Set(
+        pendingClaims
+          .filter((claim) => {
+            const claimTime = new Date(claim.purchased_at).getTime();
+            return Number.isFinite(claimTime) && claimTime >= minMs && claimTime <= maxMs;
+          })
+          .map((claim) => claim.id)
+          .filter(Boolean) as string[]
+      );
+      for (const id of Array.from(unmatchedClaims)) {
+        if (!inRangeIds.has(id)) unmatchedClaims.delete(id);
+      }
+    }
+
+    csvUnmatchedClaimIds = Array.from(unmatchedClaims);
+  }
+
+  async function handleCsvUpload(file: File) {
+    csvFileName = file.name;
+    csvError = '';
+    csvParsedCount = 0;
+    csvMatches = [];
+    csvUnmatchedCount = 0;
+    csvUnmatchedClaimIds = [];
+    csvRangeStart = null;
+    csvRangeEnd = null;
+    csvApprovedClaimIds = [];
+    csvDeniedClaimIds = [];
+
+    try {
+      const text = await file.text();
+      buildMatchesFromCsv(text);
+    } catch (error) {
+      console.error('Error reading CSV:', error);
+      csvError = 'Failed to read CSV file.';
+    }
+  }
+
+  async function applyCsvMatches() {
+    const pendingCount = getPendingMatchCount();
+    if (pendingCount === 0) return;
+    csvApplying = true;
+    try {
+      for (const match of csvMatches) {
+        if (csvApprovedClaimIds.includes(match.claimId)) continue;
+        await updateClaimStatus(match.claimId, 'approved');
+        claims = claims.map((claim) =>
+          claim.id === match.claimId ? { ...claim, status: 'approved' } : claim
+        );
+        csvApprovedClaimIds = [...csvApprovedClaimIds, match.claimId];
+      }
+    } catch (error) {
+      console.error('Error applying CSV matches:', error);
+      csvError = 'Failed to apply approvals.';
+    } finally {
+      csvApplying = false;
+    }
+  }
+
+  async function denyUnmatchedClaims() {
+    const pendingCount = getPendingDenyCount();
+    if (pendingCount === 0) return;
+    csvApplying = true;
+    try {
+      for (const claimId of csvUnmatchedClaimIds) {
+        if (csvDeniedClaimIds.includes(claimId)) continue;
+        await updateClaimStatus(claimId, 'denied');
+        claims = claims.map((claim) =>
+          claim.id === claimId ? { ...claim, status: 'denied' } : claim
+        );
+        csvDeniedClaimIds = [...csvDeniedClaimIds, claimId];
+      }
+    } catch (error) {
+      console.error('Error denying unmatched claims:', error);
+      csvError = 'Failed to deny unmatched claims.';
+    } finally {
+      csvApplying = false;
+    }
+  }
+
+  function getPendingMatchCount(): number {
+    if (csvMatches.length === 0) return 0;
+    const approved = new Set(csvApprovedClaimIds);
+    return csvMatches.filter((match) => !approved.has(match.claimId)).length;
+  }
+
+  function getPendingDenyCount(): number {
+    if (csvUnmatchedClaimIds.length === 0) return 0;
+    const denied = new Set(csvDeniedClaimIds);
+    return csvUnmatchedClaimIds.filter((claimId) => !denied.has(claimId)).length;
   }
 </script>
 
@@ -417,7 +742,108 @@
       />
     </section>
 
-    <section class="flex items-start justify-between gap-4">
+    <section class="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-6 md:p-8">
+      <div class="flex flex-col gap-4">
+        <div>
+          <p class="text-xs font-black uppercase tracking-widest text-zinc-500">CSV Auto-Approve</p>
+          <h2 class="text-lg font-black text-white mt-1">Match Transactions</h2>
+          <p class="text-xs text-zinc-500 mt-1">
+            Matches pending claims by amount, last 4, and time within 3 minutes.
+          </p>
+        </div>
+        <div class="flex flex-wrap items-center gap-3">
+          <label class="inline-flex items-center gap-3 bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-zinc-300 cursor-pointer hover:text-white transition-colors">
+            <input
+              type="file"
+              accept=".csv,text/csv"
+              class="hidden"
+              on:change={(event) => {
+                const target = event.currentTarget as HTMLInputElement;
+                const file = target.files?.[0];
+                if (file) handleCsvUpload(file);
+                if (target) target.value = '';
+              }}
+            />
+            Upload CSV
+          </label>
+          {#if csvFileName}
+            <span class="text-xs font-bold uppercase tracking-widest text-zinc-500">{csvFileName}</span>
+          {/if}
+        </div>
+        {#if csvError}
+          <p class="text-xs font-bold uppercase tracking-widest text-red-400">{csvError}</p>
+        {/if}
+        {#if csvParsedCount > 0}
+          <div class="bg-zinc-950 border border-zinc-800 rounded-xl p-4">
+            <div class="flex flex-wrap gap-6 text-xs font-bold uppercase tracking-widest text-zinc-400">
+              <span>{csvParsedCount} Transactions</span>
+              <span>{csvMatches.length} Matches</span>
+              <span>{csvUnmatchedCount} Unmatched</span>
+            </div>
+            {#if csvRangeStart && csvRangeEnd}
+              <div class="mt-2 text-[11px] font-bold uppercase tracking-widest text-zinc-500">
+                Range: {csvRangeStart.toLocaleDateString()} - {csvRangeEnd.toLocaleDateString()}
+              </div>
+            {/if}
+            {#if csvMatches.length > 0}
+              <div class="mt-4 flex flex-col gap-2 text-xs text-zinc-300">
+                {#each csvMatches as match}
+                  <div class="flex items-center justify-between gap-4 border-b border-zinc-800/60 pb-2">
+                    <span class="font-mono text-zinc-400">#{match.transactionId.slice(0, 10)}</span>
+                    <span>${match.amount.toFixed(2)} • *{match.last4}</span>
+                    <span class="text-zinc-500">{match.time.toLocaleDateString()} {match.time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                  </div>
+                {/each}
+              </div>
+              <div class="mt-4">
+                {#if getPendingMatchCount() > 0}
+                <button
+                  type="button"
+                  on:click={applyCsvMatches}
+                  disabled={csvApplying}
+                  class="bg-green-500 text-black font-black px-6 py-3 rounded-xl uppercase tracking-tight disabled:opacity-50"
+                >
+                  {csvApplying ? 'Applying...' : `Approve ${getPendingMatchCount()} Claims`}
+                </button>
+                {:else}
+                  <button
+                    type="button"
+                    disabled={true}
+                    class="bg-green-500/30 text-green-100 font-black px-6 py-3 rounded-xl uppercase tracking-tight cursor-not-allowed"
+                  >
+                    Approved {csvMatches.length} Claims
+                  </button>
+                {/if}
+              </div>
+            {/if}
+            {#if csvUnmatchedClaimIds.length > 0}
+              <div class="mt-3">
+                {#if getPendingDenyCount() > 0}
+                <button
+                  type="button"
+                  on:click={denyUnmatchedClaims}
+                  disabled={csvApplying}
+                  class="bg-red-500 text-white font-black px-6 py-3 rounded-xl uppercase tracking-tight disabled:opacity-50"
+                >
+                  {csvApplying ? 'Applying...' : `Deny ${getPendingDenyCount()} Unmatched Claims`}
+                </button>
+                {:else}
+                  <button
+                    type="button"
+                    disabled={true}
+                    class="bg-red-500/30 text-red-100 font-black px-6 py-3 rounded-xl uppercase tracking-tight cursor-not-allowed"
+                  >
+                    Denied {csvUnmatchedClaimIds.length} Unmatched Claims
+                  </button>
+                {/if}
+              </div>
+            {/if}
+          </div>
+        {/if}
+      </div>
+    </section>
+
+    <section class="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
       <div class="min-w-0">
         <h1 class="text-zinc-500 uppercase tracking-tighter text-sm font-bold">
           <span class="text-white">Kick</span><span class="text-orange-500">back</span> Dashboard
@@ -425,7 +851,7 @@
         <div class="text-[3.4rem] sm:text-6xl md:text-6xl font-black text-white mt-1">${totalAmount.toFixed(2)}</div>
         <p class="text-xs font-black uppercase tracking-widest text-zinc-500 mt-1">Total Claimed</p>
       </div>
-      <div class="text-right space-y-4">
+      <div class="flex flex-col gap-4 md:text-right">
         <div>
           <div class="text-zinc-500 text-sm uppercase font-bold">Total Fee</div>
           <div class="text-2xl font-bold text-orange-400 mt-1">${totalFee.toFixed(2)}</div>
@@ -437,13 +863,61 @@
       </div>
     </section>
 
+    {#if selectedCount > 0}
+    <section class="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-5 md:p-6" transition:slide>
+      <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div>
+          <p class="text-xs font-black uppercase tracking-widest text-zinc-500">Bulk Actions</p>
+          <p class="text-sm font-bold text-white mt-1">{selectedCount} Selected</p>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <button
+            type="button"
+            on:click={() => applyBulkStatus('approved')}
+            disabled={bulkApplying || selectedCount === 0}
+            class="bg-green-500 text-black font-black px-4 py-2 rounded-xl uppercase tracking-tight text-xs disabled:opacity-50"
+          >
+            {bulkApplying ? 'Applying...' : 'Bulk Approve'}
+          </button>
+          <button
+            type="button"
+            on:click={() => applyBulkStatus('pending')}
+            disabled={bulkApplying || selectedCount === 0}
+            class="bg-zinc-200 text-black font-black px-4 py-2 rounded-xl uppercase tracking-tight text-xs disabled:opacity-50"
+          >
+            {bulkApplying ? 'Applying...' : 'Bulk Pending'}
+          </button>
+          <button
+            type="button"
+            on:click={() => applyBulkStatus('denied')}
+            disabled={bulkApplying || selectedCount === 0}
+            class="bg-red-500 text-white font-black px-4 py-2 rounded-xl uppercase tracking-tight text-xs disabled:opacity-50"
+          >
+            {bulkApplying ? 'Applying...' : 'Bulk Deny'}
+          </button>
+        </div>
+      </div>
+    </section>
+    {/if}
+
     <div class="bg-zinc-900/50 border border-zinc-800 rounded-2xl overflow-hidden">
       <div class="relative">
         <div class="w-full overflow-x-auto">
         <table class="min-w-[720px] w-full text-left border-collapse">
         <thead>
           <tr class="bg-zinc-800/50 text-zinc-400 text-xs uppercase">
-            <th class="p-3 pl-4 font-semibold">Date/Time</th>
+            <th class="p-3 pl-4 font-semibold">
+              <div class="flex items-center gap-3">
+                <input
+                  type="checkbox"
+                  aria-label="Select all claims"
+                  checked={getSelectableClaimIds().length > 0 && getSelectableClaimIds().every((id) => selectedClaimIds.has(id))}
+                  on:change={toggleSelectAllClaims}
+                  class="h-4 w-4 rounded border border-zinc-600 bg-zinc-950 accent-green-500"
+                />
+                <span>Date/Time</span>
+              </div>
+            </th>
             <th class="p-4 font-semibold text-center">Total Claimed</th>
             <th class="p-4 font-semibold text-center">
               <span class="relative inline-flex items-center">
@@ -476,13 +950,35 @@
         <tbody class="divide-y divide-zinc-800">
           {#each weekGroups as weekGroup}
             <tr class="bg-zinc-950/60 text-zinc-400 text-[10px] uppercase tracking-[0.3em]">
-              <td colspan="7" class="px-4 py-3 font-black">{weekGroup.label}</td>
+              <td colspan="7" class="px-4 py-3 font-black">
+                <div class="flex items-center gap-3">
+                  <input
+                    type="checkbox"
+                    aria-label={`Select week ${weekGroup.label}`}
+                    checked={isWeekSelected(weekGroup.claims)}
+                    on:change={() => toggleWeekSelection(weekGroup.claims)}
+                    class="h-4 w-4 rounded border border-zinc-600 bg-zinc-950 accent-green-500"
+                  />
+                  <span>{weekGroup.label}</span>
+                </div>
+              </td>
             </tr>
             {#each weekGroup.claims as claim}
               <tr class="hover:bg-zinc-800/30 transition-colors">
                 <td class="p-3 pl-4 text-zinc-400 text-sm">
-                  {new Date(claim.purchased_at).toLocaleDateString()} 
-                  <span class="text-zinc-600 ml-1">{new Date(claim.purchased_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                  <div class="flex items-center gap-3">
+                    <input
+                      type="checkbox"
+                      aria-label={`Select claim ${claim.id}`}
+                      checked={isSelected(claim.id)}
+                      on:change={() => toggleSelect(claim.id)}
+                      class="h-4 w-4 rounded border border-zinc-600 bg-zinc-950 accent-green-500"
+                    />
+                    <span>
+                      {new Date(claim.purchased_at).toLocaleDateString()} 
+                      <span class="text-zinc-600 ml-1">{new Date(claim.purchased_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                    </span>
+                  </div>
                 </td>
                 <td class={`p-4 text-center font-mono font-bold ${getClaimStatus(claim) === 'denied' ? 'text-zinc-600' : 'text-orange-400'}`}>
                   ${Number(claim.amount).toFixed(2)}
@@ -512,6 +1008,16 @@
                           class="text-xs font-black uppercase tracking-widest text-green-400 hover:text-green-300 transition-colors disabled:opacity-50"
                         >
                           Approve
+                        </button>
+                      {/if}
+                      {#if getClaimStatus(claim) !== 'pending'}
+                        <button
+                          type="button"
+                          on:click={() => handleClaimStatus(claim, 'pending')}
+                          disabled={updatingClaimId === claim.id}
+                          class="text-xs font-black uppercase tracking-widest text-zinc-400 hover:text-white transition-colors disabled:opacity-50"
+                        >
+                          Pending
                         </button>
                       {/if}
                       {#if getClaimStatus(claim) !== 'denied'}

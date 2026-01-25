@@ -119,7 +119,7 @@
         <summary class="list-none p-5 flex items-center justify-between gap-4 cursor-pointer active:bg-zinc-900/50">
           <div class="flex items-center justify-between flex-1 gap-4">
             <div class="flex flex-col justify-center">
-              <p class={`text-xl font-black ${isClaimDenied(claim) ? 'text-zinc-500' : 'text-orange-500'}`}>
+              <p class={`text-xl font-black ${isClaimDenied(claim) ? 'text-zinc-500' : 'text-green-500'}`}>
                 +${calculateKickbackWithRate(claim.amount, getClaimRate(claim)).toFixed(2)}
               </p>
               <p class="text-zinc-300 uppercase tracking-tight text-sm font-bold">{claim.venue}</p>
@@ -172,7 +172,7 @@
               <p class="text-xs font-black text-zinc-400 uppercase mb-1">Referrer</p>
               <p class="text-sm font-bold uppercase">
                 <span class="text-white">{claim.referrer || 'Direct'}</span>
-                <span class={isClaimDenied(claim) ? 'text-zinc-500' : 'text-orange-500'}>
+                <span class={isClaimDenied(claim) ? 'text-zinc-500' : 'text-green-500'}>
                   +${calculateKickbackWithRate(claim.amount, getClaimRate(claim)).toFixed(2)}
                 </span>
               </p>
