@@ -21,6 +21,7 @@ export type ClaimDraft = {
   amount: string;
   venue: string;
   venueId: string;
+  venueCode?: string;
   ref: string;
   last4: string;
 };

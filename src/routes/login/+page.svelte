@@ -5,6 +5,7 @@
   import { calculateKickbackWithRate } from '$lib/claims/utils';
   import { KICKBACK_RATE } from '$lib/claims/constants';
   import { fade } from 'svelte/transition';
+  import { generateReferralCode } from '$lib/referrals/code';
   import {
     buildDraftFromParams,
     draftToQuery,
@@ -21,8 +22,24 @@
   let showResend = false;
   let pendingKickback: string | null = null;
   let mode: 'signup' | 'signin' = 'signup';
-  let venueRates: { id: string; name: string; kickback_guest?: number | null }[] = [];
+  let venueRates: { id: string; name: string; short_code?: string | null; kickback_guest?: number | null }[] = [];
   let showPassword = false;
+
+  async function isReferralCodeAvailable(code: string, userId?: string): Promise<boolean> {
+    const { data, error } = await supabase.from('profiles').select('id').eq('referral_code', code);
+    if (error) throw error;
+    if (!data || data.length === 0) return true;
+    if (userId) return data.every((row) => row.id === userId);
+    return false;
+  }
+
+  async function generateUniqueReferralCode(userId: string): Promise<string> {
+    for (let i = 0; i < 20; i += 1) {
+      const code = generateReferralCode(4);
+      if (await isReferralCodeAvailable(code, userId)) return code;
+    }
+    return generateReferralCode(4);
+  }
 
   onMount(async () => {
     try {
@@ -34,7 +51,11 @@
 
     const draft = getDraftFromUrl(window.location.search) ?? getDraftFromStorage(localStorage);
     const amountValue = Number(draft?.amount ?? '');
-    const venueId = draft?.venueId ?? '';
+    const venueCode = draft?.venueCode ?? '';
+    const venueId =
+      draft?.venueId ??
+      venueRates.find((venue) => (venue.short_code ?? '').toUpperCase() === venueCode.toUpperCase())?.id ??
+      '';
     const venueName = draft?.venue ?? '';
     const rateFromVenue =
       venueRates.find((venue) => venue.id === venueId)?.kickback_guest ??
@@ -66,6 +87,8 @@
     try {
       let user = null;
       let session = null;
+
+      let isSignup = false;
 
       if (mode === 'signin') {
         const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({ email, password });
@@ -99,6 +122,7 @@
         } else {
           user = signUpData?.user ?? null;
           session = signUpData?.session ?? null;
+          isSignup = Boolean(user);
           if (!session) {
             const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
               email,
@@ -124,11 +148,18 @@
       }
 
       if (user) {
-        const profilePayload: { id: string; updated_at: string; last_4?: string } = {
+        const profilePayload: { id: string; updated_at: string; last_4?: string; referral_code?: string } = {
           id: user.id,
           updated_at: new Date().toISOString()
         };
         if (draft.last4) profilePayload.last_4 = draft.last4;
+        if (isSignup) {
+          try {
+            profilePayload.referral_code = await generateUniqueReferralCode(user.id);
+          } catch (error) {
+            console.error('Failed to generate referral code:', error);
+          }
+        }
         await supabase.from('profiles').upsert(profilePayload);
       }
 

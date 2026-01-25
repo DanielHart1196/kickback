@@ -20,6 +20,7 @@
   import type { Claim } from '$lib/claims/types';
   import type { Venue } from '$lib/venues/types';
   import { fetchActiveVenues } from '$lib/venues/repository';
+  import { generateReferralCode, isReferralCodeValid, normalizeReferralCode } from '$lib/referrals/code';
   import Dashboard from '$lib/components/Dashboard.svelte';
   import ClaimForm from '$lib/components/ClaimForm.svelte';
   import GuestWarningModal from '$lib/components/GuestWarningModal.svelte';
@@ -54,8 +55,8 @@
   let showGuestWarning = false;
 
   let session: Session | null | undefined = undefined;
+  let userRefCode = 'member';
 
-  $: userRefCode = session?.user?.email?.split('@')[0] || 'member';
   $: last4 = normalizeLast4(last4);
   $: amount = parseAmount(amountInput);
   $: venueId = getVenueIdByName(venue);
@@ -79,6 +80,68 @@
     } else if (referrerLockedByVenue) {
       isReferrerLocked = false;
       referrerLockedByVenue = false;
+    }
+  }
+
+  async function isReferralCodeAvailable(code: string, userId: string): Promise<boolean> {
+    const { data, error } = await supabase.from('profiles').select('id').eq('referral_code', code);
+    if (error) throw error;
+    if (!data || data.length === 0) return true;
+    return data.every((row) => row.id === userId);
+  }
+
+  async function generateUniqueReferralCode(userId: string): Promise<string> {
+    for (let i = 0; i < 20; i += 1) {
+      const code = generateReferralCode(4);
+      if (await isReferralCodeAvailable(code, userId)) return code;
+    }
+    return generateReferralCode(4);
+  }
+
+  async function ensureReferralCode(userId: string, fallbackEmail: string) {
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('referral_code')
+        .eq('id', userId)
+        .maybeSingle();
+      if (error) throw error;
+      if (data?.referral_code) {
+        userRefCode = data.referral_code;
+        return;
+      }
+      const generated = await generateUniqueReferralCode(userId);
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update({ referral_code: generated, updated_at: new Date().toISOString() })
+        .eq('id', userId);
+      if (updateError) throw updateError;
+      userRefCode = generated;
+    } catch (error) {
+      console.error('Error ensuring referral code:', error);
+      userRefCode = fallbackEmail.split('@')[0] || 'member';
+    }
+  }
+
+  async function updateReferralCode(code: string): Promise<{ ok: boolean; message?: string; code?: string }> {
+    if (!session?.user?.id) return { ok: false, message: 'Sign in to update your code.' };
+    const normalized = normalizeReferralCode(code);
+    if (!isReferralCodeValid(normalized)) {
+      return { ok: false, message: 'Use 4-8 letters or numbers.' };
+    }
+    try {
+      const available = await isReferralCodeAvailable(normalized, session.user.id);
+      if (!available) return { ok: false, message: 'Code already taken.' };
+      const { error } = await supabase
+        .from('profiles')
+        .update({ referral_code: normalized, updated_at: new Date().toISOString() })
+        .eq('id', session.user.id);
+      if (error) throw error;
+      userRefCode = normalized;
+      return { ok: true, code: normalized };
+    } catch (error) {
+      console.error('Error updating referral code:', error);
+      return { ok: false, message: 'Failed to update code.' };
     }
   }
 
@@ -146,7 +209,14 @@
 
     if (draft) {
       amountInput = draft.amount ?? '';
-      venue = draft.venueId ? getVenueNameById(draft.venueId) || draft.venue || '' : draft.venue || '';
+      if (draft.venueCode) {
+        const venueFromCode = getVenueByCode(draft.venueCode);
+        venue = venueFromCode?.name ?? draft.venue ?? '';
+      } else if (draft.venueId) {
+        venue = getVenueNameById(draft.venueId) || draft.venue || '';
+      } else {
+        venue = draft.venue || '';
+      }
       referrer = draft.ref || '';
       last4 = draft.last4 || '';
 
@@ -180,6 +250,7 @@
         if (profile?.last_4) last4 = String(profile.last_4);
       }
 
+      await ensureReferralCode(session.user.id, session.user.email ?? 'member');
       await fetchDashboardData();
     }
   });
@@ -326,10 +397,12 @@
     draftReferrer: string,
     draftLast4: string
   ) {
+    const venueCode = getVenueCodeById(draftVenueId);
     const query = draftToQuery({
       amount: draftAmount ? draftAmount.toString() : '',
       venue: draftVenue,
       venueId: draftVenueId,
+      venueCode,
       ref: draftReferrer,
       last4: draftLast4
     });
@@ -348,6 +421,18 @@
     if (!normalizedName) return '';
     const match = venues.find((v) => v.name.trim().toLowerCase() === normalizedName);
     return match?.id ?? '';
+  }
+
+  function getVenueByCode(code: string): Venue | undefined {
+    const normalizedCode = code.trim().toUpperCase();
+    if (!normalizedCode) return undefined;
+    return venues.find((v) => (v.short_code ?? '').toUpperCase() === normalizedCode);
+  }
+
+  function getVenueCodeById(id: string): string {
+    if (!id) return '';
+    const match = venues.find((v) => v.id === id);
+    return match?.short_code ?? '';
   }
 
   function getVenueNameById(id: string): string {
@@ -509,6 +594,7 @@
     <ReferralModal
       {venues}
       userRefCode={userRefCode}
+      onUpdateReferralCode={updateReferralCode}
       onClose={() => showReferModal = false}
     />
   {/if}

@@ -6,6 +6,7 @@
   import { calculateKickbackWithRate, calculateTotalAmount } from '$lib/claims/utils';
   import type { Claim, ClaimStatus } from '$lib/claims/types';
   import type { Venue } from '$lib/venues/types';
+  import { buildVenueBase, generateVenueCode } from '$lib/venues/code';
 
   let claims: Claim[] = [];
   let loading = true;
@@ -25,14 +26,16 @@
   let showRatesTip = false;
   let ratesTipTimer: ReturnType<typeof setTimeout> | null = null;
   let csvFileName = '';
+  let csvSourceText = '';
   let csvParsedCount = 0;
   let csvMatches: { claimId: string; transactionId: string; amount: number; last4: string; time: Date }[] = [];
   let csvUnmatchedCount = 0;
   let csvUnmatchedClaimIds: string[] = [];
   let csvError = '';
-  let csvApplying = false;
-  let csvRangeStart: Date | null = null;
-  let csvRangeEnd: Date | null = null;
+  let csvApproving = false;
+  let csvDenying = false;
+  let pendingMatchCount = 0;
+  let pendingDenyCount = 0;
   let csvApprovedClaimIds: string[] = [];
   let csvDeniedClaimIds: string[] = [];
   let selectedClaimIds = new Set<string>();
@@ -53,10 +56,35 @@
     }
   });
 
-  $: totalAmount = calculateTotalAmount(claims);
-  $: totalFee = calculateTotalFee(claims);
+  $: selectedClaims = claims.filter((claim) => claim.id && selectedClaimIds.has(claim.id));
+  $: totalAmount = calculateTotalAmount(selectedCount > 0 ? selectedClaims : claims);
+  $: totalFee = calculateTotalFee(selectedCount > 0 ? selectedClaims : claims);
+  $: totalClaimsCount = selectedCount > 0 ? selectedClaims.length : claims.length;
+  $: isFullSelection = selectedCount > 0 && selectedCount === claims.length;
+  $: selectedWeekLabel = getSelectedWeekLabel(weekGroups, selectedClaimIds, selectedCount);
   $: weekGroups = groupClaimsByWeek(claims);
   $: selectedCount = selectedClaimIds.size;
+  $: allSelected =
+    getSelectableClaimIds().length > 0 &&
+    getSelectableClaimIds().every((id) => selectedClaimIds.has(id));
+  $: if (selectedCount === 0 && csvFileName) {
+    clearCsvState();
+  }
+  $: pendingMatchCount = csvMatches.filter((match) => {
+    if (csvApprovedClaimIds.includes(match.claimId)) return false;
+    const claim = claims.find((item) => item.id === match.claimId);
+    return claim ? getClaimStatus(claim) === 'pending' : true;
+  }).length;
+  $: pendingDenyCount = csvUnmatchedClaimIds.filter((claimId) => {
+    if (csvDeniedClaimIds.includes(claimId)) return false;
+    const claim = claims.find((item) => item.id === claimId);
+    return claim ? getClaimStatus(claim) === 'pending' : true;
+  }).length;
+  $: if (csvSourceText && !csvApproving && !csvDenying) {
+    selectedClaimIds;
+    claims;
+    buildMatchesFromCsv(csvSourceText);
+  }
 
   async function fetchVenue() {
     const { data: sessionData } = await supabase.auth.getSession();
@@ -66,7 +94,7 @@
 
     const { data: directVenues, error: directError } = await supabase
       .from('venues')
-      .select('id, name, logo_url, kickback_guest, kickback_referrer, active, created_by')
+      .select('id, name, short_code, logo_url, kickback_guest, kickback_referrer, active, created_by')
       .eq('created_by', user.id)
       .limit(1);
 
@@ -90,9 +118,9 @@
       if (venueIds.length > 0) {
         const { data: linkedVenues, error: linkedError } = await supabase
           .from('venues')
-          .select('id, name, logo_url, kickback_guest, kickback_referrer, active')
-          .in('id', venueIds)
-          .limit(1);
+        .select('id, name, short_code, logo_url, kickback_guest, kickback_referrer, active')
+        .in('id', venueIds)
+        .limit(1);
 
         if (linkedError) {
           console.error('Error fetching linked venue:', linkedError);
@@ -115,11 +143,13 @@
       const user = sessionData.session?.user;
       if (!user) return;
 
+      const shortCode = await generateUniqueVenueCode(venueName.trim());
       const payload = {
         name: venueName.trim(),
         created_by: user.id,
         kickback_guest: Number(guestRate),
-        kickback_referrer: Number(referrerRate)
+        kickback_referrer: Number(referrerRate),
+        short_code: shortCode
       };
 
       const { data, error } = await supabase.from('venues').insert(payload).select().single();
@@ -139,10 +169,17 @@
     savingVenue = true;
     savingError = '';
     try {
+      const trimmedName = venueName.trim();
+      const nameChanged = trimmedName !== venue.name;
+      const shortCode =
+        nameChanged || !venue.short_code
+          ? await generateUniqueVenueCode(trimmedName)
+          : venue.short_code;
       const payload = {
-        name: venueName.trim(),
+        name: trimmedName,
         kickback_guest: Number(guestRate),
-        kickback_referrer: Number(referrerRate)
+        kickback_referrer: Number(referrerRate),
+        short_code: shortCode
       };
       const { error } = await supabase.from('venues').update(payload).eq('id', venue.id);
       if (error) throw error;
@@ -279,6 +316,21 @@
     return Array.from(groups.values()).sort((a, b) => b.weekStart.getTime() - a.weekStart.getTime());
   }
 
+  function getSelectedWeekLabel(
+    groups: { label: string; claims: Claim[] }[],
+    selectedIds: Set<string>,
+    count: number
+  ): string | null {
+    if (count === 0) return null;
+    const matching = groups.filter((group) => {
+      const ids = group.claims.map((claim) => claim.id).filter(Boolean) as string[];
+      return ids.length > 0 && ids.every((id) => selectedIds.has(id));
+    });
+    if (matching.length !== 1) return null;
+    const weekCount = matching[0].claims.filter((claim) => claim.id).length;
+    return weekCount === count ? matching[0].label.toUpperCase() : null;
+  }
+
   function getCombinedRate(claim: Claim): number {
     const guestRate = Number(claim.kickback_guest_rate ?? 5);
     const referrerRate = Number(claim.kickback_referrer_rate ?? 5);
@@ -355,9 +407,9 @@
     return weekClaims.map((claim) => claim.id).filter(Boolean) as string[];
   }
 
-  function isWeekSelected(weekClaims: Claim[]): boolean {
+  function isWeekSelected(weekClaims: Claim[], selectedIds: Set<string>): boolean {
     const ids = getWeekSelectableIds(weekClaims);
-    return ids.length > 0 && ids.every((id) => selectedClaimIds.has(id));
+    return ids.length > 0 && ids.every((id) => selectedIds.has(id));
   }
 
   function toggleWeekSelection(weekClaims: Claim[]) {
@@ -401,6 +453,26 @@
     }
   }
 
+  async function isVenueCodeAvailable(code: string, venueId?: string): Promise<boolean> {
+    const { data, error } = await supabase.from('venues').select('id').eq('short_code', code);
+    if (error) throw error;
+    if (!data || data.length === 0) return true;
+    if (venueId) return data.every((row) => row.id === venueId);
+    return false;
+  }
+
+  async function generateUniqueVenueCode(name: string): Promise<string> {
+    const base = buildVenueBase(name, 12);
+    if (base.length >= 4 && (await isVenueCodeAvailable(base, venue?.id))) {
+      return base;
+    }
+    for (let i = 0; i < 20; i += 1) {
+      const code = generateVenueCode(name, 4, 12);
+      if (await isVenueCodeAvailable(code, venue?.id)) return code;
+    }
+    return generateVenueCode(name, 4, 12);
+  }
+
   function parseMoney(value: string): number | null {
     const cleaned = value.replace(/[^0-9.-]/g, '');
     if (!cleaned) return null;
@@ -439,10 +511,6 @@
     csvMatches = [];
     csvUnmatchedCount = 0;
     csvUnmatchedClaimIds = [];
-    csvRangeStart = null;
-    csvRangeEnd = null;
-    csvApprovedClaimIds = [];
-    csvDeniedClaimIds = [];
 
     const lines = csvText.split(/\r?\n/).filter((line) => line.trim().length > 0);
     if (lines.length < 2) {
@@ -463,13 +531,14 @@
       return;
     }
 
-    const pendingClaims = claims.filter((claim) => getClaimStatus(claim) === 'pending');
+    const selectedIds = new Set(selectedClaimIds);
+    const pendingClaims = claims.filter(
+      (claim) => claim.id && selectedIds.has(claim.id) && getClaimStatus(claim) === 'pending'
+    );
     const unmatchedClaims = new Set(pendingClaims.map((claim) => claim.id).filter(Boolean) as string[]);
 
     const parsedRows = lines.slice(1).map((line) => parseCsvLine(line));
     csvParsedCount = parsedRows.length;
-    const transactionTimes: Date[] = [];
-
     for (const row of parsedRows) {
       const date = row[dateIndex]?.trim();
       const time = row[timeIndex]?.trim();
@@ -493,7 +562,6 @@
         csvUnmatchedCount += 1;
         continue;
       }
-      transactionTimes.push(transactionTime);
 
       let bestClaim: Claim | null = null;
       let bestDiff = Number.POSITIVE_INFINITY;
@@ -521,58 +589,42 @@
       }
     }
 
-    if (transactionTimes.length > 0) {
-      const start = new Date(Math.min(...transactionTimes.map((t) => t.getTime())));
-      const end = new Date(Math.max(...transactionTimes.map((t) => t.getTime())));
-      csvRangeStart = new Date(start.getFullYear(), start.getMonth(), start.getDate());
-      csvRangeEnd = new Date(end.getFullYear(), end.getMonth(), end.getDate());
-    }
-
-    if (csvRangeStart && csvRangeEnd) {
-      const minMs = csvRangeStart.getTime();
-      const maxMs = csvRangeEnd.getTime() + 24 * 60 * 60 * 1000 - 1;
-      const inRangeIds = new Set(
-        pendingClaims
-          .filter((claim) => {
-            const claimTime = new Date(claim.purchased_at).getTime();
-            return Number.isFinite(claimTime) && claimTime >= minMs && claimTime <= maxMs;
-          })
-          .map((claim) => claim.id)
-          .filter(Boolean) as string[]
-      );
-      for (const id of Array.from(unmatchedClaims)) {
-        if (!inRangeIds.has(id)) unmatchedClaims.delete(id);
-      }
-    }
-
     csvUnmatchedClaimIds = Array.from(unmatchedClaims);
+    const matchedIds = new Set(csvMatches.map((match) => match.claimId));
+    const unmatchedIds = new Set(csvUnmatchedClaimIds);
+    csvApprovedClaimIds = csvApprovedClaimIds.filter((id) => matchedIds.has(id));
+    csvDeniedClaimIds = csvDeniedClaimIds.filter((id) => unmatchedIds.has(id));
   }
 
   async function handleCsvUpload(file: File) {
+    clearCsvState();
     csvFileName = file.name;
-    csvError = '';
-    csvParsedCount = 0;
-    csvMatches = [];
-    csvUnmatchedCount = 0;
-    csvUnmatchedClaimIds = [];
-    csvRangeStart = null;
-    csvRangeEnd = null;
-    csvApprovedClaimIds = [];
-    csvDeniedClaimIds = [];
 
     try {
       const text = await file.text();
-      buildMatchesFromCsv(text);
+      csvSourceText = text;
+      buildMatchesFromCsv(csvSourceText);
     } catch (error) {
       console.error('Error reading CSV:', error);
       csvError = 'Failed to read CSV file.';
     }
   }
 
+  function clearCsvState() {
+    csvFileName = '';
+    csvSourceText = '';
+    csvError = '';
+    csvParsedCount = 0;
+    csvMatches = [];
+    csvUnmatchedCount = 0;
+    csvUnmatchedClaimIds = [];
+    csvApprovedClaimIds = [];
+    csvDeniedClaimIds = [];
+  }
+
   async function applyCsvMatches() {
-    const pendingCount = getPendingMatchCount();
-    if (pendingCount === 0) return;
-    csvApplying = true;
+    if (pendingMatchCount === 0) return;
+    csvApproving = true;
     try {
       for (const match of csvMatches) {
         if (csvApprovedClaimIds.includes(match.claimId)) continue;
@@ -582,18 +634,18 @@
         );
         csvApprovedClaimIds = [...csvApprovedClaimIds, match.claimId];
       }
+      if (csvSourceText) buildMatchesFromCsv(csvSourceText);
     } catch (error) {
       console.error('Error applying CSV matches:', error);
       csvError = 'Failed to apply approvals.';
     } finally {
-      csvApplying = false;
+      csvApproving = false;
     }
   }
 
   async function denyUnmatchedClaims() {
-    const pendingCount = getPendingDenyCount();
-    if (pendingCount === 0) return;
-    csvApplying = true;
+    if (pendingDenyCount === 0) return;
+    csvDenying = true;
     try {
       for (const claimId of csvUnmatchedClaimIds) {
         if (csvDeniedClaimIds.includes(claimId)) continue;
@@ -603,25 +655,15 @@
         );
         csvDeniedClaimIds = [...csvDeniedClaimIds, claimId];
       }
+      if (csvSourceText) buildMatchesFromCsv(csvSourceText);
     } catch (error) {
       console.error('Error denying unmatched claims:', error);
       csvError = 'Failed to deny unmatched claims.';
     } finally {
-      csvApplying = false;
+      csvDenying = false;
     }
   }
 
-  function getPendingMatchCount(): number {
-    if (csvMatches.length === 0) return 0;
-    const approved = new Set(csvApprovedClaimIds);
-    return csvMatches.filter((match) => !approved.has(match.claimId)).length;
-  }
-
-  function getPendingDenyCount(): number {
-    if (csvUnmatchedClaimIds.length === 0) return 0;
-    const denied = new Set(csvDeniedClaimIds);
-    return csvUnmatchedClaimIds.filter((claimId) => !denied.has(claimId)).length;
-  }
 </script>
 
 <div class="p-4 md:p-10 bg-zinc-950 min-h-screen text-zinc-100 font-sans">
@@ -742,123 +784,28 @@
       />
     </section>
 
-    <section class="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-6 md:p-8">
-      <div class="flex flex-col gap-4">
-        <div>
-          <p class="text-xs font-black uppercase tracking-widest text-zinc-500">CSV Auto-Approve</p>
-          <h2 class="text-lg font-black text-white mt-1">Match Transactions</h2>
-          <p class="text-xs text-zinc-500 mt-1">
-            Matches pending claims by amount, last 4, and time within 3 minutes.
-          </p>
-        </div>
-        <div class="flex flex-wrap items-center gap-3">
-          <label class="inline-flex items-center gap-3 bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-zinc-300 cursor-pointer hover:text-white transition-colors">
-            <input
-              type="file"
-              accept=".csv,text/csv"
-              class="hidden"
-              on:change={(event) => {
-                const target = event.currentTarget as HTMLInputElement;
-                const file = target.files?.[0];
-                if (file) handleCsvUpload(file);
-                if (target) target.value = '';
-              }}
-            />
-            Upload CSV
-          </label>
-          {#if csvFileName}
-            <span class="text-xs font-bold uppercase tracking-widest text-zinc-500">{csvFileName}</span>
-          {/if}
-        </div>
-        {#if csvError}
-          <p class="text-xs font-bold uppercase tracking-widest text-red-400">{csvError}</p>
-        {/if}
-        {#if csvParsedCount > 0}
-          <div class="bg-zinc-950 border border-zinc-800 rounded-xl p-4">
-            <div class="flex flex-wrap gap-6 text-xs font-bold uppercase tracking-widest text-zinc-400">
-              <span>{csvParsedCount} Transactions</span>
-              <span>{csvMatches.length} Matches</span>
-              <span>{csvUnmatchedCount} Unmatched</span>
-            </div>
-            {#if csvRangeStart && csvRangeEnd}
-              <div class="mt-2 text-[11px] font-bold uppercase tracking-widest text-zinc-500">
-                Range: {csvRangeStart.toLocaleDateString()} - {csvRangeEnd.toLocaleDateString()}
-              </div>
-            {/if}
-            {#if csvMatches.length > 0}
-              <div class="mt-4 flex flex-col gap-2 text-xs text-zinc-300">
-                {#each csvMatches as match}
-                  <div class="flex items-center justify-between gap-4 border-b border-zinc-800/60 pb-2">
-                    <span class="font-mono text-zinc-400">#{match.transactionId.slice(0, 10)}</span>
-                    <span>${match.amount.toFixed(2)} • *{match.last4}</span>
-                    <span class="text-zinc-500">{match.time.toLocaleDateString()} {match.time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                  </div>
-                {/each}
-              </div>
-              <div class="mt-4">
-                {#if getPendingMatchCount() > 0}
-                <button
-                  type="button"
-                  on:click={applyCsvMatches}
-                  disabled={csvApplying}
-                  class="bg-green-500 text-black font-black px-6 py-3 rounded-xl uppercase tracking-tight disabled:opacity-50"
-                >
-                  {csvApplying ? 'Applying...' : `Approve ${getPendingMatchCount()} Claims`}
-                </button>
-                {:else}
-                  <button
-                    type="button"
-                    disabled={true}
-                    class="bg-green-500/30 text-green-100 font-black px-6 py-3 rounded-xl uppercase tracking-tight cursor-not-allowed"
-                  >
-                    Approved {csvMatches.length} Claims
-                  </button>
-                {/if}
-              </div>
-            {/if}
-            {#if csvUnmatchedClaimIds.length > 0}
-              <div class="mt-3">
-                {#if getPendingDenyCount() > 0}
-                <button
-                  type="button"
-                  on:click={denyUnmatchedClaims}
-                  disabled={csvApplying}
-                  class="bg-red-500 text-white font-black px-6 py-3 rounded-xl uppercase tracking-tight disabled:opacity-50"
-                >
-                  {csvApplying ? 'Applying...' : `Deny ${getPendingDenyCount()} Unmatched Claims`}
-                </button>
-                {:else}
-                  <button
-                    type="button"
-                    disabled={true}
-                    class="bg-red-500/30 text-red-100 font-black px-6 py-3 rounded-xl uppercase tracking-tight cursor-not-allowed"
-                  >
-                    Denied {csvUnmatchedClaimIds.length} Unmatched Claims
-                  </button>
-                {/if}
-              </div>
-            {/if}
-          </div>
-        {/if}
-      </div>
-    </section>
-
     <section class="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
       <div class="min-w-0">
         <h1 class="text-zinc-500 uppercase tracking-tighter text-sm font-bold">
           <span class="text-white">Kick</span><span class="text-orange-500">back</span> Dashboard
         </h1>
         <div class="text-[3.4rem] sm:text-6xl md:text-6xl font-black text-white mt-1">${totalAmount.toFixed(2)}</div>
-        <p class="text-xs font-black uppercase tracking-widest text-zinc-500 mt-1">Total Claimed</p>
+        <p class="text-xs font-black uppercase tracking-widest text-zinc-500 mt-1">
+          {selectedWeekLabel ? `Total ${selectedWeekLabel}` : selectedCount > 0 && !isFullSelection ? 'Claimed' : 'Total Claimed'}
+        </p>
       </div>
       <div class="flex flex-col gap-4 md:text-right">
         <div>
-          <div class="text-zinc-500 text-sm uppercase font-bold">Total Fee</div>
+          <div class="text-zinc-500 text-sm uppercase font-bold">
+            {selectedCount > 0 && !isFullSelection ? 'Fee' : 'Total Fee'}
+          </div>
           <div class="text-2xl font-bold text-orange-400 mt-1">${totalFee.toFixed(2)}</div>
         </div>
         <div>
-          <div class="text-zinc-500 text-sm uppercase font-bold">Total Claims</div>
-          <div class="text-2xl font-bold mt-1">{claims.length}</div>
+          <div class="text-zinc-500 text-sm uppercase font-bold">
+            {selectedCount > 0 && !isFullSelection ? 'Claims' : 'Total Claims'}
+          </div>
+          <div class="text-2xl font-bold mt-1">{totalClaimsCount}</div>
         </div>
       </div>
     </section>
@@ -870,7 +817,7 @@
           <p class="text-xs font-black uppercase tracking-widest text-zinc-500">Bulk Actions</p>
           <p class="text-sm font-bold text-white mt-1">{selectedCount} Selected</p>
         </div>
-        <div class="flex flex-wrap gap-2">
+        <div class="flex flex-wrap items-center gap-2 md:justify-end md:flex-1">
           <button
             type="button"
             on:click={() => applyBulkStatus('approved')}
@@ -895,8 +842,79 @@
           >
             {bulkApplying ? 'Applying...' : 'Bulk Deny'}
           </button>
+          <label class="inline-flex items-center gap-3 bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2 text-xs font-black text-zinc-300 cursor-pointer hover:text-white transition-colors uppercase tracking-tight">
+            <input
+              type="file"
+              accept=".csv,text/csv"
+              class="hidden"
+              on:change={(event) => {
+                const target = event.currentTarget as HTMLInputElement;
+                const file = target.files?.[0];
+                if (file) handleCsvUpload(file);
+                if (target) target.value = '';
+              }}
+            />
+            Upload CSV
+          </label>
+          {#if csvFileName}
+            <span class="text-[10px] font-black uppercase tracking-widest text-zinc-500">{csvFileName}</span>
+          {/if}
         </div>
       </div>
+      {#if csvError}
+        <p class="text-xs font-bold uppercase tracking-widest text-red-400 mt-3">{csvError}</p>
+      {/if}
+      {#if csvFileName}
+          <div class="mt-4 bg-zinc-950 border border-zinc-800 rounded-xl p-4">
+            <div class="flex flex-wrap gap-6 text-xs font-bold uppercase tracking-widest text-zinc-400">
+              <span>{selectedCount} Claims</span>
+              <span>{csvMatches.length} Matched</span>
+              <span>{csvUnmatchedClaimIds.length} Unmatched</span>
+            </div>
+            <div class="mt-4">
+              {#if pendingMatchCount > 0}
+              <button
+                type="button"
+                on:click={applyCsvMatches}
+                disabled={csvApproving}
+                class="bg-green-500 text-black font-black px-6 py-3 rounded-xl uppercase tracking-tight disabled:opacity-50"
+              >
+                {csvApproving ? 'Applying...' : `Approve ${pendingMatchCount} Matched Claims`}
+              </button>
+              {:else}
+                <button
+                  type="button"
+                  disabled={true}
+                  class="bg-green-500/30 text-green-100 font-black px-6 py-3 rounded-xl uppercase tracking-tight cursor-not-allowed"
+                >
+                  Approved {csvMatches.length} Matched Claims
+                </button>
+              {/if}
+            </div>
+          {#if csvUnmatchedClaimIds.length > 0}
+            <div class="mt-3">
+              {#if pendingDenyCount > 0}
+              <button
+                type="button"
+                on:click={denyUnmatchedClaims}
+                disabled={csvDenying}
+                class="bg-red-500 text-white font-black px-6 py-3 rounded-xl uppercase tracking-tight disabled:opacity-50"
+              >
+                {csvDenying ? 'Applying...' : `Deny ${pendingDenyCount} Unmatched Claims`}
+              </button>
+              {:else}
+                <button
+                  type="button"
+                  disabled={true}
+                  class="bg-red-500/30 text-red-100 font-black px-6 py-3 rounded-xl uppercase tracking-tight cursor-not-allowed"
+                >
+                  Denied {csvUnmatchedClaimIds.length} Unmatched Claims
+                </button>
+              {/if}
+            </div>
+          {/if}
+        </div>
+      {/if}
     </section>
     {/if}
 
@@ -911,9 +929,9 @@
                 <input
                   type="checkbox"
                   aria-label="Select all claims"
-                  checked={getSelectableClaimIds().length > 0 && getSelectableClaimIds().every((id) => selectedClaimIds.has(id))}
+                  checked={allSelected}
                   on:change={toggleSelectAllClaims}
-                  class="h-4 w-4 rounded border border-zinc-600 bg-zinc-950 accent-green-500"
+                  class="h-3.5 w-3.5 accent-white"
                 />
                 <span>Date/Time</span>
               </div>
@@ -955,9 +973,9 @@
                   <input
                     type="checkbox"
                     aria-label={`Select week ${weekGroup.label}`}
-                    checked={isWeekSelected(weekGroup.claims)}
+                    checked={allSelected || isWeekSelected(weekGroup.claims, selectedClaimIds)}
                     on:change={() => toggleWeekSelection(weekGroup.claims)}
-                    class="h-4 w-4 rounded border border-zinc-600 bg-zinc-950 accent-green-500"
+                    class="h-3.5 w-3.5 accent-white"
                   />
                   <span>{weekGroup.label}</span>
                 </div>
@@ -970,9 +988,9 @@
                     <input
                       type="checkbox"
                       aria-label={`Select claim ${claim.id}`}
-                      checked={isSelected(claim.id)}
+                      checked={selectedClaimIds.has(claim.id ?? '')}
                       on:change={() => toggleSelect(claim.id)}
-                      class="h-4 w-4 rounded border border-zinc-600 bg-zinc-950 accent-green-500"
+                      class="h-3.5 w-3.5 accent-white"
                     />
                     <span>
                       {new Date(claim.purchased_at).toLocaleDateString()} 
