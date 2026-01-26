@@ -18,6 +18,7 @@
   export let onDeleteClaim: (claim: Claim) => void = () => {};
   export let onLogout: () => void = () => {};
   export let onOpenRefer: () => void = () => {};
+  export let onRequestInstall: () => void = () => {};
 
   let lastHighlightKey: string | null = null;
   let filterStatus: Set<'pending' | 'approved' | 'denied'> = new Set();
@@ -111,7 +112,11 @@
 
 <div class="w-full max-w-sm space-y-10" in:fade>
   <header class="text-center pt-2">
-    <h1 class="text-4xl font-black tracking-tighter italic uppercase">
+    <h1
+      class="text-4xl font-black tracking-tighter italic uppercase cursor-pointer select-none"
+      on:click={onRequestInstall}
+      title="Add Kickback to home"
+    >
       <span class="text-white">Kick</span><span class="text-orange-500">back</span>
     </h1>
     <p class="text-zinc-500 text-[10px] font-black uppercase tracking-[0.3em] mt-2">Member Dashboard</p>

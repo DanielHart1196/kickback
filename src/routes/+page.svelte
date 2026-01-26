@@ -31,6 +31,7 @@
   import ClaimForm from '$lib/components/ClaimForm.svelte';
   import GuestWarningModal from '$lib/components/GuestWarningModal.svelte';
   import ReferralModal from '$lib/components/ReferralModal.svelte';
+  import { onDestroy } from 'svelte';
 
   let last4 = '';
   let venue = '';
@@ -66,6 +67,7 @@
   let deferredInstallPrompt: any = null;
   let showInstallBanner = false;
   const installPromptKey = 'kickback:install_prompt_shown';
+  let installedHandlerAdded = false;
 
   let amount: number | null = null;
   let amountInput = '';
@@ -88,14 +90,22 @@
       event.preventDefault();
       deferredInstallPrompt = event;
     };
+    const handleInstalled = () => {
+      markInstallPrompted();
+    };
     if (typeof window !== 'undefined') {
       window.addEventListener('popstate', handlePopState);
       window.addEventListener('beforeinstallprompt', handleBeforeInstall as EventListener);
+      window.addEventListener('appinstalled', handleInstalled);
+      installedHandlerAdded = true;
     }
     return () => {
       if (typeof window !== 'undefined') {
         window.removeEventListener('popstate', handlePopState);
         window.removeEventListener('beforeinstallprompt', handleBeforeInstall as EventListener);
+        if (installedHandlerAdded) {
+          window.removeEventListener('appinstalled', handleInstalled);
+        }
       }
     };
   });
@@ -284,6 +294,10 @@
     return !seen;
   }
 
+  function canPromptInstall(): boolean {
+    return typeof window !== 'undefined' && Boolean(deferredInstallPrompt) && !localStorage.getItem(installPromptKey);
+  }
+
   function markInstallPrompted() {
     if (typeof window === 'undefined') return;
     localStorage.setItem(installPromptKey, '1');
@@ -312,6 +326,12 @@
   function dismissInstall() {
     markInstallPrompted();
     deferredInstallPrompt = null;
+  }
+
+  function triggerInstallBanner() {
+    if (canPromptInstall()) {
+      showInstallBanner = true;
+    }
   }
 
   async function hydrateClaimantCodes(claimList: Claim[]) {
@@ -846,6 +866,7 @@
       onDeleteClaim={handleDeleteClaim}
       onLogout={handleSignOut}
       onOpenRefer={openReferModal}
+      onRequestInstall={triggerInstallBanner}
     />
   {:else}
     <ClaimForm
