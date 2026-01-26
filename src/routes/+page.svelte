@@ -117,7 +117,8 @@
   }
 
   async function isReferralCodeAvailable(code: string, userId: string): Promise<boolean> {
-    const { data, error } = await supabase.from('profiles').select('id').eq('referral_code', code);
+    const normalized = normalizeReferralCode(code);
+    const { data, error } = await supabase.from('profiles').select('id').ilike('referral_code', normalized);
     if (error) throw error;
     if (!data || data.length === 0) return true;
     return data.every((row) => row.id === userId);
@@ -128,7 +129,7 @@
     const { data, error } = await supabase
       .from('profiles')
       .select('id')
-      .eq('referral_code', normalized)
+      .ilike('referral_code', normalized)
       .limit(1);
     if (error) throw error;
     return Boolean(data && data.length > 0);

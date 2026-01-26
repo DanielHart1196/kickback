@@ -5,7 +5,7 @@
   import { calculateKickbackWithRate } from '$lib/claims/utils';
   import { KICKBACK_RATE } from '$lib/claims/constants';
   import { fade } from 'svelte/transition';
-  import { generateReferralCode } from '$lib/referrals/code';
+  import { generateReferralCode, normalizeReferralCode } from '$lib/referrals/code';
   import {
     buildDraftFromParams,
     draftToQuery,
@@ -26,7 +26,8 @@
   let showPassword = false;
 
   async function isReferralCodeAvailable(code: string, userId?: string): Promise<boolean> {
-    const { data, error } = await supabase.from('profiles').select('id').eq('referral_code', code);
+    const normalized = normalizeReferralCode(code);
+    const { data, error } = await supabase.from('profiles').select('id').ilike('referral_code', normalized);
     if (error) throw error;
     if (!data || data.length === 0) return true;
     if (userId) return data.every((row) => row.id === userId);
