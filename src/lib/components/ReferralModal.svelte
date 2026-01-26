@@ -22,6 +22,9 @@
   let referralError = '';
   let referralMessage = '';
   let referralEditing = false;
+  let hasAppliedDefault = false;
+
+  const lastSelectedVenueKey = 'kickback:last-selected-venue-id';
   $: referralVenueName = venues.find((venue) => venue.id === referralVenueId)?.name ?? '';
   $: referralVenueCode = venues.find((venue) => venue.id === referralVenueId)?.short_code ?? '';
   $: referralLink = buildReferralLink(userRefCode, referralVenueCode, referralVenueName);
@@ -41,7 +44,7 @@
     const params = new URLSearchParams();
     params.set('ref', code);
     if (venueCode) {
-      params.set('venue_code', venueCode);
+      params.set('venue', venueCode);
     } else if (venueName) {
       params.set('venue', venueName);
     }
@@ -138,6 +141,21 @@
       document.body.style.overflow = original || 'auto';
     };
   });
+
+  $: if (!hasAppliedDefault && !referralVenueId && venues.length > 0) {
+    const storedId =
+      typeof localStorage !== 'undefined' ? localStorage.getItem(lastSelectedVenueKey) : null;
+    if (storedId === '') {
+      referralVenueId = '';
+    } else if (storedId && venues.some((venue) => venue.id === storedId)) {
+      referralVenueId = storedId;
+    }
+    hasAppliedDefault = true;
+  }
+
+  $: if (typeof localStorage !== 'undefined') {
+    localStorage.setItem(lastSelectedVenueKey, referralVenueId);
+  }
 
 </script>
 
@@ -251,7 +269,7 @@
           on:click={shareLink}
           class="w-full bg-orange-500 text-black font-black py-5 rounded-[2rem] text-xl uppercase tracking-tight active:scale-95 transition-all"
         >
-          Share My {referralVenueName ? referralVenueName : ''} Link
+          Share My Link
         </button>
       </div>
     </div>

@@ -2,6 +2,8 @@
   import { onMount } from 'svelte';
   import { fade, fly, slide } from 'svelte/transition';
   import type { Session } from '@supabase/supabase-js';
+  import type { Venue } from '$lib/venues/types';
+  import { isReferralCodeValid, normalizeReferralCode } from '$lib/referrals/code';
 
   export let session: Session | null = null;
   export let showBack = false;
@@ -17,8 +19,9 @@
   export let maxPurchaseTime = '';
   export let last4 = '';
   export let venue = '';
-  export let venues: { id: string; name: string }[] = [];
+  export let venues: Venue[] = [];
   export let referrer = '';
+  export let referrerLookupStatus: 'idle' | 'checking' | 'valid' | 'invalid' = 'idle';
   export let kickbackRatePercent = '5';
   export let isVenueLocked = false;
   export let isReferrerLocked = false;
@@ -37,8 +40,14 @@
   let last4Dirty = false;
   let venueOpen = false;
   let timeInput: HTMLInputElement | null = null;
+  let isFirefox = false;
 
   onMount(() => {
+    isFirefox =
+      typeof navigator !== 'undefined' &&
+      /firefox/i.test(navigator.userAgent) &&
+      !/seamonkey/i.test(navigator.userAgent);
+
     if (amountField && amountField.value && !amountInput) {
       onAmountHydrate(amountField.value);
     }
@@ -59,6 +68,19 @@
     venues.filter((venueOption) =>
       venueOption.name.toLowerCase().includes(venue.trim().toLowerCase())
     );
+  $: referrerValid = referrer.trim().length > 0 && isReferralCodeValid(referrer);
+
+  function handleReferrerInput(event: Event & { currentTarget: HTMLInputElement }) {
+    const raw = event.currentTarget.value;
+    const alphanumeric = raw.replace(/[^a-z0-9]/gi, '');
+    const normalized = normalizeReferralCode(alphanumeric);
+    event.currentTarget.value = normalized;
+    referrer = normalized;
+  }
+  $: selectedVenue =
+    venue.trim().length > 0
+      ? venues.find((venueOption) => venueOption.name.trim().toLowerCase() === venue.trim().toLowerCase())
+      : undefined;
 
   function handleVenueFocus() {
     if (!isVenueLocked) {
@@ -76,6 +98,13 @@
     venue = name;
     venueDirty = true;
     venueOpen = false;
+  }
+
+  function clearVenueSelection() {
+    if (isVenueLocked) return;
+    venue = '';
+    venueDirty = false;
+    venueOpen = true;
   }
 
   function getLocalNowInputValue(): string {
@@ -135,72 +164,112 @@
       <h1 class="text-4xl font-black tracking-tighter italic uppercase">
         <span class="text-white">Kick</span><span class="text-orange-500">back</span>
       </h1>
-      <p class="text-zinc-500 text-sm mt-2">Pilot Program - Claim Portal</p>
+      <p class="text-zinc-500 text-sm mt-2">Claim Portal</p>
     </div>
+
+    {#if selectedVenue?.logo_url}
+      <div class="flex items-center justify-center relative">
+        <img
+          src={selectedVenue.logo_url}
+          alt={selectedVenue.name}
+          class="h-48 w-auto max-w-full object-contain"
+          loading="lazy"
+        />
+        {#if !isVenueLocked}
+          <button
+            type="button"
+            on:click={clearVenueSelection}
+            class="absolute -top-2 -right-2 w-7 h-7 rounded-full bg-zinc-900 border border-zinc-700 text-zinc-300 text-xs font-black flex items-center justify-center hover:text-white transition-colors"
+            aria-label="Change venue"
+          >
+            X
+          </button>
+        {/if}
+      </div>
+    {/if}
+
+    {#if isReferrerLocked && referrer}
+      <div class="text-center text-lg font-black uppercase tracking-[0.3em] text-white">
+        CODE: <span class="text-orange-500">{referrer}</span>
+      </div>
+    {/if}
 
     <div class="bg-zinc-900 border border-zinc-800 p-6 rounded-3xl shadow-2xl">
       <div class="space-y-5">
-        <div>
-          <label for="venue" class="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">Venue</label>
-          <div class="relative" bind:this={venueWrap}>
-            <input 
-              id="venue"
-              type="text" 
-              bind:value={venue} 
-              readonly={isVenueLocked}
-              placeholder="Bar Name"
-              autocomplete="off"
-              spellcheck="false"
-              on:blur={() => venueDirty = true}
-              on:focus={handleVenueFocus}
-              on:input={handleVenueInput}
-              class="venue-input w-full appearance-none bg-zinc-800 border-none p-4 pr-12 rounded-2xl text-lg focus:ring-2 focus:ring-white outline-none {isVenueLocked ? 'opacity-50 cursor-not-allowed' : ''}"
-            />
-            {#if !isVenueLocked}
-              <span class="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-zinc-500">
-                <svg viewBox="0 0 24 24" aria-hidden="true" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M6 9l6 6 6-6" />
-                </svg>
-              </span>
-            {/if}
-            {#if !isVenueLocked && venueOpen}
-              <div class="absolute z-20 mt-2 w-full rounded-2xl border border-zinc-800 bg-zinc-900/95 backdrop-blur-xl shadow-xl max-h-56 overflow-auto">
-                {#if filteredVenues.length === 0}
-                  <div class="px-4 py-3 text-xs font-bold uppercase tracking-widest text-zinc-500">No matches</div>
-                {:else}
-                  {#each filteredVenues as venueOption}
-                    <button
-                      type="button"
-                      on:click={() => handleVenueSelect(venueOption.name)}
-                      class="w-full text-left px-4 py-3 text-sm font-bold uppercase tracking-wide text-zinc-200 hover:bg-zinc-800/60 transition-colors"
-                    >
-                      {venueOption.name}
-                    </button>
-                  {/each}
-                {/if}
-              </div>
+        {#if !selectedVenue?.logo_url}
+          <div>
+            <label for="venue" class="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">Venue</label>
+            <div class="relative" bind:this={venueWrap}>
+              <input 
+                id="venue"
+                type="text" 
+                bind:value={venue} 
+                readonly={isVenueLocked}
+                placeholder="Bar Name"
+                autocomplete="off"
+                spellcheck="false"
+                on:blur={() => venueDirty = true}
+                on:focus={handleVenueFocus}
+                on:input={handleVenueInput}
+                class="venue-input w-full appearance-none bg-zinc-800 border-none p-4 pr-12 rounded-2xl text-lg focus:ring-2 focus:ring-white outline-none {isVenueLocked ? 'opacity-50 cursor-not-allowed' : ''}"
+              />
+              {#if !isVenueLocked}
+                <span class="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-zinc-500">
+                  <svg viewBox="0 0 24 24" aria-hidden="true" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M6 9l6 6 6-6" />
+                  </svg>
+                </span>
+              {/if}
+              {#if !isVenueLocked && venueOpen}
+                <div class="absolute z-20 mt-2 w-full rounded-2xl border border-zinc-800 bg-zinc-900/95 backdrop-blur-xl shadow-xl max-h-56 overflow-auto">
+                  {#if filteredVenues.length === 0}
+                    <div class="px-4 py-3 text-xs font-bold uppercase tracking-widest text-zinc-500">No matches</div>
+                  {:else}
+                    {#each filteredVenues as venueOption}
+                      <button
+                        type="button"
+                        on:click={() => handleVenueSelect(venueOption.name)}
+                        class="w-full text-left px-4 py-3 text-sm font-bold uppercase tracking-wide text-zinc-200 hover:bg-zinc-800/60 transition-colors"
+                      >
+                        {venueOption.name}
+                      </button>
+                    {/each}
+                  {/if}
+                </div>
+              {/if}
+            </div>
+            {#if venueDirty && !venue.trim()}
+              <p class="mt-2 text-[11px] font-bold uppercase tracking-widest text-orange-500/70">Select a venue</p>
             {/if}
           </div>
-          {#if venueDirty && !venue.trim()}
-            <p class="mt-2 text-[11px] font-bold uppercase tracking-widest text-orange-500/70">Select a venue</p>
-          {/if}
-        </div>
+        {/if}
 
-        <div>
-          <label for="referrer" class="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">Referrer ID</label>
-          <input 
-            id="referrer"
-            type="text" 
-            bind:value={referrer} 
-            readonly={isReferrerLocked}
-            placeholder="Who sent you?"
-            on:blur={() => referrerDirty = true}
-            class="w-full bg-zinc-800 border-none p-4 rounded-2xl text-lg focus:ring-2 focus:ring-white outline-none {isReferrerLocked ? 'opacity-50 cursor-not-allowed' : ''}"
-          />
-          {#if referrerDirty && !referrer.trim()}
-            <p class="mt-2 text-[11px] font-bold uppercase tracking-widest text-orange-500/70">Referrer required</p>
-          {/if}
-        </div>
+        {#if !isReferrerLocked}
+          <div>
+            <label for="referrer" class="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">Referrer Code</label>
+            <input 
+              id="referrer"
+              type="text" 
+              bind:value={referrer} 
+              readonly={isReferrerLocked}
+              placeholder="Who sent you?"
+              autocapitalize="characters"
+              spellcheck="false"
+              on:blur={() => referrerDirty = true}
+              on:input={handleReferrerInput}
+              class="w-full bg-zinc-800 border-none p-4 rounded-2xl text-lg focus:ring-2 focus:ring-white outline-none {isReferrerLocked ? 'opacity-50 cursor-not-allowed' : ''}"
+            />
+            {#if referrerDirty && !referrer.trim()}
+              <p class="mt-2 text-[11px] font-bold uppercase tracking-widest text-orange-500/70">Referrer required</p>
+            {:else if referrerDirty && !referrerValid}
+              <p class="mt-2 text-[11px] font-bold uppercase tracking-widest text-orange-500/70">Use 4-8 letters or numbers</p>
+            {:else if referrerDirty && referrerValid && referrerLookupStatus === 'checking'}
+              <p class="mt-2 text-[11px] font-bold uppercase tracking-widest text-zinc-500">Checking code…</p>
+            {:else if referrerDirty && referrerValid && referrerLookupStatus === 'invalid'}
+              <p class="mt-2 text-[11px] font-bold uppercase tracking-widest text-orange-500/70">Unrecognized referral code</p>
+            {/if}
+          </div>
+        {/if}
 
         <div>
           <label for="amount" class="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">Amount</label>
@@ -244,19 +313,22 @@
               bind:value={purchaseTime} 
               bind:this={timeInput}
               max={maxPurchaseTime || undefined}
-              class="time-input w-full appearance-none bg-zinc-800 border-none p-4 pr-12 rounded-2xl text-lg focus:ring-2 focus:ring-white outline-none [color-scheme:dark]"
+              class="time-input w-full appearance-none bg-zinc-800 border-none p-4 {isFirefox ? 'pr-4 text-base' : 'pr-12 text-lg'} rounded-2xl focus:ring-2 focus:ring-white outline-none [color-scheme:dark]"
+              class:time-input-native={isFirefox}
             />
-            <button
-              type="button"
-              aria-label="Open time picker"
-              on:click={openTimePicker}
-              class="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white transition-colors"
-            >
-              <svg viewBox="0 0 24 24" aria-hidden="true" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="12" r="8" />
-                <path d="M12 8v4l3 2" />
-              </svg>
-            </button>
+            {#if !isFirefox}
+              <button
+                type="button"
+                aria-label="Open time picker"
+                on:click={openTimePicker}
+                class="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white transition-colors"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="8" />
+                  <path d="M12 8v4l3 2" />
+                </svg>
+              </button>
+            {/if}
           </div>
         </div>
 
@@ -351,6 +423,12 @@
     appearance: none;
     -webkit-appearance: none;
     -moz-appearance: textfield;
+  }
+
+  .time-input-native {
+    appearance: auto;
+    -webkit-appearance: auto;
+    -moz-appearance: auto;
   }
 </style>
 

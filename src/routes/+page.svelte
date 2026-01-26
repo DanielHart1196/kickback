@@ -44,6 +44,9 @@
   let isVenueLocked = false;
   let showForm = false;
   let referrerLockedByVenue = false;
+  let referrerLookupStatus: 'idle' | 'checking' | 'valid' | 'invalid' = 'idle';
+  let referrerLookupTimer: ReturnType<typeof setTimeout> | null = null;
+  let referrerLookupSeq = 0;
 
   let claims: Claim[] = [];
   let totalPending = 0;
@@ -56,6 +59,22 @@
 
   let session: Session | null | undefined = undefined;
   let userRefCode = 'member';
+  const historyViewKey = 'view';
+
+  onMount(() => {
+    const handlePopState = (event: PopStateEvent) => {
+      const nextView = event.state?.[historyViewKey];
+      showForm = nextView === 'claim';
+    };
+    if (typeof window !== 'undefined') {
+      window.addEventListener('popstate', handlePopState);
+    }
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('popstate', handlePopState);
+      }
+    };
+  });
 
   $: last4 = normalizeLast4(last4);
   $: amount = parseAmount(amountInput);
@@ -64,10 +83,12 @@
   $: kickbackRatePercent = formatRatePercent(kickbackRate);
   $: kickbackAmount = calculateKickbackWithRate(Number(amountInput || 0), kickbackRate);
   $: kickback = kickbackAmount.toFixed(2);
+  $: referrerFormatValid = referrer.trim().length > 0 && isReferralCodeValid(referrer);
   $: canSubmit = Boolean(
     (amount ?? 0) > 0 &&
     venueId.length > 0 &&
-    referrer.trim().length > 0 &&
+    referrerFormatValid &&
+    referrerLookupStatus === 'valid' &&
     last4.length === 4 &&
     purchaseTime.trim().length > 0
   );
@@ -81,6 +102,18 @@
       isReferrerLocked = false;
       referrerLockedByVenue = false;
     }
+  } else if (referrerLockedByVenue) {
+    isReferrerLocked = false;
+    referrerLockedByVenue = false;
+  }
+  $: if (!referrer.trim() || !referrerFormatValid) {
+    if (referrerLookupTimer) {
+      clearTimeout(referrerLookupTimer);
+      referrerLookupTimer = null;
+    }
+    referrerLookupStatus = 'idle';
+  } else {
+    scheduleReferrerLookup(referrer);
   }
 
   async function isReferralCodeAvailable(code: string, userId: string): Promise<boolean> {
@@ -88,6 +121,35 @@
     if (error) throw error;
     if (!data || data.length === 0) return true;
     return data.every((row) => row.id === userId);
+  }
+
+  async function doesReferralCodeExist(code: string): Promise<boolean> {
+    const normalized = normalizeReferralCode(code);
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('referral_code', normalized)
+      .limit(1);
+    if (error) throw error;
+    return Boolean(data && data.length > 0);
+  }
+
+  function scheduleReferrerLookup(code: string) {
+    if (referrerLookupTimer) clearTimeout(referrerLookupTimer);
+    const requestId = referrerLookupSeq + 1;
+    referrerLookupSeq = requestId;
+    referrerLookupStatus = 'checking';
+    referrerLookupTimer = setTimeout(async () => {
+      try {
+        const exists = await doesReferralCodeExist(code);
+        if (requestId !== referrerLookupSeq) return;
+        referrerLookupStatus = exists ? 'valid' : 'invalid';
+      } catch (error) {
+        console.error('Error validating referral code:', error);
+        if (requestId !== referrerLookupSeq) return;
+        referrerLookupStatus = 'invalid';
+      }
+    }, 300);
   }
 
   async function generateUniqueReferralCode(userId: string): Promise<string> {
@@ -252,6 +314,10 @@
 
       await ensureReferralCode(session.user.id, session.user.email ?? 'member');
       await fetchDashboardData();
+
+      if (typeof window !== 'undefined' && !window.history.state?.[historyViewKey]) {
+        window.history.replaceState({ [historyViewKey]: showForm ? 'claim' : 'dashboard' }, '', window.location.href);
+      }
     }
   });
 
@@ -272,6 +338,16 @@
     if (!referrer.trim()) {
       status = 'error';
       errorMessage = 'Please enter a referrer';
+      return false;
+    }
+    if (!isReferralCodeValid(referrer)) {
+      status = 'error';
+      errorMessage = 'Referrer code must be 4-8 letters or numbers';
+      return false;
+    }
+    if (referrerLookupStatus !== 'valid') {
+      status = 'error';
+      errorMessage = 'Unrecognized referral code';
       return false;
     }
     if (!venueId) {
@@ -316,7 +392,7 @@
       const insertedClaim = await insertClaim({
         venue: venueName,
         venue_id: venueId,
-        referrer: referrer || null,
+        referrer: normalizeReferralCode(referrer) || null,
         amount: cleanAmount,
         status: 'pending',
         kickback_guest_rate: rates.guestRate,
@@ -335,6 +411,9 @@
       }
       if (session) {
         showForm = false;
+        if (typeof window !== 'undefined') {
+          window.history.replaceState({ [historyViewKey]: 'dashboard' }, '', window.location.href);
+        }
         status = 'idle';
         successMessage = '';
         highlightClaimKey = null;
@@ -422,6 +501,7 @@
     const match = venues.find((v) => v.name.trim().toLowerCase() === normalizedName);
     return match?.id ?? '';
   }
+
 
   function getVenueByCode(code: string): Venue | undefined {
     const normalizedCode = code.trim().toUpperCase();
@@ -532,7 +612,17 @@
     amountInput = '';
     purchaseTime = getLocalNowInputValue();
     maxPurchaseTime = purchaseTime;
+    if (session && typeof window !== 'undefined') {
+      window.history.pushState({ [historyViewKey]: 'claim' }, '', window.location.href);
+    }
     showForm = true;
+  }
+
+  function handleFormBack() {
+    showForm = false;
+    if (session && typeof window !== 'undefined') {
+      window.history.replaceState({ [historyViewKey]: 'dashboard' }, '', window.location.href);
+    }
   }
 </script>
 
@@ -562,6 +652,7 @@
       {canSubmit}
       {venues}
       {kickbackRatePercent}
+      {referrerLookupStatus}
       bind:amountInput
       maxBill={MAX_BILL}
       {kickback}
@@ -573,7 +664,7 @@
       {isVenueLocked}
       {isReferrerLocked}
       loginUrl={loginUrl}
-      onBack={() => showForm = false}
+      onBack={handleFormBack}
       onSubmit={submitClaim}
       onConfirmGuest={confirmGuestSubmit}
       onAmountInput={handleInput}

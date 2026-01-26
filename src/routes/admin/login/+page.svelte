@@ -182,6 +182,12 @@
     </form>
 
     {#if mode === 'signup'}
+      <p class="text-center text-[10px] text-zinc-500 leading-snug">
+        By creating an account, you are agreeing to our
+        <a href="/terms" class="text-zinc-300 hover:text-white transition-colors">terms of service</a>
+        and
+        <a href="/privacy" class="text-zinc-300 hover:text-white transition-colors">privacy policy</a>.
+      </p>
       <button type="button" on:click={() => { mode = 'signin'; message = ''; }} class="w-full text-zinc-600 text-xs font-bold uppercase tracking-widest">
         Already have an account? Sign in
       </button>

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { slide } from 'svelte/transition';
   import { supabase } from '$lib/supabase';
   import { fetchClaimsForVenueId, updateClaimStatus } from '$lib/claims/repository';
@@ -40,6 +40,8 @@
   let csvDeniedClaimIds: string[] = [];
   let selectedClaimIds = new Set<string>();
   let bulkApplying = false;
+  let claimsScrollEl: HTMLDivElement | null = null;
+  let showClaimsScrollFade = false;
 
   onMount(async () => {
     try {
@@ -54,6 +56,28 @@
     } finally {
       loading = false;
     }
+  });
+
+  function updateClaimsScrollFade() {
+    if (!claimsScrollEl) {
+      showClaimsScrollFade = false;
+      return;
+    }
+    const maxScrollLeft = claimsScrollEl.scrollWidth - claimsScrollEl.clientWidth;
+    if (maxScrollLeft <= 1) {
+      showClaimsScrollFade = false;
+      return;
+    }
+    showClaimsScrollFade = claimsScrollEl.scrollLeft < maxScrollLeft - 1;
+  }
+
+  onMount(() => {
+    const handleResize = () => updateClaimsScrollFade();
+    window.addEventListener('resize', handleResize);
+    tick().then(updateClaimsScrollFade);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+    };
   });
 
   $: selectedClaims = claims.filter((claim) => claim.id && selectedClaimIds.has(claim.id));
@@ -84,6 +108,9 @@
     selectedClaimIds;
     claims;
     buildMatchesFromCsv(csvSourceText);
+  }
+  $: if (!loading) {
+    tick().then(updateClaimsScrollFade);
   }
 
   async function fetchVenue() {
@@ -920,7 +947,11 @@
 
     <div class="bg-zinc-900/50 border border-zinc-800 rounded-2xl overflow-hidden">
       <div class="relative">
-        <div class="w-full overflow-x-auto">
+        <div
+          class="w-full overflow-x-auto"
+          bind:this={claimsScrollEl}
+          on:scroll={updateClaimsScrollFade}
+        >
         <table class="min-w-[720px] w-full text-left border-collapse">
         <thead>
           <tr class="bg-zinc-800/50 text-zinc-400 text-xs uppercase">
@@ -1063,7 +1094,9 @@
         </tbody>
         </table>
         </div>
-        <div class="pointer-events-none absolute top-0 right-0 h-full w-8 bg-gradient-to-l from-zinc-900/80 to-transparent md:hidden"></div>
+        {#if showClaimsScrollFade}
+          <div class="pointer-events-none absolute top-0 right-0 h-full w-8 bg-gradient-to-l from-zinc-900/80 to-transparent md:hidden"></div>
+        {/if}
       </div>
     </div>
   </div>

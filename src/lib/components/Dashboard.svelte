@@ -57,6 +57,10 @@
     return getVenueRate(claim);
   }
 
+  function getKickbackForClaim(claim: Claim): number {
+    return calculateKickbackWithRate(claim.amount, getClaimRate(claim));
+  }
+
   function getTotalKickbackAtVenue(venueName: string): number {
     return claims.reduce((sum, claim) => {
       if (isClaimDenied(claim)) return sum;
@@ -69,6 +73,17 @@
   function getClaimStatus(claim: Claim): 'pending' | 'approved' | 'denied' {
     return claim.status ?? 'approved';
   }
+
+  function getStatusTotal(status: 'pending' | 'approved'): number {
+    return claims.reduce((sum, claim) => {
+      if (getClaimStatus(claim) !== status) return sum;
+      return sum + getKickbackForClaim(claim);
+    }, 0);
+  }
+
+  $: pendingTotal = getStatusTotal('pending');
+  $: approvedTotal = getStatusTotal('approved');
+  $: availableTotal = 0;
 
   function getStatusBadgeClass(status: 'pending' | 'approved' | 'denied'): string {
     if (status === 'approved') return 'border-green-500/30 bg-green-500/10 text-green-400';
@@ -86,7 +101,24 @@
   </header>
 
   <div class="bg-zinc-900 border border-zinc-800 p-8 rounded-[2.5rem] text-center shadow-2xl">
-    <p class="text-zinc-500 text-xs font-bold uppercase tracking-widest mb-2">Pending Balance</p>
+    <p class="text-zinc-500 text-xs font-bold uppercase tracking-widest mb-2">
+      <span class="relative inline-block group">
+        Balance
+        <span
+          class="absolute left-full top-1/2 -translate-y-1/2 ml-2 grid place-items-center text-center w-4 h-4 rounded-full border border-zinc-600 text-[9px] leading-none font-black text-zinc-600 normal-case tracking-normal"
+          aria-hidden="true"
+        >
+          i
+        </span>
+        <span
+          class="pointer-events-none absolute top-full left-1/2 -translate-x-1/2 mt-2 w-48 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-[11px] font-semibold uppercase tracking-widest text-zinc-400 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
+        >
+          <span class="block">Pending - ${pendingTotal.toFixed(2)}</span>
+          <span class="block mt-1">Approved - ${approvedTotal.toFixed(2)}</span>
+          <span class="block mt-1">Available - ${availableTotal.toFixed(2)}</span>
+        </span>
+      </span>
+    </p>
     <div class="flex items-center justify-center gap-3">
       <h2 class="text-6xl font-black text-orange-500">${totalPending.toFixed(2)}</h2>
     </div>
