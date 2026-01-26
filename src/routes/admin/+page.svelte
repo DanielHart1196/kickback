@@ -42,6 +42,7 @@
   let bulkApplying = false;
   let claimsScrollEl: HTMLDivElement | null = null;
   let showClaimsScrollFade = false;
+  let showClaimsScrollLeftFade = false;
 
   onMount(async () => {
     try {
@@ -61,14 +62,17 @@
   function updateClaimsScrollFade() {
     if (!claimsScrollEl) {
       showClaimsScrollFade = false;
+      showClaimsScrollLeftFade = false;
       return;
     }
     const maxScrollLeft = claimsScrollEl.scrollWidth - claimsScrollEl.clientWidth;
     if (maxScrollLeft <= 1) {
       showClaimsScrollFade = false;
+      showClaimsScrollLeftFade = false;
       return;
     }
     showClaimsScrollFade = claimsScrollEl.scrollLeft < maxScrollLeft - 1;
+    showClaimsScrollLeftFade = claimsScrollEl.scrollLeft > 1;
   }
 
   onMount(() => {
@@ -811,7 +815,7 @@
       />
     </section>
 
-    <section class="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
+    <section class="flex items-start justify-between gap-4">
       <div class="min-w-0">
         <h1 class="text-zinc-500 uppercase tracking-tighter text-sm font-bold">
           <span class="text-white">Kick</span><span class="text-orange-500">back</span> Dashboard
@@ -821,16 +825,20 @@
           {selectedWeekLabel ? `Total ${selectedWeekLabel}` : selectedCount > 0 && !isFullSelection ? 'Claimed' : 'Total Claimed'}
         </p>
       </div>
-      <div class="flex flex-col gap-4 md:text-right">
+      <div class="flex flex-col gap-3 md:items-end md:text-right">
         <div>
           <div class="text-zinc-500 text-sm uppercase font-bold">
-            {selectedCount > 0 && !isFullSelection ? 'Fee' : 'Total Fee'}
+            <span class="inline-block min-w-[96px]">
+              {selectedCount > 0 && !isFullSelection ? 'Fee' : 'Total Fee'}
+            </span>
           </div>
           <div class="text-2xl font-bold text-orange-400 mt-1">${totalFee.toFixed(2)}</div>
         </div>
         <div>
           <div class="text-zinc-500 text-sm uppercase font-bold">
-            {selectedCount > 0 && !isFullSelection ? 'Claims' : 'Total Claims'}
+            <span class="inline-block min-w-[96px]">
+              {selectedCount > 0 && !isFullSelection ? 'Claims' : 'Total Claims'}
+            </span>
           </div>
           <div class="text-2xl font-bold mt-1">{totalClaimsCount}</div>
         </div>
@@ -962,7 +970,7 @@
                   aria-label="Select all claims"
                   checked={allSelected}
                   on:change={toggleSelectAllClaims}
-                  class="h-3.5 w-3.5 accent-white"
+                  class="h-3.5 w-3.5 accent-blue-500"
                 />
                 <span>Date/Time</span>
               </div>
@@ -1006,7 +1014,7 @@
                     aria-label={`Select week ${weekGroup.label}`}
                     checked={allSelected || isWeekSelected(weekGroup.claims, selectedClaimIds)}
                     on:change={() => toggleWeekSelection(weekGroup.claims)}
-                    class="h-3.5 w-3.5 accent-white"
+                    class="h-3.5 w-3.5 accent-blue-500"
                   />
                   <span>{weekGroup.label}</span>
                 </div>
@@ -1021,7 +1029,7 @@
                       aria-label={`Select claim ${claim.id}`}
                       checked={selectedClaimIds.has(claim.id ?? '')}
                       on:change={() => toggleSelect(claim.id)}
-                      class="h-3.5 w-3.5 accent-white"
+                      class="h-3.5 w-3.5 accent-blue-500"
                     />
                     <span>
                       {new Date(claim.purchased_at).toLocaleDateString()} 
@@ -1094,6 +1102,9 @@
         </tbody>
         </table>
         </div>
+        {#if showClaimsScrollLeftFade}
+          <div class="pointer-events-none absolute top-0 left-0 h-full w-8 bg-gradient-to-r from-zinc-900/80 to-transparent md:hidden"></div>
+        {/if}
         {#if showClaimsScrollFade}
           <div class="pointer-events-none absolute top-0 right-0 h-full w-8 bg-gradient-to-l from-zinc-900/80 to-transparent md:hidden"></div>
         {/if}

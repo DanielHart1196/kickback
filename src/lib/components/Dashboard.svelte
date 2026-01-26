@@ -93,7 +93,7 @@
 </script>
 
 <div class="w-full max-w-sm space-y-10" in:fade>
-  <header class="text-center">
+  <header class="text-center pt-2">
     <h1 class="text-4xl font-black tracking-tighter italic uppercase">
       <span class="text-white">Kick</span><span class="text-orange-500">back</span>
     </h1>

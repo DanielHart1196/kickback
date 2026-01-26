@@ -5,6 +5,7 @@ export type Claim = {
   venue: string;
   venue_id?: string | null;
   referrer: string | null;
+  referrer_id?: string | null;
   amount: number;
   kickback_guest_rate?: number | null;
   kickback_referrer_rate?: number | null;

@@ -1,17 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
-  <title>Kickback monogram</title>
-  <rect x="16" y="16" width="224" height="224" rx="48" fill="#0b0b0b"/>
-  <rect x="64" y="48" width="32" height="160" rx="8" fill="#ff6a00"/>
-  <polygon points="96,128 176,64 192,80 120,136" fill="#ff6a00"/>
-  <polygon points="96,128 176,192 192,176 120,120" fill="#ff6a00"/>
-  <path
-    d="M128 64 C 196 64 204 112 128 112 C 208 112 212 176 144 176 L 184 176"
-    fill="none"
-    stroke="#39ff6a"
-    stroke-width="10"
-    stroke-linecap="round"
-    stroke-linejoin="round"
-  />
-  <polygon points="184,176 200,176 186,166" fill="#39ff6a"/>
-  <polygon points="184,176 200,176 186,186" fill="#39ff6a"/>
+  <title>Kickback favicon</title>
+  <rect width="256" height="256" rx="48" fill="#1b1b1b"/>
+  <rect x="32" y="32" width="44" height="192" rx="14" fill="#ffffff"/>
+  <polygon points="220,64 128,128 220,192" fill="#ff6a00"/>
 </svg>

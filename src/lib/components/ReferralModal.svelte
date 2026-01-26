@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { fade, fly } from 'svelte/transition';
   import QRCode from 'qrcode';
   import { isReferralCodeValid, normalizeReferralCode } from '$lib/referrals/code';
@@ -23,12 +23,22 @@
   let referralMessage = '';
   let referralEditing = false;
   let hasAppliedDefault = false;
+  let referralInputEl: HTMLInputElement | null = null;
+  let referralInputFocused = false;
+  let venueSearch = '';
+  let venueOpen = false;
+  let venueDirty = false;
+  let venueWrap: HTMLDivElement | null = null;
 
   const lastSelectedVenueKey = 'kickback:last-selected-venue-id';
   $: referralVenueName = venues.find((venue) => venue.id === referralVenueId)?.name ?? '';
   $: referralVenueCode = venues.find((venue) => venue.id === referralVenueId)?.short_code ?? '';
   $: referralLink = buildReferralLink(userRefCode, referralVenueCode, referralVenueName);
   $: if (!referralDirty) referralInput = userRefCode;
+  $: if (!venueDirty) venueSearch = referralVenueName;
+  $: filteredVenues = venues.filter((venue) =>
+    venue.name.toLowerCase().includes(venueSearch.trim().toLowerCase())
+  );
 
   $: if (referralLink) {
     QRCode.toDataURL(referralLink, { margin: 2, scale: 8, color: { dark: '#000000', light: '#ffffff' } })
@@ -42,12 +52,12 @@
 
   function buildReferralLink(code: string, venueCode: string, venueName: string): string {
     const params = new URLSearchParams();
-    params.set('ref', code);
     if (venueCode) {
       params.set('venue', venueCode);
     } else if (venueName) {
       params.set('venue', venueName);
     }
+    params.set('ref', code);
     return `https://kkbk.app/?${params.toString()}`;
   }
 
@@ -97,12 +107,14 @@
     }
   }
 
-  function startReferralEdit() {
+  async function startReferralEdit() {
     referralError = '';
     referralMessage = '';
     referralEditing = true;
     referralInput = userRefCode;
     referralDirty = false;
+    await tick();
+    scrollReferralInputIntoView();
   }
 
   function cancelReferralEdit() {
@@ -111,6 +123,36 @@
     referralError = '';
     referralMessage = '';
     referralInput = userRefCode;
+  }
+
+  function handleVenueFocus() {
+    venueOpen = true;
+  }
+
+  function handleVenueInput() {
+    venueOpen = true;
+    venueDirty = true;
+  }
+
+  function selectVenue(venueId: string, name: string) {
+    referralVenueId = venueId;
+    venueSearch = name;
+    venueDirty = true;
+    venueOpen = false;
+  }
+
+  function clearVenueSelection() {
+    referralVenueId = '';
+    venueSearch = '';
+    venueDirty = true;
+    venueOpen = false;
+  }
+
+  function scrollReferralInputIntoView() {
+    if (!referralInputEl) return;
+    const scroll = () => referralInputEl?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    requestAnimationFrame(scroll);
+    setTimeout(scroll, 200);
   }
 
   function handleTouchStart(e: TouchEvent) {
@@ -137,8 +179,31 @@
     if (typeof document === 'undefined') return;
     const original = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
+    const viewport = window.visualViewport;
+    const handleViewport = () => {
+      if (referralInputFocused) {
+        scrollReferralInputIntoView();
+      }
+    };
+    if (viewport) {
+      viewport.addEventListener('resize', handleViewport);
+      viewport.addEventListener('scroll', handleViewport);
+    }
+    const handleClick = (event: MouseEvent) => {
+      if (!venueWrap) return;
+      const target = event.target as Node;
+      if (!venueWrap.contains(target)) {
+        venueOpen = false;
+      }
+    };
+    document.addEventListener('click', handleClick);
     return () => {
       document.body.style.overflow = original || 'auto';
+      if (viewport) {
+        viewport.removeEventListener('resize', handleViewport);
+        viewport.removeEventListener('scroll', handleViewport);
+      }
+      document.removeEventListener('click', handleClick);
     };
   });
 
@@ -184,16 +249,56 @@
 
       <div class="mb-8">
         <label for="ref-venue" class="block text-[10px] font-black uppercase text-zinc-500 tracking-widest mb-3 px-1 text-center">Which venue?</label>
-        <select 
-          id="ref-venue"
-          bind:value={referralVenueId}
-          class="w-full bg-black border border-zinc-800 text-white p-4 rounded-2xl text-xl font-black uppercase tracking-widest outline-none focus:ring-2 focus:ring-orange-500 transition-all appearance-none text-center"
-        >
-          <option value="">General Invite</option>
-          {#each venues as venue}
-            <option value={venue.id}>{venue.name}</option>
-          {/each}
-        </select>
+        <div class="relative" bind:this={venueWrap}>
+          <input
+            id="ref-venue"
+            type="text"
+            bind:value={venueSearch}
+            placeholder="General invite"
+            autocomplete="off"
+            spellcheck="false"
+            on:focus={handleVenueFocus}
+            on:input={handleVenueInput}
+            class="w-full bg-black border border-zinc-800 text-white p-4 rounded-2xl text-xl font-black uppercase tracking-widest outline-none focus:ring-2 focus:ring-orange-500 transition-all text-center"
+          />
+          {#if venueSearch.trim().length > 0}
+            <button
+              type="button"
+              on:click={clearVenueSelection}
+              class="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white transition-colors"
+              aria-label="Clear venue search"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M6 6l12 12" />
+                <path d="M18 6l-12 12" />
+              </svg>
+            </button>
+          {/if}
+          {#if venueOpen}
+            <div class="absolute z-20 mt-2 w-full rounded-2xl border border-zinc-800 bg-zinc-900/95 backdrop-blur-xl shadow-xl max-h-56 overflow-auto">
+              <button
+                type="button"
+                on:click={clearVenueSelection}
+                class="w-full text-left px-4 py-3 text-xs font-bold uppercase tracking-widest text-zinc-400 hover:bg-zinc-800/60 transition-colors"
+              >
+                General Invite
+              </button>
+              {#if filteredVenues.length === 0}
+                <div class="px-4 py-3 text-xs font-bold uppercase tracking-widest text-zinc-500">No matches</div>
+              {:else}
+                {#each filteredVenues as venue}
+                  <button
+                    type="button"
+                    on:click={() => selectVenue(venue.id, venue.name)}
+                    class="w-full text-left px-4 py-3 text-sm font-bold uppercase tracking-wide text-zinc-200 hover:bg-zinc-800/60 transition-colors"
+                  >
+                    {venue.name}
+                  </button>
+                {/each}
+              {/if}
+            </div>
+          {/if}
+        </div>
       </div>
 
       <div class="bg-white p-4 rounded-[2.5rem] w-48 h-48 mx-auto mb-8 flex items-center justify-center shadow-xl shadow-white/5">
@@ -212,9 +317,15 @@
                 <input
                   type="text"
                   bind:value={referralInput}
+                  bind:this={referralInputEl}
                   maxlength="8"
                   placeholder="Set your code"
                   on:input={() => (referralDirty = true)}
+                  on:focus={() => {
+                    referralInputFocused = true;
+                    scrollReferralInputIntoView();
+                  }}
+                  on:blur={() => (referralInputFocused = false)}
                   class="bg-black border border-zinc-800 text-white h-9 w-36 px-3 rounded-xl text-xl font-black uppercase tracking-widest leading-none outline-none focus:ring-2 focus:ring-orange-500"
                 />
                 <button

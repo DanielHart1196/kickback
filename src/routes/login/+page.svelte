@@ -5,7 +5,12 @@
   import { calculateKickbackWithRate } from '$lib/claims/utils';
   import { KICKBACK_RATE } from '$lib/claims/constants';
   import { fade } from 'svelte/transition';
-  import { generateReferralCode, normalizeReferralCode } from '$lib/referrals/code';
+  import {
+    buildReferralCodeFromEmail,
+    generateReferralCode,
+    isReferralCodeValid,
+    normalizeReferralCode
+  } from '$lib/referrals/code';
   import {
     buildDraftFromParams,
     draftToQuery,
@@ -34,7 +39,11 @@
     return false;
   }
 
-  async function generateUniqueReferralCode(userId: string): Promise<string> {
+  async function generateUniqueReferralCode(userId: string, email: string): Promise<string> {
+    const preferred = buildReferralCodeFromEmail(email);
+    if (preferred && isReferralCodeValid(preferred)) {
+      if (await isReferralCodeAvailable(preferred, userId)) return preferred;
+    }
     for (let i = 0; i < 20; i += 1) {
       const code = generateReferralCode(4);
       if (await isReferralCodeAvailable(code, userId)) return code;
@@ -156,7 +165,7 @@
         if (draft.last4) profilePayload.last_4 = draft.last4;
         if (isSignup) {
           try {
-            profilePayload.referral_code = await generateUniqueReferralCode(user.id);
+            profilePayload.referral_code = await generateUniqueReferralCode(user.id, email);
           } catch (error) {
             console.error('Failed to generate referral code:', error);
           }

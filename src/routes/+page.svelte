@@ -20,7 +20,12 @@
   import type { Claim } from '$lib/claims/types';
   import type { Venue } from '$lib/venues/types';
   import { fetchActiveVenues } from '$lib/venues/repository';
-  import { generateReferralCode, isReferralCodeValid, normalizeReferralCode } from '$lib/referrals/code';
+  import {
+    buildReferralCodeFromEmail,
+    generateReferralCode,
+    isReferralCodeValid,
+    normalizeReferralCode
+  } from '$lib/referrals/code';
   import Dashboard from '$lib/components/Dashboard.svelte';
   import ClaimForm from '$lib/components/ClaimForm.svelte';
   import GuestWarningModal from '$lib/components/GuestWarningModal.svelte';
@@ -47,6 +52,11 @@
   let referrerLookupStatus: 'idle' | 'checking' | 'valid' | 'invalid' = 'idle';
   let referrerLookupTimer: ReturnType<typeof setTimeout> | null = null;
   let referrerLookupSeq = 0;
+  let referrerProfileId: string | null = null;
+  let lockedReferrerRequestId = 0;
+  let referrerCodeCache: Record<string, string> = {};
+  let lockedReferrerId: string | null = null;
+  let lockedReferrerCode: string | null = null;
 
   let claims: Claim[] = [];
   let totalPending = 0;
@@ -60,11 +70,13 @@
   let session: Session | null | undefined = undefined;
   let userRefCode = 'member';
   const historyViewKey = 'view';
+  const historyReferKey = 'refer';
 
   onMount(() => {
     const handlePopState = (event: PopStateEvent) => {
       const nextView = event.state?.[historyViewKey];
       showForm = nextView === 'claim';
+      showReferModal = Boolean(event.state?.[historyReferKey]);
     };
     if (typeof window !== 'undefined') {
       window.addEventListener('popstate', handlePopState);
@@ -84,10 +96,15 @@
   $: kickbackAmount = calculateKickbackWithRate(Number(amountInput || 0), kickbackRate);
   $: kickback = kickbackAmount.toFixed(2);
   $: referrerFormatValid = referrer.trim().length > 0 && isReferralCodeValid(referrer);
+  $: isSelfReferral = Boolean(session) &&
+    referrer.trim().length > 0 &&
+    (referrerProfileId === session?.user?.id ||
+      normalizeReferralCode(referrer) === normalizeReferralCode(userRefCode));
   $: canSubmit = Boolean(
     (amount ?? 0) > 0 &&
     venueId.length > 0 &&
     referrerFormatValid &&
+    !isSelfReferral &&
     referrerLookupStatus === 'valid' &&
     last4.length === 4 &&
     purchaseTime.trim().length > 0
@@ -95,16 +112,24 @@
   $: if (session && venue.trim()) {
     const lockedReferrer = getVenueLockedReferrer(venue);
     if (lockedReferrer) {
-      if (referrer !== lockedReferrer) referrer = lockedReferrer;
+      if (lockedReferrer.id !== lockedReferrerId || lockedReferrer.code !== lockedReferrerCode) {
+        lockedReferrerId = lockedReferrer.id;
+        lockedReferrerCode = lockedReferrer.code;
+        void syncLockedReferrer(lockedReferrer);
+      }
       isReferrerLocked = true;
       referrerLockedByVenue = true;
     } else if (referrerLockedByVenue) {
       isReferrerLocked = false;
       referrerLockedByVenue = false;
+      lockedReferrerId = null;
+      lockedReferrerCode = null;
     }
   } else if (referrerLockedByVenue) {
     isReferrerLocked = false;
     referrerLockedByVenue = false;
+    lockedReferrerId = null;
+    lockedReferrerCode = null;
   }
   $: if (!referrer.trim() || !referrerFormatValid) {
     if (referrerLookupTimer) {
@@ -112,6 +137,7 @@
       referrerLookupTimer = null;
     }
     referrerLookupStatus = 'idle';
+    referrerProfileId = null;
   } else {
     scheduleReferrerLookup(referrer);
   }
@@ -124,15 +150,17 @@
     return data.every((row) => row.id === userId);
   }
 
-  async function doesReferralCodeExist(code: string): Promise<boolean> {
+  async function lookupReferrerProfile(code: string): Promise<{ id: string; code: string } | null> {
     const normalized = normalizeReferralCode(code);
     const { data, error } = await supabase
       .from('profiles')
-      .select('id')
+      .select('id, referral_code')
       .ilike('referral_code', normalized)
-      .limit(1);
+      .limit(1)
+      .maybeSingle();
     if (error) throw error;
-    return Boolean(data && data.length > 0);
+    if (!data?.id) return null;
+    return { id: data.id, code: data.referral_code ?? normalized };
   }
 
   function scheduleReferrerLookup(code: string) {
@@ -142,18 +170,24 @@
     referrerLookupStatus = 'checking';
     referrerLookupTimer = setTimeout(async () => {
       try {
-        const exists = await doesReferralCodeExist(code);
+        const profile = await lookupReferrerProfile(code);
         if (requestId !== referrerLookupSeq) return;
-        referrerLookupStatus = exists ? 'valid' : 'invalid';
+        referrerProfileId = profile?.id ?? null;
+        referrerLookupStatus = profile ? 'valid' : 'invalid';
       } catch (error) {
         console.error('Error validating referral code:', error);
         if (requestId !== referrerLookupSeq) return;
         referrerLookupStatus = 'invalid';
+        referrerProfileId = null;
       }
     }, 300);
   }
 
-  async function generateUniqueReferralCode(userId: string): Promise<string> {
+  async function generateUniqueReferralCode(userId: string, email: string): Promise<string> {
+    const preferred = buildReferralCodeFromEmail(email);
+    if (preferred && isReferralCodeValid(preferred)) {
+      if (await isReferralCodeAvailable(preferred, userId)) return preferred;
+    }
     for (let i = 0; i < 20; i += 1) {
       const code = generateReferralCode(4);
       if (await isReferralCodeAvailable(code, userId)) return code;
@@ -173,7 +207,7 @@
         userRefCode = data.referral_code;
         return;
       }
-      const generated = await generateUniqueReferralCode(userId);
+      const generated = await generateUniqueReferralCode(userId, fallbackEmail);
       const { error: updateError } = await supabase
         .from('profiles')
         .update({ referral_code: generated, updated_at: new Date().toISOString() })
@@ -182,7 +216,7 @@
       userRefCode = generated;
     } catch (error) {
       console.error('Error ensuring referral code:', error);
-      userRefCode = fallbackEmail.split('@')[0] || 'member';
+      userRefCode = buildReferralCodeFromEmail(fallbackEmail) || 'member';
     }
   }
 
@@ -256,6 +290,9 @@
       document.body.style.overflow = 'auto';
       document.documentElement.style.overflow = 'auto';
     }
+    const urlParams =
+      typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+    const hasRefOnly = Boolean(urlParams?.get('ref')) && !urlParams?.get('venue') && !urlParams?.get('venue_id');
 
     const localNow = getLocalNowInputValue();
     purchaseTime = localNow;
@@ -265,6 +302,14 @@
 
     const { data } = await supabase.auth.getSession();
     session = data.session;
+
+    if (hasRefOnly) {
+      if (!session) {
+        window.location.href = `/login?${urlParams?.toString() ?? ''}`;
+        return;
+      }
+      showForm = true;
+    }
 
     const urlDraft = getDraftFromUrl(window.location.search);
     const storedDraft = getDraftFromStorage(localStorage);
@@ -346,7 +391,17 @@
       errorMessage = 'Referrer code must be 4-8 letters or numbers';
       return false;
     }
+    if (isSelfReferral) {
+      status = 'error';
+      errorMessage = 'You cannot use your own referral code';
+      return false;
+    }
     if (referrerLookupStatus !== 'valid') {
+      status = 'error';
+      errorMessage = 'Unrecognized referral code';
+      return false;
+    }
+    if (!referrerProfileId) {
       status = 'error';
       errorMessage = 'Unrecognized referral code';
       return false;
@@ -394,6 +449,7 @@
         venue: venueName,
         venue_id: venueId,
         referrer: normalizeReferralCode(referrer) || null,
+        referrer_id: referrerProfileId,
         amount: cleanAmount,
         status: 'pending',
         kickback_guest_rate: rates.guestRate,
@@ -491,6 +547,25 @@
 
   $: loginUrl = buildLoginUrl(amount, venue, venueId, referrer, last4);
 
+  function openReferModal() {
+    showReferModal = true;
+    if (typeof window === 'undefined') return;
+    const state = window.history.state ?? {};
+    if (!state[historyReferKey]) {
+      window.history.pushState({ ...state, [historyReferKey]: true }, '', window.location.href);
+    }
+  }
+
+  function closeReferModal() {
+    showReferModal = false;
+    if (typeof window === 'undefined') return;
+    const state = window.history.state ?? {};
+    if (state[historyReferKey]) {
+      const { [historyReferKey]: _removed, ...rest } = state;
+      window.history.replaceState(rest, '', window.location.href);
+    }
+  }
+
   function hydrateAmountInput(value: string) {
     const normalized = normalizeAmountInput(value, MAX_BILL);
     amountInput = normalized;
@@ -566,13 +641,50 @@
     }, 0);
   }
 
-  function getVenueLockedReferrer(venueName: string): string | null {
+  async function getReferrerCodeById(referrerId: string): Promise<string | null> {
+    if (referrerCodeCache[referrerId]) {
+      return referrerCodeCache[referrerId];
+    }
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('referral_code')
+      .eq('id', referrerId)
+      .maybeSingle();
+    if (error) {
+      console.error('Error fetching referrer code:', error);
+      return null;
+    }
+    const code = data?.referral_code ?? null;
+    if (code) {
+      referrerCodeCache = { ...referrerCodeCache, [referrerId]: code };
+    }
+    return code;
+  }
+
+  async function syncLockedReferrer(locked: { id: string | null; code: string | null }) {
+    if (locked.id) {
+      const requestId = lockedReferrerRequestId + 1;
+      lockedReferrerRequestId = requestId;
+      const code = (await getReferrerCodeById(locked.id)) ?? locked.code ?? '';
+      if (requestId !== lockedReferrerRequestId) return;
+      if (code && referrer !== code) referrer = code;
+      return;
+    }
+    if (locked.code && referrer !== locked.code) {
+      referrer = locked.code;
+    }
+  }
+
+  function getVenueLockedReferrer(
+    venueName: string
+  ): { id: string | null; code: string | null } | null {
     const normalizedVenue = venueName.trim().toLowerCase();
     if (!normalizedVenue) return null;
     const venueIdMatch = getVenueIdByName(venueName);
 
     let earliestTime = Number.POSITIVE_INFINITY;
-    let ref: string | null = null;
+    let referrerId: string | null = null;
+    let referrerCode: string | null = null;
 
     for (const claim of claims) {
       if (venueIdMatch) {
@@ -580,16 +692,18 @@
       } else if (claim.venue.trim().toLowerCase() !== normalizedVenue) {
         continue;
       }
-      if (!claim.referrer) continue;
+      if (!claim.referrer && !claim.referrer_id) continue;
       const time = new Date(claim.purchased_at).getTime();
       if (Number.isNaN(time)) continue;
       if (time < earliestTime) {
         earliestTime = time;
-        ref = claim.referrer;
+        referrerId = claim.referrer_id ?? null;
+        referrerCode = claim.referrer ?? null;
       }
     }
 
-    return ref;
+    if (!referrerId && !referrerCode) return null;
+    return { id: referrerId, code: referrerCode };
   }
 
   function getLocalNowInputValue(): string {
@@ -640,7 +754,7 @@
       onNewClaim={startNewClaim}
       onDeleteClaim={handleDeleteClaim}
       onLogout={handleSignOut}
-      onOpenRefer={() => showReferModal = true}
+      onOpenRefer={openReferModal}
     />
   {:else}
     <ClaimForm
@@ -654,6 +768,7 @@
       {venues}
       {kickbackRatePercent}
       {referrerLookupStatus}
+      {isSelfReferral}
       bind:amountInput
       maxBill={MAX_BILL}
       {kickback}
@@ -687,7 +802,7 @@
       {venues}
       userRefCode={userRefCode}
       onUpdateReferralCode={updateReferralCode}
-      onClose={() => showReferModal = false}
+      onClose={closeReferModal}
     />
   {/if}
 </main>

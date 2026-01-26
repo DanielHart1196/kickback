@@ -22,6 +22,7 @@
   export let venues: Venue[] = [];
   export let referrer = '';
   export let referrerLookupStatus: 'idle' | 'checking' | 'valid' | 'invalid' = 'idle';
+  export let isSelfReferral = false;
   export let kickbackRatePercent = '5';
   export let isVenueLocked = false;
   export let isReferrerLocked = false;
@@ -76,6 +77,7 @@
     const normalized = normalizeReferralCode(alphanumeric);
     event.currentTarget.value = normalized;
     referrer = normalized;
+    referrerDirty = true;
   }
   $: selectedVenue =
     venue.trim().length > 0
@@ -263,6 +265,8 @@
               <p class="mt-2 text-[11px] font-bold uppercase tracking-widest text-orange-500/70">Referrer required</p>
             {:else if referrerDirty && !referrerValid}
               <p class="mt-2 text-[11px] font-bold uppercase tracking-widest text-orange-500/70">Use 4-8 letters or numbers</p>
+            {:else if referrerDirty && referrerValid && isSelfReferral}
+              <p class="mt-2 text-[11px] font-bold uppercase tracking-widest text-orange-500/70">You cannot use your own code</p>
             {:else if referrerDirty && referrerValid && referrerLookupStatus === 'checking'}
               <p class="mt-2 text-[11px] font-bold uppercase tracking-widest text-zinc-500">Checking code…</p>
             {:else if referrerDirty && referrerValid && referrerLookupStatus === 'invalid'}
@@ -401,8 +405,7 @@
 </div>
 
 <style>
-  .venue-input::-webkit-calendar-picker-indicator,
-  .venue-input::-webkit-list-button {
+  .venue-input::-webkit-calendar-picker-indicator {
     display: none;
   }
 
@@ -431,4 +434,5 @@
     -moz-appearance: auto;
   }
 </style>
+
 
