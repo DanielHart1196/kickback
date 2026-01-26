@@ -1,6 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
-  <title>Kickback favicon</title>
-  <rect width="256" height="256" rx="48" fill="#1b1b1b"/>
-  <rect x="32" y="32" width="44" height="192" rx="14" fill="#ffffff"/>
-  <polygon points="220,64 128,128 220,192" fill="#ff6a00"/>
-</svg>

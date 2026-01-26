@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
+  import { pushState, replaceState } from '$app/navigation';
   import type { Session } from '@supabase/supabase-js';
   import { supabase } from '$lib/supabase';
   import { MAX_BILL } from '$lib/claims/constants';
@@ -61,6 +62,10 @@
   let claims: Claim[] = [];
   let totalPending = 0;
   let highlightClaimKey: string | null = null;
+  let claimantCodes: Record<string, string> = {};
+  let deferredInstallPrompt: any = null;
+  let showInstallBanner = false;
+  const installPromptKey = 'kickback:install_prompt_shown';
 
   let amount: number | null = null;
   let amountInput = '';
@@ -68,6 +73,7 @@
   let showGuestWarning = false;
 
   let session: Session | null | undefined = undefined;
+  let userId: string | null = null;
   let userRefCode = 'member';
   const historyViewKey = 'view';
   const historyReferKey = 'refer';
@@ -78,12 +84,18 @@
       showForm = nextView === 'claim';
       showReferModal = Boolean(event.state?.[historyReferKey]);
     };
+    const handleBeforeInstall = (event: Event) => {
+      event.preventDefault();
+      deferredInstallPrompt = event;
+    };
     if (typeof window !== 'undefined') {
       window.addEventListener('popstate', handlePopState);
+      window.addEventListener('beforeinstallprompt', handleBeforeInstall as EventListener);
     }
     return () => {
       if (typeof window !== 'undefined') {
         window.removeEventListener('popstate', handlePopState);
+        window.removeEventListener('beforeinstallprompt', handleBeforeInstall as EventListener);
       }
     };
   });
@@ -95,11 +107,13 @@
   $: kickbackRatePercent = formatRatePercent(kickbackRate);
   $: kickbackAmount = calculateKickbackWithRate(Number(amountInput || 0), kickbackRate);
   $: kickback = kickbackAmount.toFixed(2);
-  $: referrerFormatValid = referrer.trim().length > 0 && isReferralCodeValid(referrer);
+  $: normalizedReferrerInput = typeof referrer === 'string' ? referrer : '';
+  $: referrerFormatValid =
+    normalizedReferrerInput.trim().length > 0 && isReferralCodeValid(normalizedReferrerInput);
   $: isSelfReferral = Boolean(session) &&
-    referrer.trim().length > 0 &&
+    normalizedReferrerInput.trim().length > 0 &&
     (referrerProfileId === session?.user?.id ||
-      normalizeReferralCode(referrer) === normalizeReferralCode(userRefCode));
+      normalizeReferralCode(normalizedReferrerInput) === normalizeReferralCode(userRefCode));
   $: canSubmit = Boolean(
     (amount ?? 0) > 0 &&
     venueId.length > 0 &&
@@ -131,7 +145,7 @@
     lockedReferrerId = null;
     lockedReferrerCode = null;
   }
-  $: if (!referrer.trim() || !referrerFormatValid) {
+  $: if (!normalizedReferrerInput.trim() || !referrerFormatValid) {
     if (referrerLookupTimer) {
       clearTimeout(referrerLookupTimer);
       referrerLookupTimer = null;
@@ -139,7 +153,7 @@
     referrerLookupStatus = 'idle';
     referrerProfileId = null;
   } else {
-    scheduleReferrerLookup(referrer);
+    scheduleReferrerLookup(normalizedReferrerInput);
   }
 
   async function isReferralCodeAvailable(code: string, userId: string): Promise<boolean> {
@@ -247,6 +261,7 @@
 
     try {
       claims = await fetchClaimsForUser(session.user.id);
+      await hydrateClaimantCodes(claims);
       totalPending = calculateTotalPendingWithRates(claims);
     } catch (error) {
       console.error('Error fetching claims:', error);
@@ -259,6 +274,71 @@
     } catch (error) {
       console.error('Error fetching venues:', error);
       venues = [];
+    }
+  }
+
+  function shouldShowInstallBanner(): boolean {
+    if (typeof window === 'undefined') return false;
+    if (!deferredInstallPrompt) return false;
+    const seen = localStorage.getItem(installPromptKey);
+    return !seen;
+  }
+
+  function markInstallPrompted() {
+    if (typeof window === 'undefined') return;
+    localStorage.setItem(installPromptKey, '1');
+    showInstallBanner = false;
+  }
+
+  async function handleInstall() {
+    if (!deferredInstallPrompt) {
+      showInstallBanner = false;
+      return;
+    }
+    deferredInstallPrompt.prompt();
+    try {
+      const choice = await deferredInstallPrompt.userChoice;
+      if (choice?.outcome === 'accepted') {
+        markInstallPrompted();
+      }
+    } catch (error) {
+      console.error('Install prompt failed:', error);
+    } finally {
+      deferredInstallPrompt = null;
+      showInstallBanner = false;
+    }
+  }
+
+  function dismissInstall() {
+    markInstallPrompted();
+    deferredInstallPrompt = null;
+  }
+
+  async function hydrateClaimantCodes(claimList: Claim[]) {
+    const ids = Array.from(
+      new Set(
+        claimList
+          .map((claim) => claim.submitter_id)
+          .filter((id): id is string => Boolean(id))
+      )
+    );
+    if (ids.length === 0) {
+      claimantCodes = {};
+      return;
+    }
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, referral_code')
+        .in('id', ids);
+      if (error) throw error;
+      claimantCodes = (data ?? []).reduce<Record<string, string>>((acc, row) => {
+        acc[row.id] = row.referral_code ?? '';
+        return acc;
+      }, {});
+    } catch (error) {
+      console.error('Error loading claimant codes:', error);
+      claimantCodes = {};
     }
   }
 
@@ -302,6 +382,7 @@
 
     const { data } = await supabase.auth.getSession();
     session = data.session;
+    userId = session?.user?.id ?? null;
 
     if (hasRefOnly) {
       if (!session) {
@@ -362,7 +443,11 @@
       await fetchDashboardData();
 
       if (typeof window !== 'undefined' && !window.history.state?.[historyViewKey]) {
-        window.history.replaceState({ [historyViewKey]: showForm ? 'claim' : 'dashboard' }, '', window.location.href);
+        replaceState(
+          window.history.state ?? {},
+          { [historyViewKey]: showForm ? 'claim' : 'dashboard' },
+          window.location.href
+        );
       }
     }
   });
@@ -381,12 +466,12 @@
       errorMessage = 'Please enter 4 digits';
       return false;
     }
-    if (!referrer.trim()) {
+    if (!normalizedReferrerInput.trim()) {
       status = 'error';
       errorMessage = 'Please enter a referrer';
       return false;
     }
-    if (!isReferralCodeValid(referrer)) {
+    if (!isReferralCodeValid(normalizedReferrerInput)) {
       status = 'error';
       errorMessage = 'Referrer code must be 4-8 letters or numbers';
       return false;
@@ -448,7 +533,7 @@
       const insertedClaim = await insertClaim({
         venue: venueName,
         venue_id: venueId,
-        referrer: normalizeReferralCode(referrer) || null,
+        referrer: normalizeReferralCode(normalizedReferrerInput) || null,
         referrer_id: referrerProfileId,
         amount: cleanAmount,
         status: 'pending',
@@ -468,9 +553,9 @@
       }
       if (session) {
         showForm = false;
-        if (typeof window !== 'undefined') {
-          window.history.replaceState({ [historyViewKey]: 'dashboard' }, '', window.location.href);
-        }
+      if (typeof window !== 'undefined') {
+        replaceState(window.history.state ?? {}, { [historyViewKey]: 'dashboard' }, window.location.href);
+      }
         status = 'idle';
         successMessage = '';
         highlightClaimKey = null;
@@ -484,6 +569,9 @@
           setTimeout(() => {
             if (highlightClaimKey) highlightClaimKey = null;
           }, 2000);
+        }
+        if (shouldShowInstallBanner()) {
+          showInstallBanner = true;
         }
         return true;
       } else {
@@ -513,6 +601,7 @@
 
   async function handleDeleteClaim(claim: Claim) {
     if (!claim.id) return;
+    if (!session?.user?.id || claim.submitter_id !== session.user.id) return;
     const confirmed = window.confirm('Remove this claim? This cannot be undone.');
     if (!confirmed) return;
 
@@ -552,7 +641,7 @@
     if (typeof window === 'undefined') return;
     const state = window.history.state ?? {};
     if (!state[historyReferKey]) {
-      window.history.pushState({ ...state, [historyReferKey]: true }, '', window.location.href);
+      pushState(window.history.state ?? {}, { ...state, [historyReferKey]: true }, window.location.href);
     }
   }
 
@@ -562,7 +651,7 @@
     const state = window.history.state ?? {};
     if (state[historyReferKey]) {
       const { [historyReferKey]: _removed, ...rest } = state;
-      window.history.replaceState(rest, '', window.location.href);
+      replaceState(window.history.state ?? {}, rest, window.location.href);
     }
   }
 
@@ -728,7 +817,7 @@
     purchaseTime = getLocalNowInputValue();
     maxPurchaseTime = purchaseTime;
     if (session && typeof window !== 'undefined') {
-      window.history.pushState({ [historyViewKey]: 'claim' }, '', window.location.href);
+      pushState(window.history.state ?? {}, { [historyViewKey]: 'claim' }, window.location.href);
     }
     showForm = true;
   }
@@ -736,7 +825,7 @@
   function handleFormBack() {
     showForm = false;
     if (session && typeof window !== 'undefined') {
-      window.history.replaceState({ [historyViewKey]: 'dashboard' }, '', window.location.href);
+      replaceState(window.history.state ?? {}, { [historyViewKey]: 'dashboard' }, window.location.href);
     }
   }
 </script>
@@ -751,6 +840,8 @@
       {highlightClaimKey}
       {venues}
       userEmail={session?.user?.email ?? ''}
+      userId={userId ?? ''}
+      claimantCodes={claimantCodes}
       onNewClaim={startNewClaim}
       onDeleteClaim={handleDeleteClaim}
       onLogout={handleSignOut}
@@ -805,4 +896,35 @@
       onClose={closeReferModal}
     />
   {/if}
+
+  {#if showInstallBanner}
+    <div class="fixed bottom-28 left-0 right-0 px-6 z-[210] flex justify-center" in:fly={{ y: 80 }}>
+      <div class="w-full max-w-sm bg-zinc-900/90 backdrop-blur-xl border border-zinc-800 rounded-2xl shadow-2xl shadow-black/40 p-4 flex items-center gap-3">
+        <div class="flex-1">
+          <p class="text-sm font-black uppercase tracking-[0.18em] text-white">Add to Home</p>
+          <p class="text-xs text-zinc-400 font-semibold">Install Kickback for faster access.</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <button
+            type="button"
+            on:click={dismissInstall}
+            class="text-[11px] font-black uppercase tracking-[0.2em] text-zinc-500 hover:text-white transition-colors"
+          >
+            Later
+          </button>
+          <button
+            type="button"
+            on:click={handleInstall}
+            class="bg-white text-black font-black px-3 py-2 rounded-xl text-[11px] uppercase tracking-tight active:scale-95 transition-all"
+          >
+            Install
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
 </main>
+
+
+
+

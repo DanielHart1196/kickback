@@ -228,8 +228,8 @@
   <button on:click={onClose} class="absolute inset-0 w-full h-full cursor-default" aria-label="Close"></button>
 
   <div 
-    class="bg-zinc-900 w-full max-w-md rounded-t-[2.5rem] relative pb-12 transition-transform"
-    style="transform: translateY({currentYOffset}px); transition: {currentYOffset === 0 ? 'transform 0.3s ease-out' : 'none'};"
+    class="bg-zinc-900 w-full max-w-md rounded-t-[2.5rem] relative pb-12 transition-transform overflow-hidden"
+    style={`transform: translateY(${Math.max(0, currentYOffset)}px); transition: ${currentYOffset === 0 ? 'transform 0.3s ease-out' : 'none'}; max-height: calc(100vh - 64px); margin-top: 4px; padding-top: 4px; padding-bottom: 32px;`}
     in:fly={{ y: 600, duration: 500, opacity: 1 }} 
     out:fly={{ y: 600, duration: 400, opacity: 1 }}
     on:touchstart={handleTouchStart}
@@ -298,16 +298,17 @@
               {/if}
             </div>
           {/if}
-        </div>
-      </div>
+</div>  
+</div>
 
-      <div class="bg-white p-4 rounded-[2.5rem] w-48 h-48 mx-auto mb-8 flex items-center justify-center shadow-xl shadow-white/5">
+
+      <div class="bg-white p-4 rounded-[2.5rem] w-48 h-48 mx-auto mb-4 flex items-center justify-center shadow-xl shadow-white/5">
         {#if qrDataUrl}
           <img src={qrDataUrl} alt="Referral QR Code" class="w-full h-full" />
         {/if}
       </div>
 
-      <div class="space-y-4">
+      <div class="space-y-3">
         <div>
           <p class="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-3 px-1 text-center">Your Code</p>
           <div class="bg-black rounded-2xl p-4 flex items-center border border-zinc-800 gap-4">

@@ -67,9 +67,10 @@
 
   $: filteredVenues =
     venues.filter((venueOption) =>
-      venueOption.name.toLowerCase().includes(venue.trim().toLowerCase())
+      venueOption.name.toLowerCase().includes((venue || '').trim().toLowerCase())
     );
-  $: referrerValid = referrer.trim().length > 0 && isReferralCodeValid(referrer);
+  $: safeReferrer = typeof referrer === 'string' ? referrer : '';
+  $: referrerValid = safeReferrer.trim().length > 0 && isReferralCodeValid(safeReferrer);
 
   function handleReferrerInput(event: Event & { currentTarget: HTMLInputElement }) {
     const raw = event.currentTarget.value;

@@ -5,7 +5,7 @@ export async function fetchClaimsForUser(userId: string): Promise<Claim[]> {
   const { data, error } = await supabase
     .from('claims')
     .select('*')
-    .eq('submitter_id', userId)
+    .or(`submitter_id.eq.${userId},referrer_id.eq.${userId}`)
     .order('purchased_at', { ascending: false });
 
   if (error) throw error;
