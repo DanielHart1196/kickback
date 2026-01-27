@@ -42,6 +42,12 @@
   let venueOpen = false;
   let timeInput: HTMLInputElement | null = null;
   let isFirefox = false;
+  let showLast4Info = false;
+  let last4InfoButton: HTMLButtonElement | null = null;
+  let last4TooltipEl: HTMLDivElement | null = null;
+  let last4TooltipStyle = '';
+  let logoLoaded = false;
+  let keyboardPad = false;
 
   onMount(() => {
     isFirefox =
@@ -61,9 +67,43 @@
       }
     };
 
+    const handleTooltipOutsideClick = (event: MouseEvent) => {
+      if (!showLast4Info) return;
+      const target = event.target as Node;
+      if (last4InfoButton?.contains(target)) return;
+      if (last4TooltipEl?.contains(target)) return;
+      showLast4Info = false;
+    };
+
+    const handleTooltipReposition = () => {
+      if (showLast4Info) updateLast4TooltipPosition();
+    };
+
     document.addEventListener('click', handleClick);
-    return () => document.removeEventListener('click', handleClick);
+    document.addEventListener('click', handleTooltipOutsideClick);
+    window.addEventListener('resize', handleTooltipReposition);
+    window.addEventListener('scroll', handleTooltipReposition, true);
+    return () => {
+      document.removeEventListener('click', handleClick);
+      document.removeEventListener('click', handleTooltipOutsideClick);
+      window.removeEventListener('resize', handleTooltipReposition);
+      window.removeEventListener('scroll', handleTooltipReposition, true);
+    };
   });
+
+  function updateLast4TooltipPosition() {
+    if (!last4InfoButton || typeof window === 'undefined') return;
+    const rect = last4InfoButton.getBoundingClientRect();
+    const top = rect.bottom + 8;
+    last4TooltipStyle = `top: ${Math.round(top)}px; left: 50%; transform: translateX(-50%);`;
+  }
+
+  function toggleLast4Info() {
+    showLast4Info = !showLast4Info;
+    if (showLast4Info) {
+      updateLast4TooltipPosition();
+    }
+  }
 
   $: filteredVenues =
     venues.filter((venueOption) =>
@@ -71,6 +111,9 @@
     );
   $: safeReferrer = typeof referrer === 'string' ? referrer : '';
   $: referrerValid = safeReferrer.trim().length > 0 && isReferralCodeValid(safeReferrer);
+  $: if (selectedVenue?.logo_url) {
+    logoLoaded = false;
+  }
 
   function handleReferrerInput(event: Event & { currentTarget: HTMLInputElement }) {
     const raw = event.currentTarget.value;
@@ -134,7 +177,11 @@
   }
 </script>
 
-<div class="w-full max-w-sm space-y-8" in:fly={{ y: 20 }}>
+<div
+  class="w-full max-w-sm space-y-8"
+  style={keyboardPad ? 'padding-bottom: 40vh;' : ''}
+  in:fly={{ y: 20 }}
+>
   {#if showBack}
     <button on:click={onBack} class="text-zinc-600 font-bold text-xs uppercase tracking-widest flex items-center gap-2 mb-4">
       <span aria-hidden="true">←</span>
@@ -175,7 +222,8 @@
         <img
           src={selectedVenue.logo_url}
           alt={selectedVenue.name}
-          class="h-48 w-auto max-w-full object-contain"
+          on:load={() => (logoLoaded = true)}
+          class="h-48 w-auto max-w-full object-contain rounded-2xl border-2 transition-opacity duration-200 {logoLoaded ? 'border-orange-500/80 opacity-100' : 'border-transparent opacity-0'}"
           loading="lazy"
         />
         {#if !isVenueLocked}
@@ -286,6 +334,8 @@
             step="0.01"
             bind:value={amountInput}
             bind:this={amountField}
+            on:focus={() => (keyboardPad = true)}
+            on:blur={() => (keyboardPad = false)}
             on:input={onAmountInput}
             placeholder="0.00"
             inputmode="decimal"
@@ -338,7 +388,38 @@
         </div>
 
         <div>
-          <label for="last4" class="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">Card Digits (Last 4)</label>
+          <div class="flex items-center justify-between mb-2">
+            <label for="last4" class="block text-xs font-bold uppercase tracking-widest text-zinc-500">Card Digits (Last 4)</label>
+            <div class="flex items-center">
+              <button
+                type="button"
+                bind:this={last4InfoButton}
+                on:click={toggleLast4Info}
+                aria-expanded={showLast4Info}
+                aria-controls="last4-help"
+                class="text-zinc-400 hover:text-white transition-colors flex items-center justify-center w-4 h-4"
+              >
+                <span class="sr-only">Why we need this</span>
+                <svg aria-hidden="true" viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="9" />
+                  <path d="M12 16v-4" />
+                  <path d="M12 8h.01" />
+                </svg>
+              </button>
+            </div>
+          </div>
+          {#if showLast4Info}
+            <div
+              id="last4-help"
+              bind:this={last4TooltipEl}
+              class="fixed w-72 rounded-2xl border border-zinc-800 bg-zinc-950 p-3 text-[11px] text-zinc-300 shadow-xl shadow-black/30 z-[300] opacity-100"
+              style={last4TooltipStyle}
+            >
+              <p class="font-semibold">Why we need this</p>
+              <p class="mt-1 text-zinc-400">We use the last 4 digits to match your purchase with the venue. We never see the full card number and never charge your card.</p>
+              <p class="mt-2 text-zinc-500">Apple Pay and Google Pay can show a different card number than the one on your physical card. Please enter the last 4 shown in your wallet app.</p>
+            </div>
+          {/if}
           <input 
             id="last4"
             type="text" 

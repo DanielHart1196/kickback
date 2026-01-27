@@ -59,6 +59,8 @@
   let referrerCodeCache: Record<string, string> = {};
   let lockedReferrerId: string | null = null;
   let lockedReferrerCode: string | null = null;
+  let referralEditLocked = false;
+  let referralOriginalCode: string | null = null;
 
   let claims: Claim[] = [];
   let totalPending = 0;
@@ -79,12 +81,23 @@
   let userRefCode = 'member';
   const historyViewKey = 'view';
   const historyReferKey = 'refer';
+  const svelteStateKey = 'sveltekit:states';
+
+  function getHistoryState(): Record<string, any> {
+    if (typeof window === 'undefined') return {};
+    const rawState = window.history.state;
+    if (rawState && typeof rawState === 'object' && svelteStateKey in rawState) {
+      return (rawState as Record<string, any>)[svelteStateKey] ?? {};
+    }
+    return (rawState as Record<string, any>) ?? {};
+  }
 
   onMount(() => {
     const handlePopState = (event: PopStateEvent) => {
-      const nextView = event.state?.[historyViewKey];
+      const state = event.state?.[svelteStateKey] ?? event.state ?? {};
+      const nextView = state?.[historyViewKey];
       showForm = nextView === 'claim';
-      showReferModal = Boolean(event.state?.[historyReferKey]);
+      showReferModal = Boolean(state?.[historyReferKey]);
     };
     const handleBeforeInstall = (event: Event) => {
       event.preventDefault();
@@ -168,7 +181,10 @@
 
   async function isReferralCodeAvailable(code: string, userId: string): Promise<boolean> {
     const normalized = normalizeReferralCode(code);
-    const { data, error } = await supabase.from('profiles').select('id').ilike('referral_code', normalized);
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id')
+      .or(`referral_code.ilike.${normalized},referral_code_original.ilike.${normalized}`);
     if (error) throw error;
     if (!data || data.length === 0) return true;
     return data.every((row) => row.id === userId);
@@ -179,7 +195,7 @@
     const { data, error } = await supabase
       .from('profiles')
       .select('id, referral_code')
-      .ilike('referral_code', normalized)
+      .or(`referral_code.ilike.${normalized},referral_code_original.ilike.${normalized}`)
       .limit(1)
       .maybeSingle();
     if (error) throw error;
@@ -223,21 +239,36 @@
     try {
       const { data, error } = await supabase
         .from('profiles')
-        .select('referral_code')
+        .select('referral_code, referral_code_original, referral_code_updated_at')
         .eq('id', userId)
         .maybeSingle();
       if (error) throw error;
       if (data?.referral_code) {
         userRefCode = data.referral_code;
+        referralOriginalCode = data.referral_code_original ?? null;
+        referralEditLocked = Boolean(data.referral_code_updated_at);
+        if (!data.referral_code_original) {
+          await supabase
+            .from('profiles')
+            .update({ referral_code_original: data.referral_code })
+            .eq('id', userId);
+          referralOriginalCode = data.referral_code;
+        }
         return;
       }
       const generated = await generateUniqueReferralCode(userId, fallbackEmail);
       const { error: updateError } = await supabase
         .from('profiles')
-        .update({ referral_code: generated, updated_at: new Date().toISOString() })
+        .update({
+          referral_code: generated,
+          referral_code_original: generated,
+          updated_at: new Date().toISOString()
+        })
         .eq('id', userId);
       if (updateError) throw updateError;
       userRefCode = generated;
+      referralOriginalCode = generated;
+      referralEditLocked = false;
     } catch (error) {
       console.error('Error ensuring referral code:', error);
       userRefCode = buildReferralCodeFromEmail(fallbackEmail) || 'member';
@@ -251,14 +282,33 @@
       return { ok: false, message: 'Use 4-8 letters or numbers.' };
     }
     try {
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('referral_code, referral_code_original, referral_code_updated_at')
+        .eq('id', session.user.id)
+        .maybeSingle();
+      if (profileError) throw profileError;
+      if (profile?.referral_code_updated_at) {
+        referralEditLocked = true;
+        return { ok: false, message: 'You can only update your code once.' };
+      }
       const available = await isReferralCodeAvailable(normalized, session.user.id);
       if (!available) return { ok: false, message: 'Code already taken.' };
+      const originalCode = profile?.referral_code_original ?? profile?.referral_code ?? userRefCode;
       const { error } = await supabase
         .from('profiles')
-        .update({ referral_code: normalized, updated_at: new Date().toISOString() })
+        .update({
+          referral_code: normalized,
+          referral_code_original: originalCode,
+          referral_code_updated_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
         .eq('id', session.user.id);
       if (error) throw error;
       userRefCode = normalized;
+      referrerCodeCache = { ...referrerCodeCache, [session.user.id]: normalized };
+      referralOriginalCode = originalCode ?? null;
+      referralEditLocked = true;
       return { ok: true, code: normalized };
     } catch (error) {
       console.error('Error updating referral code:', error);
@@ -462,12 +512,11 @@
       await ensureReferralCode(session.user.id, session.user.email ?? 'member');
       await fetchDashboardData();
 
-      if (typeof window !== 'undefined' && !window.history.state?.[historyViewKey]) {
-        replaceState(
-          window.history.state ?? {},
-          { [historyViewKey]: showForm ? 'claim' : 'dashboard' },
-          window.location.href
-        );
+      if (typeof window !== 'undefined') {
+        const state = getHistoryState();
+        if (!state[historyViewKey]) {
+          replaceState('', { ...state, [historyViewKey]: showForm ? 'claim' : 'dashboard' });
+        }
       }
     }
   });
@@ -573,9 +622,10 @@
       }
       if (session) {
         showForm = false;
-      if (typeof window !== 'undefined') {
-        replaceState(window.history.state ?? {}, { [historyViewKey]: 'dashboard' }, window.location.href);
-      }
+        if (typeof window !== 'undefined') {
+          const state = getHistoryState();
+          replaceState('', { ...state, [historyViewKey]: 'dashboard' });
+        }
         status = 'idle';
         successMessage = '';
         highlightClaimKey = null;
@@ -659,19 +709,19 @@
   function openReferModal() {
     showReferModal = true;
     if (typeof window === 'undefined') return;
-    const state = window.history.state ?? {};
+    const state = getHistoryState();
     if (!state[historyReferKey]) {
-      pushState(window.history.state ?? {}, { ...state, [historyReferKey]: true }, window.location.href);
+      pushState('', { ...state, [historyReferKey]: true });
     }
   }
 
   function closeReferModal() {
     showReferModal = false;
     if (typeof window === 'undefined') return;
-    const state = window.history.state ?? {};
+    const state = getHistoryState();
     if (state[historyReferKey]) {
       const { [historyReferKey]: _removed, ...rest } = state;
-      replaceState(window.history.state ?? {}, rest, window.location.href);
+      replaceState('', rest);
     }
   }
 
@@ -829,7 +879,12 @@
     const validVenue = getVenueIdByName(latestVenue) ? latestVenue : '';
     const lockedReferrer = validVenue ? getVenueLockedReferrer(validVenue) : null;
     venue = validVenue;
-    referrer = lockedReferrer ?? '';
+    if (lockedReferrer) {
+      referrer = lockedReferrer.code ?? '';
+      void syncLockedReferrer(lockedReferrer);
+    } else {
+      referrer = '';
+    }
     isVenueLocked = false;
     isReferrerLocked = Boolean(lockedReferrer);
     referrerLockedByVenue = Boolean(lockedReferrer);
@@ -837,7 +892,8 @@
     purchaseTime = getLocalNowInputValue();
     maxPurchaseTime = purchaseTime;
     if (session && typeof window !== 'undefined') {
-      pushState(window.history.state ?? {}, { [historyViewKey]: 'claim' }, window.location.href);
+      const state = getHistoryState();
+      pushState('', { ...state, [historyViewKey]: 'claim' });
     }
     showForm = true;
   }
@@ -845,7 +901,8 @@
   function handleFormBack() {
     showForm = false;
     if (session && typeof window !== 'undefined') {
-      replaceState(window.history.state ?? {}, { [historyViewKey]: 'dashboard' }, window.location.href);
+      const state = getHistoryState();
+      replaceState('', { ...state, [historyViewKey]: 'dashboard' });
     }
   }
 </script>
@@ -913,6 +970,8 @@
     <ReferralModal
       {venues}
       userRefCode={userRefCode}
+      referralEditLocked={referralEditLocked}
+      referralOriginalCode={referralOriginalCode}
       onUpdateReferralCode={updateReferralCode}
       onClose={closeReferModal}
     />

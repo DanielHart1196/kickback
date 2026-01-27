@@ -1,6 +1,6 @@
 <script lang="ts">
   import { fade, fly, slide } from 'svelte/transition';
-  import { tick } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { flip } from 'svelte/animate';
   import { GOAL_DAYS, KICKBACK_RATE } from '$lib/claims/constants';
   import { calculateKickbackWithRate, getDaysAtVenue, isClaimDenied } from '$lib/claims/utils';
@@ -25,6 +25,22 @@
   let filterReferred: Set<'referred' | 'direct'> = new Set();
   let showFilterMenu = false;
   let listContainer: HTMLDivElement | null = null;
+  let filterMenuEl: HTMLDivElement | null = null;
+  let filterButtonEl: HTMLButtonElement | null = null;
+
+  onMount(() => {
+    const handleOutsideClick = (event: MouseEvent) => {
+      if (!showFilterMenu) return;
+      const target = event.target as Node;
+      if (filterMenuEl?.contains(target)) return;
+      if (filterButtonEl?.contains(target)) return;
+      showFilterMenu = false;
+    };
+    document.addEventListener('click', handleOutsideClick);
+    return () => {
+      document.removeEventListener('click', handleOutsideClick);
+    };
+  });
 
   async function scrollToHighlightedClaim(key: string) {
     if (typeof document === 'undefined') return;
@@ -159,6 +175,7 @@
       <button
         type="button"
         on:click={() => (showFilterMenu = !showFilterMenu)}
+        bind:this={filterButtonEl}
         class="text-sm font-bold text-zinc-500 uppercase flex items-center gap-2 hover:text-white transition-colors"
         aria-haspopup="true"
         aria-expanded={showFilterMenu}
@@ -169,7 +186,7 @@
         </svg>
       </button>
       {#if showFilterMenu}
-        <div class="absolute right-0 top-full mt-2 w-56 bg-zinc-900 border border-zinc-800 rounded-2xl shadow-xl p-3 space-y-3 z-10">
+        <div bind:this={filterMenuEl} class="absolute right-0 top-full mt-2 w-56 bg-zinc-900 border border-zinc-800 rounded-2xl shadow-xl p-3 space-y-3 z-10">
           <div>
             <p class="text-[10px] font-black uppercase tracking-[0.25em] text-zinc-500 mb-2">Status</p>
             <div class="flex flex-col gap-2">
@@ -322,7 +339,7 @@
             <div class="flex items-center justify-between">
               <p class="text-sm font-black uppercase text-zinc-400 tracking-widest">30-day progress</p>
               <p class="text-sm font-black text-white">
-                {GOAL_DAYS - getDaysAtVenue(claims, claim.venue)} DAYS LEFT
+                {Math.max(GOAL_DAYS - getDaysAtVenue(claims, claim.venue) + 1, 0)} DAYS LEFT
               </p>
             </div>
             <div class="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden">
@@ -381,7 +398,10 @@
       </button>
     </div>
 
-    <div class="h-32 w-full"></div>
+    {#if showFilterMenu}
+      <div class="h-16 w-full"></div>
+    {/if}
+    <div class="h-20 w-full"></div>
   </div>
 </div>
 

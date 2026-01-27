@@ -25,6 +25,7 @@
 	},
 	"dependencies": {
 		"@supabase/supabase-js": "^2.91.0",
+		"qr-code-styling": "^1.9.2",
 		"qrcode": "^1.5.4"
 	}
 }

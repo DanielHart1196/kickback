@@ -1,12 +1,15 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
   import { slide } from 'svelte/transition';
+  import { replaceState } from '$app/navigation';
   import { supabase } from '$lib/supabase';
   import { fetchClaimsForVenueId, updateClaimStatus } from '$lib/claims/repository';
   import { calculateKickbackWithRate, calculateTotalAmount } from '$lib/claims/utils';
   import type { Claim, ClaimStatus } from '$lib/claims/types';
   import type { Venue } from '$lib/venues/types';
   import { buildVenueBase, generateVenueCode } from '$lib/venues/code';
+  import { dev } from '$app/environment';
+  import { PUBLIC_SQUARE_APP_ID_PROD, PUBLIC_SQUARE_APP_ID_SANDBOX } from '$env/static/public';
 
   let claims: Claim[] = [];
   let loading = true;
@@ -43,6 +46,41 @@
   let claimsScrollEl: HTMLDivElement | null = null;
   let showClaimsScrollFade = false;
   let showClaimsScrollLeftFade = false;
+  let squareBanner: { type: 'success' | 'error'; message: string } | null = null;
+  const SQUARE_SCOPES = 'PAYMENTS_READ MERCHANT_PROFILE_READ LOCATIONS_READ';
+  const squareAppId = dev ? PUBLIC_SQUARE_APP_ID_SANDBOX : PUBLIC_SQUARE_APP_ID_PROD;
+  const squareOauthBase = dev
+    ? 'https://connect.squareupsandbox.com/oauth2/authorize'
+    : 'https://connect.squareup.com/oauth2/authorize';
+
+  function connectSquare() {
+    if (typeof window === 'undefined') return;
+    if (!venue?.id) return;
+    if (!squareAppId) return;
+    const state =
+      typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? crypto.randomUUID()
+        : Math.random().toString(36).slice(2);
+    const secureFlag = window.location.protocol === 'https:' ? '; secure' : '';
+    document.cookie = `square_oauth_state=${state}; path=/; max-age=600; samesite=lax${secureFlag}`;
+    document.cookie = `square_oauth_venue=${venue.id}; path=/; max-age=600; samesite=lax${secureFlag}`;
+    const redirectUri = `${window.location.origin}/api/square/callback`;
+    const url = new URL(squareOauthBase);
+    url.searchParams.set('client_id', squareAppId);
+    url.searchParams.set('response_type', 'code');
+    url.searchParams.set('scope', SQUARE_SCOPES);
+    if (!dev) {
+      url.searchParams.set('session', 'false');
+    }
+    url.searchParams.set('state', state);
+    url.searchParams.set('redirect_uri', redirectUri);
+    const target = url.toString();
+    if (window.top) {
+      window.top.location.href = target;
+    } else {
+      window.location.href = target;
+    }
+  }
 
   onMount(async () => {
     try {
@@ -56,6 +94,33 @@
       console.error('Error fetching claims:', error);
     } finally {
       loading = false;
+    }
+  });
+
+  onMount(() => {
+    if (typeof window === 'undefined') return;
+    const url = new URL(window.location.href);
+    const status = url.searchParams.get('square');
+    const reason = url.searchParams.get('reason');
+    const merchant = url.searchParams.get('merchant');
+
+    if (status === 'connected') {
+      squareBanner = {
+        type: 'success',
+        message: merchant ? `Square connected (merchant ${merchant}).` : 'Square connected.'
+      };
+    } else if (status === 'error') {
+      squareBanner = {
+        type: 'error',
+        message: reason ? `Square connection failed: ${decodeURIComponent(reason)}.` : 'Square connection failed.'
+      };
+    }
+
+    if (status) {
+      url.searchParams.delete('square');
+      url.searchParams.delete('reason');
+      url.searchParams.delete('merchant');
+      replaceState(url.toString(), window.history.state ?? {});
     }
   });
 
@@ -698,7 +763,20 @@
 </script>
 
 <div class="p-4 md:p-10 bg-zinc-950 min-h-screen text-zinc-100 font-sans">
-  <div class="max-w-4xl mx-auto space-y-10">
+<div class="max-w-4xl mx-auto space-y-10">
+  {#if squareBanner}
+    <div class={`rounded-2xl border px-4 py-3 text-sm font-bold uppercase tracking-widest flex items-center justify-between gap-4 ${squareBanner.type === 'success' ? 'border-green-500/30 bg-green-500/10 text-green-200' : 'border-red-500/30 bg-red-500/10 text-red-200'}`}>
+      <span>{squareBanner.message}</span>
+      <button
+        type="button"
+        on:click={() => (squareBanner = null)}
+        class="text-zinc-300 hover:text-white transition-colors text-xs font-black tracking-[0.3em]"
+        aria-label="Dismiss Square status"
+      >
+        CLOSE
+      </button>
+    </div>
+  {/if}
     <section class="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-6 md:p-8">
       <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
         <div class="flex items-center gap-5">
@@ -781,6 +859,13 @@
                 class="bg-white text-black font-black px-6 py-3 rounded-xl uppercase tracking-tight disabled:opacity-50"
               >
                 {savingVenue ? 'Saving...' : 'Save Changes'}
+              </button>
+              <button
+                type="button"
+                on:click={connectSquare}
+                class="bg-orange-500 text-black font-black px-6 py-3 rounded-xl uppercase tracking-tight shadow-xl shadow-orange-500/10"
+              >
+                Connect Square
               </button>
             {:else}
               <button

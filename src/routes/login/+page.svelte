@@ -32,7 +32,10 @@
 
   async function isReferralCodeAvailable(code: string, userId?: string): Promise<boolean> {
     const normalized = normalizeReferralCode(code);
-    const { data, error } = await supabase.from('profiles').select('id').ilike('referral_code', normalized);
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id')
+      .or(`referral_code.ilike.${normalized},referral_code_original.ilike.${normalized}`);
     if (error) throw error;
     if (!data || data.length === 0) return true;
     if (userId) return data.every((row) => row.id === userId);
@@ -158,14 +161,22 @@
       }
 
       if (user) {
-        const profilePayload: { id: string; updated_at: string; last_4?: string; referral_code?: string } = {
+        const profilePayload: {
+          id: string;
+          updated_at: string;
+          last_4?: string;
+          referral_code?: string;
+          referral_code_original?: string;
+        } = {
           id: user.id,
           updated_at: new Date().toISOString()
         };
         if (draft.last4) profilePayload.last_4 = draft.last4;
         if (isSignup) {
           try {
-            profilePayload.referral_code = await generateUniqueReferralCode(user.id, email);
+            const generatedCode = await generateUniqueReferralCode(user.id, email);
+            profilePayload.referral_code = generatedCode;
+            profilePayload.referral_code_original = generatedCode;
           } catch (error) {
             console.error('Failed to generate referral code:', error);
           }
