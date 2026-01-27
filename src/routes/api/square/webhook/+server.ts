@@ -3,10 +3,15 @@ import { createHmac, timingSafeEqual } from 'crypto';
 import { env } from '$env/dynamic/private';
 import { supabaseAdmin } from '$lib/server/supabaseAdmin';
 
-const squareApiBase =
-  env.PUBLIC_SQUARE_ENVIRONMENT === 'sandbox'
-    ? 'https://connect.squareupsandbox.com'
-    : 'https://connect.squareup.com';
+function getSquareApiBase(accessToken: string | null | undefined): string {
+  if (accessToken?.startsWith('sandbox-')) {
+    return 'https://connect.squareupsandbox.com';
+  }
+  if (env.PUBLIC_SQUARE_ENVIRONMENT === 'sandbox') {
+    return 'https://connect.squareupsandbox.com';
+  }
+  return 'https://connect.squareup.com';
+}
 const squareVersion = '2025-01-23';
 
 type SquarePayment = {
@@ -96,12 +101,12 @@ export async function POST({ request }) {
     return json({ ok: true, already_linked: true });
   }
 
-  const accessToken = connections[0]?.access_token;
+  const accessToken = connections.find((connection) => connection.access_token)?.access_token ?? null;
   if (!accessToken) {
     return json({ ok: false, error: 'missing_access_token' }, { status: 404 });
   }
 
-  const paymentResponse = await fetch(`${squareApiBase}/v2/payments/${paymentId}`, {
+  const paymentResponse = await fetch(`${getSquareApiBase(accessToken)}/v2/payments/${paymentId}`, {
     headers: {
       Authorization: `Bearer ${accessToken}`,
       'Square-Version': squareVersion,
