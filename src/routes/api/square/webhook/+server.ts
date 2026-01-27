@@ -12,6 +12,18 @@ function getSquareApiBase(accessToken: string | null | undefined): string {
   }
   return 'https://connect.squareup.com';
 }
+
+async function fetchSquarePayment(baseUrl: string, accessToken: string, paymentId: string) {
+  const response = await fetch(`${baseUrl}/v2/payments/${paymentId}`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Square-Version': squareVersion,
+      Accept: 'application/json'
+    }
+  });
+  const payload = await response.json().catch(() => null);
+  return { response, payload };
+}
 const squareVersion = '2025-01-23';
 
 type SquarePayment = {
@@ -106,17 +118,36 @@ export async function POST({ request }) {
     return json({ ok: false, error: 'missing_access_token' }, { status: 404 });
   }
 
-  const paymentResponse = await fetch(`${getSquareApiBase(accessToken)}/v2/payments/${paymentId}`, {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      'Square-Version': squareVersion,
-      Accept: 'application/json'
-    }
-  });
-
-  const paymentPayload = await paymentResponse.json().catch(() => null);
+  const primaryBase = getSquareApiBase(accessToken);
+  let { response: paymentResponse, payload: paymentPayload } = await fetchSquarePayment(
+    primaryBase,
+    accessToken,
+    paymentId
+  );
   if (!paymentResponse.ok) {
-    return json({ ok: false, error: paymentPayload?.message ?? 'square_payment_failed' }, { status: 502 });
+    const fallbackBase =
+      primaryBase === 'https://connect.squareup.com'
+        ? 'https://connect.squareupsandbox.com'
+        : 'https://connect.squareup.com';
+    ({ response: paymentResponse, payload: paymentPayload } = await fetchSquarePayment(
+      fallbackBase,
+      accessToken,
+      paymentId
+    ));
+    if (!paymentResponse.ok) {
+      console.error('Square payment fetch failed', {
+        merchantId,
+        paymentId,
+        primaryBase,
+        fallbackBase,
+        status: paymentResponse.status,
+        error: paymentPayload?.message ?? paymentPayload ?? null
+      });
+      return json(
+        { ok: false, error: paymentPayload?.message ?? 'square_payment_failed' },
+        { status: 502 }
+      );
+    }
   }
 
   const payment = paymentPayload?.payment as SquarePayment | undefined;
