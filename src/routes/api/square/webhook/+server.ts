@@ -1,10 +1,12 @@
 import { json } from '@sveltejs/kit';
-import { dev } from '$app/environment';
 import { createHmac, timingSafeEqual } from 'crypto';
 import { env } from '$env/dynamic/private';
 import { supabaseAdmin } from '$lib/server/supabaseAdmin';
 
-const squareApiBase = dev ? 'https://connect.squareupsandbox.com' : 'https://connect.squareup.com';
+const squareApiBase =
+  env.PUBLIC_SQUARE_ENVIRONMENT === 'sandbox'
+    ? 'https://connect.squareupsandbox.com'
+    : 'https://connect.squareup.com';
 const squareVersion = '2025-01-23';
 
 type SquarePayment = {
@@ -25,17 +27,36 @@ function isValidSignature(signature: string, url: string, body: string, key: str
 }
 
 export async function POST({ request }) {
-  const signatureKey = dev
-    ? env.PRIVATE_SQUARE_WEBHOOK_SIGNATURE_KEY_SANDBOX
-    : env.PRIVATE_SQUARE_WEBHOOK_SIGNATURE_KEY_PROD;
-  if (!signatureKey) {
+  const sandboxKey = env.PRIVATE_SQUARE_WEBHOOK_SIGNATURE_KEY_SANDBOX;
+  const prodKey = env.PRIVATE_SQUARE_WEBHOOK_SIGNATURE_KEY_PROD;
+  if (!sandboxKey && !prodKey) {
     return json({ ok: false, error: 'missing_signature_key' }, { status: 500 });
   }
 
   const signature = request.headers.get('x-square-signature') ?? '';
   const body = await request.text();
+  const url = new URL(request.url);
+  const forwardedHost = request.headers.get('x-forwarded-host') ?? request.headers.get('host');
+  const forwardedProto = request.headers.get('x-forwarded-proto') ?? url.protocol.replace(':', '');
+  const publicUrl = forwardedHost
+    ? `${forwardedProto}://${forwardedHost}${url.pathname}${url.search}`
+    : request.url;
 
-  if (!signature || !isValidSignature(signature, request.url, body, signatureKey)) {
+  const matchesSandbox =
+    (sandboxKey ? isValidSignature(signature, request.url, body, sandboxKey) : false) ||
+    (sandboxKey ? isValidSignature(signature, publicUrl, body, sandboxKey) : false);
+  const matchesProd =
+    (prodKey ? isValidSignature(signature, request.url, body, prodKey) : false) ||
+    (prodKey ? isValidSignature(signature, publicUrl, body, prodKey) : false);
+
+  if (!signature || (!matchesSandbox && !matchesProd)) {
+    console.warn('Square webhook signature mismatch', {
+      requestUrl: request.url,
+      publicUrl,
+      signatureLength: signature.length,
+      hasSandboxKey: Boolean(sandboxKey),
+      hasProdKey: Boolean(prodKey)
+    });
     return json({ ok: false, error: 'invalid_signature' }, { status: 401 });
   }
 
