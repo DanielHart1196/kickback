@@ -1,10 +1,7 @@
 import { json } from '@sveltejs/kit';
 import { dev } from '$app/environment';
 import { createHmac, timingSafeEqual } from 'crypto';
-import {
-  PRIVATE_SQUARE_WEBHOOK_SIGNATURE_KEY_PROD,
-  PRIVATE_SQUARE_WEBHOOK_SIGNATURE_KEY_SANDBOX
-} from '$env/static/private';
+import { env } from '$env/dynamic/private';
 import { supabaseAdmin } from '$lib/server/supabaseAdmin';
 
 const squareApiBase = dev ? 'https://connect.squareupsandbox.com' : 'https://connect.squareup.com';
@@ -29,8 +26,8 @@ function isValidSignature(signature: string, url: string, body: string, key: str
 
 export async function POST({ request }) {
   const signatureKey = dev
-    ? PRIVATE_SQUARE_WEBHOOK_SIGNATURE_KEY_SANDBOX
-    : PRIVATE_SQUARE_WEBHOOK_SIGNATURE_KEY_PROD;
+    ? env.PRIVATE_SQUARE_WEBHOOK_SIGNATURE_KEY_SANDBOX
+    : env.PRIVATE_SQUARE_WEBHOOK_SIGNATURE_KEY_PROD;
   if (!signatureKey) {
     return json({ ok: false, error: 'missing_signature_key' }, { status: 500 });
   }
