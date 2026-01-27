@@ -3,7 +3,7 @@
   import { slide } from 'svelte/transition';
   import { replaceState } from '$app/navigation';
   import { supabase } from '$lib/supabase';
-  import { fetchClaimsForVenueId, updateClaimStatus } from '$lib/claims/repository';
+  import { fetchClaimsForVenueId, updateClaimStatus, updateClaimWithSquareMatch } from '$lib/claims/repository';
   import { calculateKickbackWithRate, calculateTotalAmount } from '$lib/claims/utils';
   import type { Claim, ClaimStatus } from '$lib/claims/types';
   import type { Venue } from '$lib/venues/types';
@@ -41,13 +41,41 @@
   let pendingDenyCount = 0;
   let csvApprovedClaimIds: string[] = [];
   let csvDeniedClaimIds: string[] = [];
+  let squareChecking = false;
+  let squareMatches: {
+    claimId: string;
+    paymentId: string;
+    fingerprint: string;
+    amount: number;
+    last4: string;
+    time: Date;
+    locationId?: string | null;
+  }[] = [];
+  let squareUnmatchedClaimIds: string[] = [];
+  let squareError = '';
+  let squareApproving = false;
+  let squareDenying = false;
+  let squareApprovedClaimIds: string[] = [];
+  let squareDeniedClaimIds: string[] = [];
+  let squarePendingMatchCount = 0;
+  let squarePendingDenyCount = 0;
+  let squareCheckedRange = '';
   let selectedClaimIds = new Set<string>();
   let bulkApplying = false;
   let claimsScrollEl: HTMLDivElement | null = null;
   let showClaimsScrollFade = false;
   let showClaimsScrollLeftFade = false;
   let squareBanner: { type: 'success' | 'error'; message: string } | null = null;
-  const SQUARE_SCOPES = 'PAYMENTS_READ MERCHANT_PROFILE_READ LOCATIONS_READ';
+  let squareConnected = false;
+  let squareMerchantId = '';
+  let squareSyncing = false;
+  let squareLocations: { id: string; name: string; status?: string }[] = [];
+  let squareLocationIds = new Set<string>();
+  let squareLocationsLoading = false;
+  let squareLocationsSaving = false;
+  let squareLocationsError = '';
+  let squareLocationsLoaded = false;
+  const SQUARE_SCOPES = 'ORDERS_READ PAYMENTS_READ MERCHANT_PROFILE_READ';
   const squareAppId = dev ? PUBLIC_SQUARE_APP_ID_SANDBOX : PUBLIC_SQUARE_APP_ID_PROD;
   const squareOauthBase = dev
     ? 'https://connect.squareupsandbox.com/oauth2/authorize'
@@ -61,20 +89,16 @@
       typeof crypto !== 'undefined' && 'randomUUID' in crypto
         ? crypto.randomUUID()
         : Math.random().toString(36).slice(2);
-    const secureFlag = window.location.protocol === 'https:' ? '; secure' : '';
-    document.cookie = `square_oauth_state=${state}; path=/; max-age=600; samesite=lax${secureFlag}`;
-    document.cookie = `square_oauth_venue=${venue.id}; path=/; max-age=600; samesite=lax${secureFlag}`;
+    const isHttps = window.location.protocol === 'https:';
+    const sameSite = isHttps ? 'none' : 'lax';
+    const secureFlag = isHttps ? '; secure' : '';
+    document.cookie = `square_oauth_state=${state}; path=/; max-age=600; samesite=${sameSite}${secureFlag}`;
+    document.cookie = `square_oauth_venue=${venue.id}; path=/; max-age=600; samesite=${sameSite}${secureFlag}`;
     const redirectUri = `${window.location.origin}/api/square/callback`;
-    const url = new URL(squareOauthBase);
-    url.searchParams.set('client_id', squareAppId);
-    url.searchParams.set('response_type', 'code');
-    url.searchParams.set('scope', SQUARE_SCOPES);
-    if (!dev) {
-      url.searchParams.set('session', 'false');
-    }
-    url.searchParams.set('state', state);
-    url.searchParams.set('redirect_uri', redirectUri);
-    const target = url.toString();
+    const scopeParam = encodeURIComponent(SQUARE_SCOPES);
+    const redirectParam = encodeURIComponent(redirectUri);
+    const sessionParam = dev ? '' : '&session=false';
+    const target = `${squareOauthBase}?client_id=${squareAppId}&response_type=code&scope=${scopeParam}&state=${state}&redirect_uri=${redirectParam}${sessionParam}`;
     if (window.top) {
       window.top.location.href = target;
     } else {
@@ -87,6 +111,10 @@
       await fetchVenue();
       if (venue?.id) {
         claims = await fetchClaimsForVenueId(venue.id);
+        await fetchSquareStatus();
+        if (squareConnected) {
+          await fetchSquareLocations();
+        }
       } else {
         claims = [];
       }
@@ -123,6 +151,129 @@
       replaceState(url.toString(), window.history.state ?? {});
     }
   });
+
+  async function fetchSquareStatus() {
+    if (!venue?.id) return;
+    try {
+      const response = await fetch(`/api/square/status?venue_id=${encodeURIComponent(venue.id)}`);
+      if (!response.ok) return;
+      const data = await response.json();
+      squareConnected = Boolean(data?.connected);
+      squareMerchantId = data?.merchant_id ?? '';
+      if (!squareConnected) {
+        squareLocations = [];
+        squareLocationIds = new Set();
+        squareLocationsLoaded = false;
+      }
+    } catch (error) {
+      console.error('Error loading Square status:', error);
+    }
+  }
+
+  async function fetchSquareLocations() {
+    if (!venue?.id || !squareConnected) return;
+    squareLocationsLoading = true;
+    squareLocationsError = '';
+    squareLocationsLoaded = false;
+    try {
+      const [locationsResponse, linksResponse] = await Promise.all([
+        fetch(`/api/square/locations?venue_id=${encodeURIComponent(venue.id)}`),
+        fetch(`/api/square/location-links?venue_id=${encodeURIComponent(venue.id)}`)
+      ]);
+      const locationsPayload = await locationsResponse.json().catch(() => null);
+      const linksPayload = await linksResponse.json().catch(() => null);
+      if (!locationsResponse.ok) {
+        squareLocationsError = locationsPayload?.error ?? 'Failed to load Square locations.';
+        return;
+      }
+      if (!linksResponse.ok) {
+        squareLocationsError = linksPayload?.error ?? 'Failed to load Square location links.';
+        return;
+      }
+      squareLocations = (locationsPayload?.locations ?? []) as {
+        id: string;
+        name: string;
+        status?: string;
+      }[];
+      const linkedIds = new Set<string>(linksPayload?.location_ids ?? []);
+      squareLocationIds = linkedIds;
+    } catch (error) {
+      console.error('Error loading Square locations:', error);
+      squareLocationsError = 'Failed to load Square locations.';
+    } finally {
+      squareLocationsLoading = false;
+      squareLocationsLoaded = true;
+    }
+  }
+
+  function toggleSquareLocation(id: string) {
+    const next = new Set(squareLocationIds);
+    if (next.has(id)) {
+      next.delete(id);
+    } else {
+      next.add(id);
+    }
+    squareLocationIds = next;
+  }
+
+  async function saveSquareLocations() {
+    if (!venue?.id || squareLocationsSaving) return;
+    squareLocationsSaving = true;
+    squareLocationsError = '';
+    try {
+      const response = await fetch('/api/square/location-links', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          venue_id: venue.id,
+          location_ids: Array.from(squareLocationIds)
+        })
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        squareLocationsError = payload?.error ?? 'Failed to save Square locations.';
+      }
+    } catch (error) {
+      console.error('Error saving Square locations:', error);
+      squareLocationsError = 'Failed to save Square locations.';
+    } finally {
+      squareLocationsSaving = false;
+    }
+  }
+
+  async function disconnectSquare() {
+    if (!venue?.id || squareSyncing) return;
+    const confirmed = window.confirm('Disconnect Square for this venue?');
+    if (!confirmed) return;
+    squareSyncing = true;
+    try {
+      const response = await fetch('/api/square/disconnect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ venue_id: venue.id })
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        const reason =
+          payload?.error ||
+          (payload?.status ? `revoke_failed_${payload.status}` : null) ||
+          'disconnect_failed';
+        squareBanner = { type: 'error', message: `Square disconnect failed: ${reason}.` };
+        return;
+      }
+      squareConnected = false;
+      squareMerchantId = '';
+      squareLocations = [];
+      squareLocationIds = new Set();
+      squareLocationsLoaded = false;
+      squareBanner = { type: 'success', message: 'Square disconnected.' };
+    } catch (error) {
+      console.error('Error disconnecting Square:', error);
+      squareBanner = { type: 'error', message: 'Square disconnect failed.' };
+    } finally {
+      squareSyncing = false;
+    }
+  }
 
   function updateClaimsScrollFade() {
     if (!claimsScrollEl) {
@@ -163,6 +314,9 @@
   $: if (selectedCount === 0 && csvFileName) {
     clearCsvState();
   }
+  $: if (selectedCount === 0 && (squareMatches.length > 0 || squareUnmatchedClaimIds.length > 0)) {
+    clearSquareState();
+  }
   $: pendingMatchCount = csvMatches.filter((match) => {
     if (csvApprovedClaimIds.includes(match.claimId)) return false;
     const claim = claims.find((item) => item.id === match.claimId);
@@ -178,6 +332,16 @@
     claims;
     buildMatchesFromCsv(csvSourceText);
   }
+  $: squarePendingMatchCount = squareMatches.filter((match) => {
+    if (squareApprovedClaimIds.includes(match.claimId)) return false;
+    const claim = claims.find((item) => item.id === match.claimId);
+    return claim ? getClaimStatus(claim) === 'pending' : true;
+  }).length;
+  $: squarePendingDenyCount = squareUnmatchedClaimIds.filter((claimId) => {
+    if (squareDeniedClaimIds.includes(claimId)) return false;
+    const claim = claims.find((item) => item.id === claimId);
+    return claim ? getClaimStatus(claim) === 'pending' : true;
+  }).length;
   $: if (!loading) {
     tick().then(updateClaimsScrollFade);
   }
@@ -718,6 +882,196 @@
     csvDeniedClaimIds = [];
   }
 
+  function clearSquareState() {
+    squareMatches = [];
+    squareUnmatchedClaimIds = [];
+    squareError = '';
+    squareApproving = false;
+    squareDenying = false;
+    squareApprovedClaimIds = [];
+    squareDeniedClaimIds = [];
+    squareCheckedRange = '';
+  }
+
+  function buildMatchesFromSquare(payments: SquarePayment[]) {
+    squareError = '';
+    squareMatches = [];
+    squareUnmatchedClaimIds = [];
+
+    const selectedIds = new Set(selectedClaimIds);
+    const pendingClaims = claims.filter(
+      (claim) => claim.id && selectedIds.has(claim.id) && getClaimStatus(claim) === 'pending'
+    );
+    const unmatchedClaims = new Set(pendingClaims.map((claim) => claim.id).filter(Boolean) as string[]);
+
+    for (const payment of payments) {
+      const last4 = payment.card_details?.card?.last_4;
+      const fingerprint =
+        payment.card_details?.card?.fingerprint ??
+        payment.card_details?.card?.card_fingerprint ??
+        null;
+      const amount = payment.amount_money?.amount;
+      const createdAt = payment.created_at;
+      if (!last4 || !fingerprint || amount == null || !createdAt) continue;
+
+      const transactionTime = new Date(createdAt);
+      if (Number.isNaN(transactionTime.getTime())) continue;
+
+      const amountDollars = amount / 100;
+      let bestClaim: Claim | null = null;
+      let bestDiff = Number.POSITIVE_INFINITY;
+
+      for (const claim of pendingClaims) {
+        if (!claim.id || !unmatchedClaims.has(claim.id)) continue;
+        if (String(claim.last_4 || '').trim() !== last4) continue;
+        if (Number(claim.amount || 0).toFixed(2) !== amountDollars.toFixed(2)) continue;
+        const claimTime = new Date(claim.purchased_at);
+        const diffMs = Math.abs(claimTime.getTime() - transactionTime.getTime());
+        if (diffMs <= 5 * 60 * 1000 && diffMs < bestDiff) {
+          bestDiff = diffMs;
+          bestClaim = claim;
+        }
+      }
+
+      if (bestClaim?.id) {
+        unmatchedClaims.delete(bestClaim.id);
+        squareMatches = [
+          ...squareMatches,
+          {
+            claimId: bestClaim.id,
+            paymentId: payment.id,
+            fingerprint,
+            amount: amountDollars,
+            last4,
+            time: transactionTime,
+            locationId: payment.location_id ?? null
+          }
+        ];
+      }
+    }
+
+    squareUnmatchedClaimIds = Array.from(unmatchedClaims);
+    const matchedIds = new Set(squareMatches.map((match) => match.claimId));
+    const unmatchedIds = new Set(squareUnmatchedClaimIds);
+    squareApprovedClaimIds = squareApprovedClaimIds.filter((id) => matchedIds.has(id));
+    squareDeniedClaimIds = squareDeniedClaimIds.filter((id) => unmatchedIds.has(id));
+  }
+
+  async function autoCheckSquare() {
+    if (!venue?.id || squareChecking) return;
+    clearSquareState();
+    squareChecking = true;
+
+    try {
+      const selectedIds = new Set(selectedClaimIds);
+      const pendingClaims = claims.filter(
+        (claim) => claim.id && selectedIds.has(claim.id) && getClaimStatus(claim) === 'pending'
+      );
+      if (pendingClaims.length === 0) {
+        squareError = 'Select pending claims to check against Square.';
+        return;
+      }
+      if (!squareConnected) {
+        squareError = 'Square is not connected yet.';
+        return;
+      }
+
+      const times = pendingClaims
+        .map((claim) => new Date(claim.purchased_at))
+        .filter((date) => !Number.isNaN(date.getTime()));
+      if (times.length === 0) {
+        squareError = 'Selected claims have invalid timestamps.';
+        return;
+      }
+
+      const minTime = new Date(Math.min(...times.map((t) => t.getTime())) - 10 * 60 * 1000);
+      const maxTime = new Date(Math.max(...times.map((t) => t.getTime())) + 10 * 60 * 1000);
+      squareCheckedRange = `${minTime.toLocaleString()} - ${maxTime.toLocaleString()}`;
+
+      const response = await fetch(
+        `/api/square/payments?venue_id=${encodeURIComponent(venue.id)}&begin_time=${encodeURIComponent(
+          minTime.toISOString()
+        )}&end_time=${encodeURIComponent(maxTime.toISOString())}`
+      );
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        squareError = payload?.error ?? 'Failed to fetch Square payments.';
+        return;
+      }
+
+      const payments = (payload?.payments ?? []) as SquarePayment[];
+      buildMatchesFromSquare(payments);
+      if (squareMatches.length === 0 && squareUnmatchedClaimIds.length === 0) {
+        squareError = 'No Square payments found in that time range.';
+      }
+    } catch (error) {
+      console.error('Error checking Square payments:', error);
+      squareError = 'Failed to check Square payments.';
+    } finally {
+      squareChecking = false;
+    }
+  }
+
+  async function applySquareMatches() {
+    if (squarePendingMatchCount === 0) return;
+    squareApproving = true;
+    try {
+      for (const match of squareMatches) {
+        if (squareApprovedClaimIds.includes(match.claimId)) continue;
+        await updateClaimWithSquareMatch(match.claimId, 'approved', {
+          paymentId: match.paymentId,
+          fingerprint: match.fingerprint,
+          locationId: match.locationId ?? null
+        });
+        claims = claims.map((claim) =>
+          claim.id === match.claimId
+            ? {
+                ...claim,
+                status: 'approved',
+                square_payment_id: match.paymentId,
+                square_card_fingerprint: match.fingerprint,
+                square_location_id: match.locationId ?? null
+              }
+            : claim
+        );
+        squareApprovedClaimIds = [...squareApprovedClaimIds, match.claimId];
+      }
+    } catch (error) {
+      console.error('Error applying Square matches:', error);
+      squareError = 'Failed to apply approvals.';
+    } finally {
+      squareApproving = false;
+    }
+  }
+
+  async function denySquareUnmatchedClaims() {
+    if (squarePendingDenyCount === 0) return;
+    squareDenying = true;
+    try {
+      for (const claimId of squareUnmatchedClaimIds) {
+        if (squareDeniedClaimIds.includes(claimId)) continue;
+        await updateClaimStatus(claimId, 'denied');
+        claims = claims.map((claim) =>
+          claim.id === claimId ? { ...claim, status: 'denied' } : claim
+        );
+        squareDeniedClaimIds = [...squareDeniedClaimIds, claimId];
+      }
+    } catch (error) {
+      console.error('Error denying Square unmatched claims:', error);
+      squareError = 'Failed to deny unmatched claims.';
+    } finally {
+      squareDenying = false;
+    }
+  }
+
+  type SquarePayment = {
+    id: string;
+    created_at?: string;
+    location_id?: string;
+    amount_money?: { amount: number };
+    card_details?: { card?: { last_4?: string; fingerprint?: string; card_fingerprint?: string } };
+  };
+
   async function applyCsvMatches() {
     if (pendingMatchCount === 0) return;
     csvApproving = true;
@@ -852,21 +1206,34 @@
           </div>
           <div class="flex flex-wrap items-center gap-3">
             {#if venue}
-              <button
-                type="button"
-                on:click={saveVenue}
-                disabled={savingVenue || !venueName.trim()}
-                class="bg-white text-black font-black px-6 py-3 rounded-xl uppercase tracking-tight disabled:opacity-50"
-              >
-                {savingVenue ? 'Saving...' : 'Save Changes'}
-              </button>
-              <button
-                type="button"
-                on:click={connectSquare}
-                class="bg-orange-500 text-black font-black px-6 py-3 rounded-xl uppercase tracking-tight shadow-xl shadow-orange-500/10"
-              >
-                Connect Square
-              </button>
+              <div class="flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  on:click={saveVenue}
+                  disabled={savingVenue || !venueName.trim()}
+                  class="bg-white text-black font-black px-6 py-3 rounded-xl uppercase tracking-tight disabled:opacity-50"
+                >
+                  {savingVenue ? 'Saving...' : 'Save Changes'}
+                </button>
+                {#if squareConnected}
+                  <button
+                    type="button"
+                    on:click={disconnectSquare}
+                    disabled={squareSyncing}
+                    class="bg-orange-500 text-black font-black px-6 py-3 rounded-xl uppercase tracking-tight shadow-xl shadow-orange-500/10 disabled:opacity-50"
+                  >
+                    {squareSyncing ? 'Disconnecting...' : 'Disconnect Square'}
+                  </button>
+                {:else}
+                  <button
+                    type="button"
+                    on:click={connectSquare}
+                    class="bg-orange-500 text-black font-black px-6 py-3 rounded-xl uppercase tracking-tight shadow-xl shadow-orange-500/10"
+                  >
+                    Connect Square
+                  </button>
+                {/if}
+              </div>
             {:else}
               <button
                 type="button"
@@ -884,6 +1251,55 @@
               <span class="text-xs font-bold uppercase tracking-widest text-red-400">{logoError}</span>
             {/if}
           </div>
+          {#if squareConnected && (squareLocationsError || (squareLocationsLoaded && squareLocations.length !== 1))}
+            <div class="mt-2 bg-zinc-950 border border-zinc-800 rounded-xl p-4 w-full">
+              <div class="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p class="text-xs font-black uppercase tracking-widest text-zinc-500">Square Locations</p>
+                  <p class="text-[10px] font-black uppercase tracking-widest text-zinc-600 mt-1">
+                    Leave unchecked to allow all locations
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  on:click={saveSquareLocations}
+                  disabled={squareLocationsSaving || squareLocationsLoading}
+                  class="bg-white text-black font-black px-4 py-2 rounded-xl uppercase tracking-tight text-xs disabled:opacity-50"
+                >
+                  {squareLocationsSaving ? 'Saving...' : 'Save Locations'}
+                </button>
+              </div>
+              {#if squareLocationsError}
+                <p class="text-xs font-bold uppercase tracking-widest text-red-400 mt-3">
+                  {squareLocationsError}
+                </p>
+              {/if}
+              {#if squareLocationsLoading}
+                <p class="text-xs font-bold uppercase tracking-widest text-zinc-500 mt-3">Loading...</p>
+              {:else if squareLocations.length === 0}
+                <p class="text-xs font-bold uppercase tracking-widest text-zinc-500 mt-3">
+                  No Square locations found.
+                </p>
+              {:else}
+                <div class="mt-3 grid gap-2">
+                  {#each squareLocations as location}
+                    <label class="flex items-center gap-3 text-xs font-bold uppercase tracking-widest text-zinc-300">
+                      <input
+                        type="checkbox"
+                        checked={squareLocationIds.has(location.id)}
+                        on:change={() => toggleSquareLocation(location.id)}
+                        class="h-3.5 w-3.5 accent-blue-500"
+                      />
+                      <span class="min-w-0 truncate">{location.name}</span>
+                      {#if location.status}
+                        <span class="text-[10px] text-zinc-500">{location.status}</span>
+                      {/if}
+                    </label>
+                  {/each}
+                </div>
+              {/if}
+            </div>
+          {/if}
         </div>
       </div>
       <input
@@ -962,6 +1378,16 @@
           >
             {bulkApplying ? 'Applying...' : 'Bulk Deny'}
           </button>
+          {#if squareConnected}
+            <button
+              type="button"
+              on:click={autoCheckSquare}
+              disabled={squareChecking || selectedCount === 0}
+              class="bg-orange-500/90 text-black font-black px-4 py-2 rounded-xl uppercase tracking-tight text-xs disabled:opacity-50"
+            >
+              {squareChecking ? 'Checking...' : 'Auto-check Square'}
+            </button>
+          {/if}
           <label class="inline-flex items-center gap-3 bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2 text-xs font-black text-zinc-300 cursor-pointer hover:text-white transition-colors uppercase tracking-tight">
             <input
               type="file"
@@ -1029,6 +1455,63 @@
                   class="bg-red-500/30 text-red-100 font-black px-6 py-3 rounded-xl uppercase tracking-tight cursor-not-allowed"
                 >
                   Denied {csvUnmatchedClaimIds.length} Unmatched Claims
+                </button>
+              {/if}
+            </div>
+          {/if}
+        </div>
+      {/if}
+      {#if squareError}
+        <p class="text-xs font-bold uppercase tracking-widest text-red-400 mt-3">{squareError}</p>
+      {/if}
+      {#if squareMatches.length > 0 || squareUnmatchedClaimIds.length > 0}
+        <div class="mt-4 bg-zinc-950 border border-zinc-800 rounded-xl p-4">
+          <div class="flex flex-wrap gap-6 text-xs font-bold uppercase tracking-widest text-zinc-400">
+            <span>Square Check</span>
+            {#if squareCheckedRange}
+              <span class="text-zinc-600">{squareCheckedRange}</span>
+            {/if}
+            <span>{squareMatches.length} Matched</span>
+            <span>{squareUnmatchedClaimIds.length} Unmatched</span>
+          </div>
+          <div class="mt-4">
+            {#if squarePendingMatchCount > 0}
+              <button
+                type="button"
+                on:click={applySquareMatches}
+                disabled={squareApproving}
+                class="bg-green-500 text-black font-black px-6 py-3 rounded-xl uppercase tracking-tight disabled:opacity-50"
+              >
+                {squareApproving ? 'Applying...' : `Approve ${squarePendingMatchCount} Matched Claims`}
+              </button>
+            {:else}
+              <button
+                type="button"
+                disabled={true}
+                class="bg-green-500/30 text-green-100 font-black px-6 py-3 rounded-xl uppercase tracking-tight cursor-not-allowed"
+              >
+                Approved {squareMatches.length} Matched Claims
+              </button>
+            {/if}
+          </div>
+          {#if squareUnmatchedClaimIds.length > 0}
+            <div class="mt-3">
+              {#if squarePendingDenyCount > 0}
+                <button
+                  type="button"
+                  on:click={denySquareUnmatchedClaims}
+                  disabled={squareDenying}
+                  class="bg-red-500 text-white font-black px-6 py-3 rounded-xl uppercase tracking-tight disabled:opacity-50"
+                >
+                  {squareDenying ? 'Applying...' : `Deny ${squarePendingDenyCount} Unmatched Claims`}
+                </button>
+              {:else}
+                <button
+                  type="button"
+                  disabled={true}
+                  class="bg-red-500/30 text-red-100 font-black px-6 py-3 rounded-xl uppercase tracking-tight cursor-not-allowed"
+                >
+                  Denied {squareUnmatchedClaimIds.length} Unmatched Claims
                 </button>
               {/if}
             </div>

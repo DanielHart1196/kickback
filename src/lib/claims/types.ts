@@ -13,6 +13,9 @@ export type Claim = {
   purchased_at: string;
   created_at: string;
   last_4: string;
+  square_payment_id?: string | null;
+  square_card_fingerprint?: string | null;
+  square_location_id?: string | null;
   submitter_id: string | null;
 };
 

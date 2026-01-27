@@ -36,7 +36,16 @@ export async function GET({ url, cookies }) {
     throw redirect(302, '/admin?square=error&reason=missing_code');
   }
 
-  if (!state || !storedState || state !== storedState) {
+  const isLocalhost =
+    url.origin.startsWith('http://localhost') || url.origin.startsWith('http://127.0.0.1');
+  if (!state) {
+    throw redirect(302, '/admin?square=error&reason=missing_state');
+  }
+  if (!storedState) {
+    if (!isLocalhost) {
+      throw redirect(302, '/admin?square=error&reason=missing_state_cookie');
+    }
+  } else if (state !== storedState) {
     throw redirect(302, '/admin?square=error&reason=invalid_state');
   }
 
@@ -98,6 +107,14 @@ export async function GET({ url, cookies }) {
 
     throw redirect(302, `/admin?square=connected&merchant=${encodeURIComponent(payload.merchant_id ?? '')}`);
   } catch (error) {
+    if (
+      error &&
+      typeof error === 'object' &&
+      'status' in error &&
+      'location' in error
+    ) {
+      throw error;
+    }
     const reason = encodeURIComponent(getErrorMessage(error));
     throw redirect(302, `/admin?square=error&reason=${reason}`);
   }

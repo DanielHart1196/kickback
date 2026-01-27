@@ -58,3 +58,24 @@ export async function updateClaimStatus(claimId: string, status: ClaimStatus): P
   const { error } = await supabase.from('claims').update({ status }).eq('id', claimId);
   if (error) throw error;
 }
+
+export async function updateClaimWithSquareMatch(
+  claimId: string,
+  status: ClaimStatus,
+  squareMatch: {
+    paymentId: string;
+    fingerprint: string;
+    locationId?: string | null;
+  }
+): Promise<void> {
+  const { error } = await supabase
+    .from('claims')
+    .update({
+      status,
+      square_payment_id: squareMatch.paymentId,
+      square_card_fingerprint: squareMatch.fingerprint,
+      square_location_id: squareMatch.locationId ?? null
+    })
+    .eq('id', claimId);
+  if (error) throw error;
+}

@@ -3,9 +3,14 @@
   import { pushState, replaceState } from '$app/navigation';
   import type { Session } from '@supabase/supabase-js';
   import { supabase } from '$lib/supabase';
-  import { MAX_BILL } from '$lib/claims/constants';
-  import { calculateKickbackWithRate, normalizeAmountInput, normalizeLast4, parseAmount } from '$lib/claims/utils';
-  import { KICKBACK_RATE } from '$lib/claims/constants';
+  import { GOAL_DAYS, KICKBACK_RATE, MAX_BILL } from '$lib/claims/constants';
+  import {
+    calculateKickbackWithRate,
+    getDaysAtVenue,
+    normalizeAmountInput,
+    normalizeLast4,
+    parseAmount
+  } from '$lib/claims/utils';
   import {
     clearDraftFromStorage,
     draftToQuery,
@@ -70,6 +75,8 @@
   let showInstallBanner = false;
   const installPromptKey = 'kickback:install_prompt_shown';
   let installedHandlerAdded = false;
+  let autoClaimBanner: { venue: string; daysLeft: number } | null = null;
+  let autoClaimBannerTimer: ReturnType<typeof setTimeout> | null = null;
 
   let amount: number | null = null;
   let amountInput = '';
@@ -354,6 +361,22 @@
     showInstallBanner = false;
   }
 
+  function showAutoClaimNotice(venueName: string, daysLeft: number) {
+    autoClaimBanner = { venue: venueName, daysLeft };
+    if (autoClaimBannerTimer) clearTimeout(autoClaimBannerTimer);
+    autoClaimBannerTimer = setTimeout(() => {
+      autoClaimBanner = null;
+      autoClaimBannerTimer = null;
+    }, 6500);
+  }
+
+  onDestroy(() => {
+    if (autoClaimBannerTimer) {
+      clearTimeout(autoClaimBannerTimer);
+      autoClaimBannerTimer = null;
+    }
+  });
+
   async function handleInstall() {
     if (!deferredInstallPrompt) {
       showInstallBanner = false;
@@ -613,6 +636,22 @@
         created_at: createdAt,
         submitter_id: session?.user?.id ?? null
       });
+      let linkedSquare = false;
+      if (insertedClaim.id && session?.user?.id) {
+        try {
+          const response = await fetch('/api/square/link-claim', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ claim_id: insertedClaim.id })
+          });
+          const payload = await response.json().catch(() => null);
+          if (response.ok) {
+            linkedSquare = Boolean(payload?.linked);
+          }
+        } catch (error) {
+          console.error('Error linking Square payment:', error);
+        }
+      }
 
       successMessage = `Submitted ${venue} claim for $${cleanAmount.toFixed(2)}.`;
       status = 'success';
@@ -635,6 +674,13 @@
           claims.find((claim) => claim.id && claim.id === insertedClaim.id) ??
           claims.find((claim) => claim.created_at === insertedClaim.created_at);
         highlightClaimKey = newClaim?.id ?? newClaim?.created_at ?? null;
+        if (linkedSquare) {
+          const daysAtVenue = getDaysAtVenue(claims, venueName);
+          const daysLeft = Math.max(GOAL_DAYS - daysAtVenue + 1, 0);
+          if (daysLeft > 0) {
+            showAutoClaimNotice(venueName, daysLeft);
+          }
+        }
         if (highlightClaimKey) {
           setTimeout(() => {
             if (highlightClaimKey) highlightClaimKey = null;
@@ -975,6 +1021,30 @@
       onUpdateReferralCode={updateReferralCode}
       onClose={closeReferModal}
     />
+  {/if}
+
+  {#if autoClaimBanner}
+    <div class="fixed bottom-36 left-0 right-0 px-6 z-[220] flex justify-center" in:fly={{ y: 80 }}>
+      <div class="w-full max-w-sm bg-zinc-900/95 backdrop-blur-xl border border-zinc-800 rounded-2xl shadow-2xl shadow-black/40 p-4 flex items-center gap-3 text-center">
+        <div class="flex-1">
+          <p class="text-xs font-black uppercase tracking-[0.2em] text-orange-400">
+            {autoClaimBanner.venue} supports auto claims
+          </p>
+          <p class="text-[11px] font-bold uppercase tracking-widest text-zinc-300 mt-2">
+            Any time your card is used at this venue for the next {autoClaimBanner.daysLeft} days,
+            you'll automatically receive your kickback.
+          </p>
+        </div>
+        <button
+          type="button"
+          on:click={() => (autoClaimBanner = null)}
+          class="text-zinc-400 hover:text-white transition-colors text-xs font-black tracking-[0.3em]"
+          aria-label="Dismiss auto claim notice"
+        >
+          CLOSE
+        </button>
+      </div>
+    </div>
   {/if}
 
   {#if showInstallBanner}
