@@ -1383,25 +1383,26 @@
               type="button"
               on:click={autoCheckSquare}
               disabled={squareChecking || selectedCount === 0}
-              class="bg-orange-500/90 text-black font-black px-4 py-2 rounded-xl uppercase tracking-tight text-xs disabled:opacity-50"
+              class="inline-flex items-center gap-3 bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2 text-xs font-black text-zinc-300 hover:text-white transition-colors uppercase tracking-tight disabled:opacity-50"
             >
               {squareChecking ? 'Checking...' : 'Auto-check Square'}
             </button>
+          {:else}
+            <label class="inline-flex items-center gap-3 bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2 text-xs font-black text-zinc-300 cursor-pointer hover:text-white transition-colors uppercase tracking-tight">
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                class="hidden"
+                on:change={(event) => {
+                  const target = event.currentTarget as HTMLInputElement;
+                  const file = target.files?.[0];
+                  if (file) handleCsvUpload(file);
+                  if (target) target.value = '';
+                }}
+              />
+              Upload CSV
+            </label>
           {/if}
-          <label class="inline-flex items-center gap-3 bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2 text-xs font-black text-zinc-300 cursor-pointer hover:text-white transition-colors uppercase tracking-tight">
-            <input
-              type="file"
-              accept=".csv,text/csv"
-              class="hidden"
-              on:change={(event) => {
-                const target = event.currentTarget as HTMLInputElement;
-                const file = target.files?.[0];
-                if (file) handleCsvUpload(file);
-                if (target) target.value = '';
-              }}
-            />
-            Upload CSV
-          </label>
           {#if csvFileName}
             <span class="text-[10px] font-black uppercase tracking-widest text-zinc-500">{csvFileName}</span>
           {/if}
