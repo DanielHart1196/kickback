@@ -32,8 +32,11 @@
     isReferralCodeValid,
     normalizeReferralCode
   } from '$lib/referrals/code';
+  import { buildClaimInsert, validateClaimInput } from '$lib/claims/submit';
   import Dashboard from '$lib/components/Dashboard.svelte';
   import ClaimForm from '$lib/components/ClaimForm.svelte';
+  import AutoClaimWarningModal from '$lib/components/AutoClaimWarningModal.svelte';
+  import ClaimWindowExpiredModal from '$lib/components/ClaimWindowExpiredModal.svelte';
   import GuestWarningModal from '$lib/components/GuestWarningModal.svelte';
   import ReferralModal from '$lib/components/ReferralModal.svelte';
   import { onDestroy } from 'svelte';
@@ -82,6 +85,12 @@
   let amountInput = '';
 
   let showGuestWarning = false;
+  let showAutoClaimWarning = false;
+  let autoClaimWarningVenue = '';
+  let autoClaimWarningDaysLeft = 0;
+  let autoClaimWarningOverride = false;
+  let showClaimWindowExpired = false;
+  let claimWindowVenue = '';
 
   let session: Session | null | undefined = undefined;
   let userId: string | null = null;
@@ -456,6 +465,81 @@
     submitClaim();
   }
 
+  function getAutoClaimDaysLeft(venueIdValue: string, venueName: string): number | null {
+    const normalizedName = venueName.trim().toLowerCase();
+    if (!normalizedName && !venueIdValue) return null;
+
+    const matchingClaims = claims.filter((claim) => {
+      if (claim.status === 'denied') return false;
+      if (!claim.square_payment_id) return false;
+      if (venueIdValue) {
+        return claim.venue_id === venueIdValue;
+      }
+      return claim.venue.trim().toLowerCase() === normalizedName;
+    });
+
+    if (matchingClaims.length === 0) return null;
+
+    const earliestTime = Math.min(
+      ...matchingClaims.map((claim) => new Date(claim.purchased_at).getTime()).filter((time) => !Number.isNaN(time))
+    );
+    if (!Number.isFinite(earliestTime)) return null;
+
+    const diffInDays = Math.floor((Date.now() - earliestTime) / (1000 * 60 * 60 * 24));
+    const daysLeft = Math.max(GOAL_DAYS - diffInDays, 0);
+    return daysLeft > 0 ? daysLeft : null;
+  }
+
+  function isClaimWindowExpired(venueIdValue: string, venueName: string): boolean {
+    const normalizedName = venueName.trim().toLowerCase();
+    if (!normalizedName && !venueIdValue) return false;
+
+    const relevantClaims = claims.filter((claim) => {
+      if (claim.status === 'denied') return false;
+      if (venueIdValue) return claim.venue_id === venueIdValue;
+      return claim.venue.trim().toLowerCase() === normalizedName;
+    });
+
+    if (relevantClaims.length === 0) return false;
+
+    const earliestTime = Math.min(
+      ...relevantClaims.map((claim) => new Date(claim.purchased_at).getTime()).filter((time) => !Number.isNaN(time))
+    );
+    if (!Number.isFinite(earliestTime)) return false;
+
+    const diffInDays = Math.floor((Date.now() - earliestTime) / (1000 * 60 * 60 * 24));
+    return diffInDays >= GOAL_DAYS;
+  }
+
+  async function handleSubmitClaim(): Promise<boolean> {
+    if (!session) return submitClaim();
+    const venueName = getVenueNameById(venueId) || venue;
+    if (isClaimWindowExpired(venueId, venueName)) {
+      claimWindowVenue = venueName;
+      showClaimWindowExpired = true;
+      return false;
+    }
+    const daysLeft = getAutoClaimDaysLeft(venueId, venueName);
+    if (daysLeft && !autoClaimWarningOverride) {
+      autoClaimWarningVenue = venueName;
+      autoClaimWarningDaysLeft = daysLeft;
+      showAutoClaimWarning = true;
+      return false;
+    }
+    return submitClaim();
+  }
+
+  async function proceedAutoClaimSubmit() {
+    showAutoClaimWarning = false;
+    autoClaimWarningOverride = true;
+    await submitClaim();
+    autoClaimWarningOverride = false;
+  }
+
+  function dismissAutoClaimWarning() {
+    showAutoClaimWarning = false;
+  }
+
   onMount(async () => {
     showReferModal = false;
     showGuestWarning = false;
@@ -545,65 +629,24 @@
   });
 
   async function submitClaim(): Promise<boolean> {
-    if (!amount || amount <= 0) {
+    const validationError = validateClaimInput({
+      amount,
+      last4,
+      referrerInput: normalizedReferrerInput,
+      referrerFormatValid: isReferralCodeValid(normalizedReferrerInput),
+      isSelfReferral,
+      referrerLookupStatus,
+      referrerProfileId,
+      venueId,
+      purchaseTime
+    });
+    if (validationError) {
       status = 'error';
-      errorMessage = 'Please enter a valid amount';
+      errorMessage = validationError;
       return false;
     }
 
-    const cleanAmount = Number(amount.toFixed(2));
-
-    if (last4.length !== 4) {
-      status = 'error';
-      errorMessage = 'Please enter 4 digits';
-      return false;
-    }
-    if (!normalizedReferrerInput.trim()) {
-      status = 'error';
-      errorMessage = 'Please enter a referrer';
-      return false;
-    }
-    if (!isReferralCodeValid(normalizedReferrerInput)) {
-      status = 'error';
-      errorMessage = 'Referrer code must be 4-8 letters or numbers';
-      return false;
-    }
-    if (isSelfReferral) {
-      status = 'error';
-      errorMessage = 'You cannot use your own referral code';
-      return false;
-    }
-    if (referrerLookupStatus !== 'valid') {
-      status = 'error';
-      errorMessage = 'Unrecognized referral code';
-      return false;
-    }
-    if (!referrerProfileId) {
-      status = 'error';
-      errorMessage = 'Unrecognized referral code';
-      return false;
-    }
-    if (!venueId) {
-      status = 'error';
-      errorMessage = 'Please select a valid venue';
-      return false;
-    }
-    if (!purchaseTime.trim()) {
-      status = 'error';
-      errorMessage = 'Please enter a purchase time';
-      return false;
-    }
-    const purchaseDate = new Date(purchaseTime);
-    if (Number.isNaN(purchaseDate.getTime())) {
-      status = 'error';
-      errorMessage = 'Please enter a valid purchase time';
-      return false;
-    }
-    if (purchaseDate.getTime() > Date.now() + 60000) {
-      status = 'error';
-      errorMessage = 'Purchase time cannot be in the future';
-      return false;
-    }
+    const cleanAmount = Number(amount!.toFixed(2));
 
     status = 'loading';
 
@@ -622,20 +665,20 @@
       }
 
       const rates = getVenueRates(venueId);
-      const insertedClaim = await insertClaim({
-        venue: venueName,
-        venue_id: venueId,
-        referrer: normalizeReferralCode(normalizedReferrerInput) || null,
-        referrer_id: referrerProfileId,
-        amount: cleanAmount,
-        status: 'pending',
-        kickback_guest_rate: rates.guestRate,
-        kickback_referrer_rate: rates.referrerRate,
-        purchased_at: new Date(purchaseTime).toISOString(),
-        last_4: last4,
-        created_at: createdAt,
-        submitter_id: session?.user?.id ?? null
-      });
+      const insertedClaim = await insertClaim(
+        buildClaimInsert({
+          venueName,
+          venueId,
+          referrerCode: normalizeReferralCode(normalizedReferrerInput) || null,
+          referrerProfileId,
+          amount: cleanAmount,
+          rates,
+          purchaseTime,
+          last4,
+          createdAt,
+          submitterId: session?.user?.id ?? null
+        })
+      );
       let linkedSquare = false;
       if (insertedClaim.id && session?.user?.id) {
         try {
@@ -996,7 +1039,7 @@
       {isReferrerLocked}
       loginUrl={loginUrl}
       onBack={handleFormBack}
-      onSubmit={submitClaim}
+      onSubmit={handleSubmitClaim}
       onConfirmGuest={confirmGuestSubmit}
       onAmountInput={handleInput}
       onAmountHydrate={hydrateAmountInput}
@@ -1008,6 +1051,20 @@
         {kickbackRatePercent}
         {loginUrl}
         onProceed={proceedAsGuest}
+      />
+    {/if}
+    {#if showAutoClaimWarning}
+      <AutoClaimWarningModal
+        venue={autoClaimWarningVenue || venue}
+        daysLeft={autoClaimWarningDaysLeft}
+        onProceed={proceedAutoClaimSubmit}
+        onDismiss={dismissAutoClaimWarning}
+      />
+    {/if}
+    {#if showClaimWindowExpired}
+      <ClaimWindowExpiredModal
+        venue={claimWindowVenue || venue}
+        onDismiss={() => (showClaimWindowExpired = false)}
       />
     {/if}
   {/if}

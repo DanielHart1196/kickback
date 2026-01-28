@@ -1,20 +1,8 @@
 import { json } from '@sveltejs/kit';
-import { dev } from '$app/environment';
 import { supabaseAdmin } from '$lib/server/supabaseAdmin';
-
-const squareApiBase = dev ? 'https://connect.squareupsandbox.com' : 'https://connect.squareup.com';
-const squareVersion = '2025-01-23';
+import { listSquarePayments, type SquarePayment } from '$lib/server/square/payments';
 const searchWindowMinutes = 10;
 const matchToleranceMinutes = 5;
-
-type SquarePayment = {
-  id: string;
-  status?: string;
-  created_at?: string;
-  location_id?: string;
-  amount_money?: { amount: number };
-  card_details?: { card?: { last_4?: string; fingerprint?: string; card_fingerprint?: string } };
-};
 
 export async function POST({ request }) {
   const body = await request.json().catch(() => null);
@@ -72,26 +60,20 @@ export async function POST({ request }) {
   const beginTime = new Date(claimTime.getTime() - searchWindowMinutes * 60 * 1000);
   const endTime = new Date(claimTime.getTime() + searchWindowMinutes * 60 * 1000);
 
-  const paymentsUrl = new URL(`${squareApiBase}/v2/payments`);
-  paymentsUrl.searchParams.set('begin_time', beginTime.toISOString());
-  paymentsUrl.searchParams.set('end_time', endTime.toISOString());
-  paymentsUrl.searchParams.set('sort_order', 'ASC');
-  paymentsUrl.searchParams.set('limit', '200');
-
-  const response = await fetch(paymentsUrl.toString(), {
-    headers: {
-      Authorization: `Bearer ${connection.access_token}`,
-      'Square-Version': squareVersion,
-      Accept: 'application/json'
-    }
+  const paymentsResult = await listSquarePayments(connection.access_token, {
+    begin_time: beginTime.toISOString(),
+    end_time: endTime.toISOString(),
+    sort_order: 'ASC',
+    limit: 200
   });
-
-  const payload = await response.json().catch(() => null);
-  if (!response.ok) {
-    return json({ ok: false, error: payload?.message ?? 'square_payments_failed' }, { status: 502 });
+  if (!paymentsResult.ok) {
+    return json(
+      { ok: false, error: paymentsResult.payload?.message ?? 'square_payments_failed' },
+      { status: 502 }
+    );
   }
 
-  const payments = (payload?.payments ?? []) as SquarePayment[];
+  const payments = (paymentsResult.payload?.payments ?? []) as SquarePayment[];
   let bestMatch: { payment: SquarePayment; fingerprint: string } | null = null;
   let bestDiff = Number.POSITIVE_INFINITY;
 

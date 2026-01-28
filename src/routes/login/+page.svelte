@@ -14,6 +14,7 @@
   import {
     buildDraftFromParams,
     draftToQuery,
+    clearDraftFromStorage,
     getDraftFromStorage,
     getDraftFromUrl,
     saveDraftToStorage
@@ -95,7 +96,11 @@
     const draftQuery = draftToQuery(draft);
     const redirectUrl = draftQuery ? `https://kkbk.app/?${draftQuery}` : 'https://kkbk.app/';
 
-    saveDraftToStorage(localStorage, draft);
+    if (draftQuery) {
+      saveDraftToStorage(localStorage, draft);
+    } else {
+      clearDraftFromStorage(localStorage);
+    }
 
     try {
       let user = null;

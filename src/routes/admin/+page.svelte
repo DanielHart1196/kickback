@@ -5,6 +5,7 @@
   import { supabase } from '$lib/supabase';
   import { fetchClaimsForVenueId, updateClaimStatus, updateClaimWithSquareMatch } from '$lib/claims/repository';
   import { calculateKickbackWithRate, calculateTotalAmount } from '$lib/claims/utils';
+  import { matchClaimsToSquarePayments, type SquareClaimMatch } from '$lib/claims/match';
   import type { Claim, ClaimStatus } from '$lib/claims/types';
   import type { Venue } from '$lib/venues/types';
   import { buildVenueBase, generateVenueCode } from '$lib/venues/code';
@@ -42,15 +43,7 @@
   let csvApprovedClaimIds: string[] = [];
   let csvDeniedClaimIds: string[] = [];
   let squareChecking = false;
-  let squareMatches: {
-    claimId: string;
-    paymentId: string;
-    fingerprint: string;
-    amount: number;
-    last4: string;
-    time: Date;
-    locationId?: string | null;
-  }[] = [];
+  let squareMatches: SquareClaimMatch[] = [];
   let squareUnmatchedClaimIds: string[] = [];
   let squareError = '';
   let squareApproving = false;
@@ -75,6 +68,33 @@
   let squareLocationsSaving = false;
   let squareLocationsError = '';
   let squareLocationsLoaded = false;
+  type PayToAgreement = {
+    id: string;
+    pay_id: string;
+    pay_id_type: string;
+    payer_name: string;
+    limit_amount: number;
+    description: string;
+    external_id: string | null;
+    payment_agreement_type: string;
+    agreement_start_date: string;
+    frequency: string;
+    status: string | null;
+    payment_agreement_id: string | null;
+    client_transaction_id: string | null;
+    created_at: string;
+    last_status_at: string | null;
+  };
+  let payToAgreement: PayToAgreement | null = null;
+  let payToPayId = '';
+  let payToPayerName = '';
+  let payToLimitAmount = '';
+  let payToDescription = 'Weekly Kickback settlement';
+  let payToType = 'OTHER_SERVICE';
+  let payToSaving = false;
+  let payToLoading = false;
+  let payToError = '';
+  let payToSuccess = '';
   const SQUARE_SCOPES = 'ORDERS_READ PAYMENTS_READ MERCHANT_PROFILE_READ';
   const squareAppId = dev ? PUBLIC_SQUARE_APP_ID_SANDBOX : PUBLIC_SQUARE_APP_ID_PROD;
   const squareOauthBase = dev
@@ -115,6 +135,7 @@
         if (squareConnected) {
           await fetchSquareLocations();
         }
+        await fetchPayToAgreement();
       } else {
         claims = [];
       }
@@ -238,6 +259,120 @@
       squareLocationsError = 'Failed to save Square locations.';
     } finally {
       squareLocationsSaving = false;
+    }
+  }
+
+  async function fetchPayToAgreement() {
+    if (!venue?.id) return;
+    payToLoading = true;
+    payToError = '';
+    try {
+      const { data, error } = await supabase
+        .from('venue_payment_agreements')
+        .select('*')
+        .eq('venue_id', venue.id)
+        .order('created_at', { ascending: false })
+        .limit(1);
+      if (error) throw error;
+      const latest = data?.[0] ?? null;
+      payToAgreement = latest;
+      if (latest) {
+        payToPayId = latest.pay_id ?? '';
+        payToPayerName = latest.payer_name ?? '';
+        payToLimitAmount = latest.limit_amount != null ? String(latest.limit_amount) : '';
+        payToDescription = latest.description ?? '';
+        payToType = latest.payment_agreement_type ?? 'RETAIL';
+      }
+    } catch (error) {
+      console.error('Error loading PayTo agreement:', error);
+      payToError = 'Failed to load PayTo agreement.';
+    } finally {
+      payToLoading = false;
+    }
+  }
+
+  function getNextWednesdayLabel(): string {
+    const timeZone = 'Australia/Sydney';
+    const weekdayIndex: Record<string, number> = {
+      Sun: 0,
+      Mon: 1,
+      Tue: 2,
+      Wed: 3,
+      Thu: 4,
+      Fri: 5,
+      Sat: 6
+    };
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      weekday: 'short'
+    });
+    const now = new Date();
+    const parts = formatter.formatToParts(now);
+    const mapped = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+    const today = {
+      year: Number(mapped.year),
+      month: Number(mapped.month),
+      day: Number(mapped.day),
+      weekday: weekdayIndex[mapped.weekday as string] ?? 0
+    };
+    const targetDay = 3;
+    const todayUtc = new Date(Date.UTC(today.year, today.month - 1, today.day));
+    let diff = (targetDay - today.weekday + 7) % 7;
+    if (diff === 0) diff = 7;
+    const targetUtc = new Date(todayUtc.getTime() + diff * 24 * 60 * 60 * 1000);
+    return `${targetUtc.toLocaleDateString(undefined, {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      timeZone
+    })} (AET)`;
+  }
+
+  async function handleCreatePayToAgreement() {
+    if (!venue?.id || payToSaving) return;
+    payToSaving = true;
+    payToError = '';
+    payToSuccess = '';
+    try {
+    const payIdValue = payToPayId.trim();
+    const payerValue = payToPayerName.trim();
+    const descriptionValue = payToDescription.trim() || 'Weekly Kickback settlement';
+    const limitValue = Number(payToLimitAmount);
+    if (!payIdValue || !payerValue || !descriptionValue || !Number.isFinite(limitValue) || limitValue <= 0) {
+      payToError = 'Enter payer name, PayID, and a weekly limit.';
+      return;
+    }
+    const payload = {
+      venue_id: venue.id,
+      pay_id: payIdValue,
+      payer_name: payerValue,
+      limit_amount: limitValue,
+      description: descriptionValue,
+      payment_agreement_type: payToType,
+      external_id: venue.id
+    };
+      const response = await fetch('/api/helloclever/payto/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        const errorPayload = data?.error ?? 'Failed to create PayTo agreement.';
+        payToError = typeof errorPayload === 'string' ? errorPayload : JSON.stringify(errorPayload);
+        return;
+      }
+      payToAgreement = data?.agreement ?? null;
+      payToSuccess = 'PayTo agreement created.';
+    } catch (error) {
+      console.error('Error creating PayTo agreement:', error);
+      payToError = 'Failed to create PayTo agreement.';
+    } finally {
+      payToSaving = false;
     }
   }
 
@@ -895,64 +1030,15 @@
 
   function buildMatchesFromSquare(payments: SquarePayment[]) {
     squareError = '';
-    squareMatches = [];
-    squareUnmatchedClaimIds = [];
-
     const selectedIds = new Set(selectedClaimIds);
     const pendingClaims = claims.filter(
       (claim) => claim.id && selectedIds.has(claim.id) && getClaimStatus(claim) === 'pending'
     );
-    const unmatchedClaims = new Set(pendingClaims.map((claim) => claim.id).filter(Boolean) as string[]);
-
-    for (const payment of payments) {
-      const last4 = payment.card_details?.card?.last_4;
-      const fingerprint =
-        payment.card_details?.card?.fingerprint ??
-        payment.card_details?.card?.card_fingerprint ??
-        null;
-      const amount = payment.amount_money?.amount;
-      const createdAt = payment.created_at;
-      if (!last4 || !fingerprint || amount == null || !createdAt) continue;
-
-      const transactionTime = new Date(createdAt);
-      if (Number.isNaN(transactionTime.getTime())) continue;
-
-      const amountDollars = amount / 100;
-      let bestClaim: Claim | null = null;
-      let bestDiff = Number.POSITIVE_INFINITY;
-
-      for (const claim of pendingClaims) {
-        if (!claim.id || !unmatchedClaims.has(claim.id)) continue;
-        if (String(claim.last_4 || '').trim() !== last4) continue;
-        if (Number(claim.amount || 0).toFixed(2) !== amountDollars.toFixed(2)) continue;
-        const claimTime = new Date(claim.purchased_at);
-        const diffMs = Math.abs(claimTime.getTime() - transactionTime.getTime());
-        if (diffMs <= 5 * 60 * 1000 && diffMs < bestDiff) {
-          bestDiff = diffMs;
-          bestClaim = claim;
-        }
-      }
-
-      if (bestClaim?.id) {
-        unmatchedClaims.delete(bestClaim.id);
-        squareMatches = [
-          ...squareMatches,
-          {
-            claimId: bestClaim.id,
-            paymentId: payment.id,
-            fingerprint,
-            amount: amountDollars,
-            last4,
-            time: transactionTime,
-            locationId: payment.location_id ?? null
-          }
-        ];
-      }
-    }
-
-    squareUnmatchedClaimIds = Array.from(unmatchedClaims);
-    const matchedIds = new Set(squareMatches.map((match) => match.claimId));
-    const unmatchedIds = new Set(squareUnmatchedClaimIds);
+    const result = matchClaimsToSquarePayments(pendingClaims, payments, 5);
+    squareMatches = result.matches;
+    squareUnmatchedClaimIds = result.unmatchedClaimIds;
+    const matchedIds = new Set(result.matches.map((match) => match.claimId));
+    const unmatchedIds = new Set(result.unmatchedClaimIds);
     squareApprovedClaimIds = squareApprovedClaimIds.filter((id) => matchedIds.has(id));
     squareDeniedClaimIds = squareDeniedClaimIds.filter((id) => unmatchedIds.has(id));
   }
@@ -1314,6 +1400,91 @@
           if (target) target.value = '';
         }}
       />
+    </section>
+
+    <section class="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-6 md:p-8">
+      <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div>
+          <p class="text-xs font-black uppercase tracking-widest text-zinc-500">PayTo Agreement</p>
+          <p class="text-sm font-bold text-white mt-2">
+            Weekly payments start {getNextWednesdayLabel()} at noon.
+          </p>
+        </div>
+        {#if payToAgreement}
+          <span class="text-[10px] font-black uppercase tracking-widest text-zinc-400">
+            Status: {payToAgreement.status ?? 'unknown'}
+          </span>
+        {/if}
+      </div>
+
+      <div class="mt-6 grid gap-4 md:grid-cols-2">
+        <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
+          Payer Name
+          <input
+            type="text"
+            bind:value={payToPayerName}
+            placeholder="Venue owner name"
+            class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-base font-bold text-white"
+          />
+        </label>
+        <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
+          PayID (Email, Phone, or ABN)
+          <input
+            type="text"
+            bind:value={payToPayId}
+            placeholder="owner@example.com"
+            class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-base font-bold text-white"
+          />
+        </label>
+        <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
+          Weekly Limit (AUD)
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            bind:value={payToLimitAmount}
+            placeholder="500"
+            class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-base font-bold text-white"
+          />
+        </label>
+        <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
+          Description
+          <input
+            type="text"
+            bind:value={payToDescription}
+            placeholder="Weekly Kickback settlement"
+            class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-base font-bold text-white"
+          />
+        </label>
+      </div>
+
+      <div class="mt-5 flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          on:click={handleCreatePayToAgreement}
+          disabled={!venue || payToSaving || payToLoading}
+          class="bg-white text-black font-black px-6 py-3 rounded-xl uppercase tracking-tight disabled:opacity-50"
+        >
+          {payToSaving ? 'Creating...' : 'Create PayTo Agreement'}
+        </button>
+        {#if payToLoading}
+          <span class="text-xs font-bold uppercase tracking-widest text-zinc-500">Loading...</span>
+        {/if}
+        {#if payToError}
+          <span class="text-xs font-bold uppercase tracking-widest text-red-400">{payToError}</span>
+        {/if}
+        {#if payToSuccess}
+          <span class="text-xs font-bold uppercase tracking-widest text-green-400">{payToSuccess}</span>
+        {/if}
+      </div>
+
+      {#if payToAgreement}
+        <div class="mt-5 bg-zinc-950 border border-zinc-800 rounded-xl p-4 text-xs font-bold uppercase tracking-widest text-zinc-400 space-y-2">
+          <div>Agreement ID: <span class="text-zinc-200">{payToAgreement.payment_agreement_id ?? 'Pending'}</span></div>
+          <div>Transaction ID: <span class="text-zinc-200">{payToAgreement.client_transaction_id ?? 'Pending'}</span></div>
+          <div>Limit: <span class="text-zinc-200">${Number(payToAgreement.limit_amount ?? 0).toFixed(2)}</span></div>
+        </div>
+      {/if}
     </section>
 
     <section class="flex items-start justify-between gap-4">

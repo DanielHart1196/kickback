@@ -21,6 +21,9 @@
   export let onRequestInstall: () => void = () => {};
 
   let lastHighlightKey: string | null = null;
+  let pendingTotal = 0;
+  let approvedTotal = 0;
+  let availableTotal = 0;
   let filterStatus: Set<'pending' | 'approved' | 'denied'> = new Set();
   let filterReferred: Set<'referred' | 'direct'> = new Set();
   let showFilterMenu = false;
@@ -104,9 +107,13 @@
     }, 0);
   }
 
-  $: pendingTotal = getStatusTotal('pending');
-  $: approvedTotal = getStatusTotal('approved');
-  $: availableTotal = 0;
+  $: {
+    claims;
+    venues;
+    pendingTotal = getStatusTotal('pending');
+    approvedTotal = getStatusTotal('approved');
+    availableTotal = 0;
+  }
   $: filteredClaims = claims.filter((claim) => {
     const status = getClaimStatus(claim);
     const isReferred = Boolean(claim.referrer_id && claim.referrer_id === userId);
@@ -126,15 +133,17 @@
   }
 </script>
 
-<div class="w-full max-w-sm space-y-10" in:fade>
+<div class="w-full max-w-sm space-y-10 mx-auto" in:fade>
   <header class="text-center pt-2">
-    <h1
+    <button
+      type="button"
       class="text-4xl font-black tracking-tighter italic uppercase cursor-pointer select-none"
       on:click={onRequestInstall}
       title="Add Kickback to home"
+      aria-label="Add Kickback to home"
     >
       <span class="text-white">Kick</span><span class="text-orange-500">back</span>
-    </h1>
+    </button>
     <p class="text-zinc-500 text-[10px] font-black uppercase tracking-[0.3em] mt-2">Member Dashboard</p>
   </header>
 
@@ -143,7 +152,7 @@
       <span class="relative inline-block group">
         Balance
         <span
-          class="absolute left-full top-1/2 -translate-y-1/2 ml-2 grid place-items-center text-center w-4 h-4 rounded-full border border-zinc-600 text-[9px] leading-none font-black text-zinc-600 normal-case tracking-normal"
+          class="absolute left-full top-1/2 -translate-y-1/2 ml-2 grid place-items-center text-center w-3.5 h-3.5 rounded-full border border-zinc-600 text-[9px] leading-none font-black text-zinc-600 normal-case tracking-normal"
           aria-hidden="true"
         >
           i
@@ -245,11 +254,19 @@
           </div>
           <div>
             <p class="text-[10px] font-black uppercase tracking-[0.25em] text-zinc-500 mb-2">Referral</p>
-            <div class="flex gap-2">
+            <div class="flex flex-col gap-2">
               {#each ['referred','direct'] as kind}
                 <button
                   type="button"
-                  class={`px-3 py-2 rounded-xl text-[11px] font-bold uppercase tracking-widest border flex-1 ${filterReferred.has(kind as any) ? 'bg-orange-500 text-black border-orange-400' : 'bg-zinc-900 border-zinc-800 text-zinc-300 hover:border-zinc-700'}`}
+                  class={`px-3 py-2 rounded-full text-[10px] font-black uppercase tracking-widest border inline-flex items-center justify-center ${
+                    kind === 'referred'
+                      ? filterReferred.has(kind as any)
+                        ? 'border-orange-400/60 bg-orange-500/15 text-orange-300'
+                        : 'border-zinc-800 bg-zinc-900 text-zinc-300 hover:border-zinc-700'
+                      : filterReferred.has(kind as any)
+                        ? 'border-zinc-600 bg-zinc-800 text-zinc-200'
+                        : 'border-zinc-800 bg-zinc-900 text-zinc-300 hover:border-zinc-700'
+                  }`}
                   on:click={() => {
                     const next = new Set(filterReferred);
                     if (next.has(kind as any)) {
@@ -260,7 +277,7 @@
                     filterReferred = next;
                   }}
                 >
-                  {kind}
+                  {kind === 'referred' ? 'Referred' : 'Direct'}
                 </button>
               {/each}
             </div>
@@ -293,6 +310,9 @@
               {#if claim.referrer_id && claim.referrer_id === userId}
                 <p class="text-zinc-300 uppercase tracking-tight text-sm font-bold">
                   {claimantCodes[claim.submitter_id ?? ''] || claim.referrer || 'Referral'}
+                  <span class="ml-1 text-orange-400">
+                    +${calculateKickbackWithRate(claim.amount, getClaimRate(claim)).toFixed(2)}
+                  </span>
                 </p>
               {:else}
                 <p class="text-zinc-300 uppercase tracking-tight text-sm font-bold">{claim.venue}</p>
@@ -305,11 +325,6 @@
               </p>
             </div>
             <div class="flex items-center gap-2">
-              {#if claim.referrer_id && claim.referrer_id === userId}
-                <span class="border border-orange-400/60 bg-orange-500/15 text-orange-300 text-[10px] font-black uppercase tracking-[0.2em] px-2 py-0.5 rounded-full">
-                  Referred
-                </span>
-              {/if}
               <span class={`border rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-widest ${getStatusBadgeClass(getClaimStatus(claim))}`}>
                 {getClaimStatus(claim).toUpperCase()}
               </span>
@@ -357,13 +372,17 @@
             </div>
             <div>
               <p class="text-xs font-black text-zinc-400 uppercase mb-1">
-                {claim.referrer_id && claim.referrer_id === userId ? 'Guest Code' : 'Referrer'}
+                {claim.referrer_id && claim.referrer_id === userId ? 'Code' : 'Referrer'}
               </p>
               <p class="text-sm font-bold uppercase">
-                <span class="text-white">{claim.referrer_id && claim.referrer_id === userId ? (claimantCodes[claim.submitter_id ?? ''] || 'Guest') : (claim.referrer || 'Direct')}</span>
-                <span class={isClaimDenied(claim) ? 'text-zinc-500' : 'text-green-500'}>
-                  +${calculateKickbackWithRate(claim.amount, getClaimRate(claim)).toFixed(2)}
-                </span>
+                {#if claim.referrer_id && claim.referrer_id === userId}
+                  <span class="text-white">{claim.referrer || claimantCodes[claim.submitter_id ?? ''] || 'Code'}</span>
+                {:else}
+                  <span class="text-white">{claim.referrer || 'Direct'}</span>
+                  <span class={isClaimDenied(claim) ? 'text-zinc-500' : 'text-green-500'}>
+                    +${calculateKickbackWithRate(claim.amount, getClaimRate(claim)).toFixed(2)}
+                  </span>
+                {/if}
               </p>
             </div>
             {#if !(claim.referrer_id && claim.referrer_id === userId)}
@@ -405,11 +424,12 @@
   </div>
 </div>
 
-<div class="fixed bottom-8 left-0 right-0 px-6 z-50 flex justify-center" in:fly={{ y: 100 }}>
-  <button 
-    on:click={onOpenRefer}
-    class="w-full max-w-sm bg-zinc-900/80 backdrop-blur-xl border border-zinc-700 text-white font-black py-4 rounded-2xl flex items-center justify-center gap-3 shadow-2xl active:scale-95 transition-all uppercase text-xs tracking-[0.2em]">
-    Refer a Friend
-  </button>
-</div>
+<button 
+  on:click={onOpenRefer}
+  class="fixed bottom-8 -translate-x-1/2 w-[calc(100%-3rem)] max-w-sm z-50 bg-zinc-900/80 backdrop-blur-xl border border-zinc-700 text-white font-black py-4 rounded-2xl flex items-center justify-center gap-3 shadow-2xl active:scale-95 transition-all uppercase text-xs tracking-[0.2em]"
+  style="left: calc(50% - (var(--scrollbar-width) / 2));"
+  in:fly={{ y: 100 }}
+>
+  Refer a Friend
+</button>
 

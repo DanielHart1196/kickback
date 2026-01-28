@@ -1,78 +1,24 @@
 import { json } from '@sveltejs/kit';
-import { createHmac, timingSafeEqual } from 'crypto';
-import { env } from '$env/dynamic/private';
 import { supabaseAdmin } from '$lib/server/supabaseAdmin';
-
-function getSquareApiBase(accessToken: string | null | undefined): string {
-  if (accessToken?.startsWith('sandbox-')) {
-    return 'https://connect.squareupsandbox.com';
-  }
-  if (env.PUBLIC_SQUARE_ENVIRONMENT === 'sandbox') {
-    return 'https://connect.squareupsandbox.com';
-  }
-  return 'https://connect.squareup.com';
-}
-
-async function fetchSquarePayment(baseUrl: string, accessToken: string, paymentId: string) {
-  const response = await fetch(`${baseUrl}/v2/payments/${paymentId}`, {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      'Square-Version': squareVersion,
-      Accept: 'application/json'
-    }
-  });
-  const payload = await response.json().catch(() => null);
-  return { response, payload };
-}
-const squareVersion = '2025-01-23';
-
-type SquarePayment = {
-  id: string;
-  status?: string;
-  created_at?: string;
-  location_id?: string;
-  amount_money?: { amount: number };
-  card_details?: { card?: { last_4?: string; fingerprint?: string; card_fingerprint?: string } };
-};
-
-function isValidSignature(signature: string, url: string, body: string, key: string): boolean {
-  const hmac = createHmac('sha1', key);
-  hmac.update(url + body);
-  const expected = hmac.digest('base64');
-  if (expected.length !== signature.length) return false;
-  return timingSafeEqual(Buffer.from(expected), Buffer.from(signature));
-}
+import { fetchSquarePayment, type SquarePayment } from '$lib/server/square/payments';
+import { matchSquareSignature } from '$lib/server/square/webhook';
 
 export async function POST({ request }) {
-  const sandboxKey = env.PRIVATE_SQUARE_WEBHOOK_SIGNATURE_KEY_SANDBOX;
-  const prodKey = env.PRIVATE_SQUARE_WEBHOOK_SIGNATURE_KEY_PROD;
-  if (!sandboxKey && !prodKey) {
+  const signature = request.headers.get('x-square-signature') ?? '';
+  const body = await request.text();
+  const signatureMatch = matchSquareSignature(request, body, signature);
+
+  if (!signatureMatch.hasSandboxKey && !signatureMatch.hasProdKey) {
     return json({ ok: false, error: 'missing_signature_key' }, { status: 500 });
   }
 
-  const signature = request.headers.get('x-square-signature') ?? '';
-  const body = await request.text();
-  const url = new URL(request.url);
-  const forwardedHost = request.headers.get('x-forwarded-host') ?? request.headers.get('host');
-  const forwardedProto = request.headers.get('x-forwarded-proto') ?? url.protocol.replace(':', '');
-  const publicUrl = forwardedHost
-    ? `${forwardedProto}://${forwardedHost}${url.pathname}${url.search}`
-    : request.url;
-
-  const matchesSandbox =
-    (sandboxKey ? isValidSignature(signature, request.url, body, sandboxKey) : false) ||
-    (sandboxKey ? isValidSignature(signature, publicUrl, body, sandboxKey) : false);
-  const matchesProd =
-    (prodKey ? isValidSignature(signature, request.url, body, prodKey) : false) ||
-    (prodKey ? isValidSignature(signature, publicUrl, body, prodKey) : false);
-
-  if (!signature || (!matchesSandbox && !matchesProd)) {
+  if (!signatureMatch.valid) {
     console.warn('Square webhook signature mismatch', {
       requestUrl: request.url,
-      publicUrl,
+      publicUrl: signatureMatch.publicUrl,
       signatureLength: signature.length,
-      hasSandboxKey: Boolean(sandboxKey),
-      hasProdKey: Boolean(prodKey)
+      hasSandboxKey: signatureMatch.hasSandboxKey,
+      hasProdKey: signatureMatch.hasProdKey
     });
     return json({ ok: false, error: 'invalid_signature' }, { status: 401 });
   }
@@ -118,39 +64,22 @@ export async function POST({ request }) {
     return json({ ok: false, error: 'missing_access_token' }, { status: 404 });
   }
 
-  const primaryBase = getSquareApiBase(accessToken);
-  let { response: paymentResponse, payload: paymentPayload } = await fetchSquarePayment(
-    primaryBase,
-    accessToken,
-    paymentId
-  );
-  if (!paymentResponse.ok) {
-    const fallbackBase =
-      primaryBase === 'https://connect.squareup.com'
-        ? 'https://connect.squareupsandbox.com'
-        : 'https://connect.squareup.com';
-    ({ response: paymentResponse, payload: paymentPayload } = await fetchSquarePayment(
-      fallbackBase,
-      accessToken,
-      paymentId
-    ));
-    if (!paymentResponse.ok) {
-      console.error('Square payment fetch failed', {
-        merchantId,
-        paymentId,
-        primaryBase,
-        fallbackBase,
-        status: paymentResponse.status,
-        error: paymentPayload?.message ?? paymentPayload ?? null
-      });
-      return json(
-        { ok: false, error: paymentPayload?.message ?? 'square_payment_failed' },
-        { status: 502 }
-      );
-    }
+  const paymentResult = await fetchSquarePayment(accessToken, paymentId);
+  if (!paymentResult.ok) {
+    console.error('Square payment fetch failed', {
+      merchantId,
+      paymentId,
+      baseUrl: paymentResult.baseUrl,
+      status: paymentResult.status,
+      error: paymentResult.payload?.message ?? paymentResult.payload ?? null
+    });
+    return json(
+      { ok: false, error: paymentResult.payload?.message ?? 'square_payment_failed' },
+      { status: 502 }
+    );
   }
 
-  const payment = paymentPayload?.payment as SquarePayment | undefined;
+  const payment = paymentResult.payload?.payment as SquarePayment | undefined;
   if (!payment || (payment.status && payment.status !== 'COMPLETED')) {
     return json({ ok: true, ignored: true });
   }

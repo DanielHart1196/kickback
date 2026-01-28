@@ -1,21 +1,9 @@
 import { json } from '@sveltejs/kit';
-import { dev } from '$app/environment';
 import { supabaseAdmin } from '$lib/server/supabaseAdmin';
-
-const squareApiBase = dev ? 'https://connect.squareupsandbox.com' : 'https://connect.squareup.com';
-const squareVersion = '2025-01-23';
+import { getSquareApiBase, squareVersion, type SquarePayment } from '$lib/server/square/payments';
 const defaultSyncHours = 24;
 const overlapMinutes = 10;
 const pageLimit = 200;
-
-type SquarePayment = {
-  id: string;
-  status?: string;
-  created_at?: string;
-  location_id?: string;
-  amount_money?: { amount: number; currency?: string };
-  card_details?: { card?: { last_4?: string; fingerprint?: string; card_fingerprint?: string } };
-};
 
 export async function POST({ request }) {
   const body = await request.json().catch(() => null);
@@ -79,9 +67,10 @@ export async function POST({ request }) {
 
   const payments: SquarePayment[] = [];
   let cursor: string | null = null;
+  const baseUrl = getSquareApiBase(connection.access_token);
 
   do {
-    const paymentsUrl = new URL(`${squareApiBase}/v2/payments`);
+    const paymentsUrl = new URL(`${baseUrl}/v2/payments`);
     paymentsUrl.searchParams.set('begin_time', beginTime.toISOString());
     paymentsUrl.searchParams.set('end_time', endTime.toISOString());
     paymentsUrl.searchParams.set('sort_order', 'ASC');

@@ -2,9 +2,16 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --scrollbar-width: calc(100vw - 100%);
+}
+
 html, body {
   height: 100%;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-y: contain;
+  width: 100%;
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
 }

@@ -168,3 +168,176 @@ using (auth.uid() = submitter_id);
 - Claim math helpers: `calculateKickback`, `calculateTotalPending`, `getDaysAtVenue`, `normalizeAmountInput`, `normalizeLast4`, `parseAmount` used across dashboard and form.
 - Repository helpers: `fetchClaimsForUser`, `fetchAllClaims`, `insertClaim`, `upsertProfileLast4` centralize Supabase queries.
 - Component wiring: `Dashboard` uses `onNewClaim`, `onLogout`, `onOpenRefer`; `ClaimForm` accepts `canSubmit`, `amountInput`, `onAmountHydrate`, `onSubmit`, `onConfirmGuest`; `ReferralModal` handles share/copy and body scroll lock.
+
+## Square OAuth + Auto-Claims (2026-01-27)
+- OAuth scopes in use: `ORDERS_READ PAYMENTS_READ MERCHANT_PROFILE_READ` (locations are covered by merchant profile read).
+- Redirects:
+  - Prod: `https://kkbk.app/api/square/callback`
+  - Dev: `http://localhost:5173/api/square/callback`
+- Env vars:
+  - `PUBLIC_SQUARE_APP_ID_SANDBOX`, `PUBLIC_SQUARE_APP_ID_PROD`
+  - `PRIVATE_SQUARE_APP_SECRET_SANDBOX`, `PRIVATE_SQUARE_APP_SECRET_PROD`
+  - `PRIVATE_SQUARE_WEBHOOK_SIGNATURE_KEY_SANDBOX`, `PRIVATE_SQUARE_WEBHOOK_SIGNATURE_KEY_PROD`
+  - `PRIVATE_SUPABASE_SERVICE_ROLE_KEY`
+- Tables added/extended:
+  - `square_connections` stores OAuth tokens, `merchant_id`, `expires_at`, `scope`, `token_type`, `last_sync_at`.
+  - `claims` includes `square_payment_id`, `square_card_fingerprint`, `square_location_id` for linking auto-claims.
+  - `square_location_links` maps Kickback venues to Square location IDs (multi-location support).
+- Webhook:
+  - Endpoint: `/api/square/webhook`
+  - Subscriptions: `payment.created`, `payment.updated`
+  - Signature validated against both sandbox/prod keys (supports aliasing URLs).
+  - Fetches full payment, matches card fingerprint + venue/location mapping, creates approved claim.
+- Manual claim auto-link:
+  - On manual claim submit, we attempt to find the matching Square payment and store fingerprint.
+  - When matched, claim is auto-approved and shows an "auto-claims supported" popup with days left.
+- Admin:
+  - Connect/Disconnect Square buttons live alongside "Save Changes".
+  - Auto-check Square button appears only when Square is connected.
+  - CSV upload hidden when Square is connected (use Auto-check).
+  - Location picker appears only when Square connected and there is more than one location.
+- Square helpers:
+  - `src/lib/server/square/payments.ts` centralizes Square API base selection and payment calls.
+  - `src/lib/server/square/webhook.ts` centralizes signature validation.
+- New Square API routes:
+  - `/api/square/status`, `/api/square/disconnect`, `/api/square/locations`, `/api/square/location-links`
+  - `/api/square/payments`, `/api/square/link-claim`, `/api/square/sync`, `/api/square/webhook`
+
+## Auto-Claims Behavior
+- Auto-claims are approved by default.
+- Card fingerprint links are per user + venue and are established by the first manual claim match.
+- New Square payments with a known fingerprint at that venue create claims automatically.
+- Multi-location merchants require `square_location_links` entries to avoid mis-attribution.
+
+## Detailed Change Log (2026-01-25 to 2026-01-27)
+### Hello Clever PayTo (2026-01-29)
+- Added PayTo agreement admin UI in `src/routes/admin/+page.svelte` to create weekly agreements.
+- New API routes:
+  - `POST /api/helloclever/payto/create` creates agreements and stores them.
+  - `POST /api/helloclever/payto/webhook` updates agreement status via webhook.
+- New SQL: `sql/venue_payment_agreements.sql` for `venue_payment_agreements` table.
+- New env vars:
+  - `PRIVATE_HELLOCLEVER_APP_ID_SANDBOX`, `PRIVATE_HELLOCLEVER_SECRET_KEY_SANDBOX`
+  - `PRIVATE_HELLOCLEVER_APP_ID_PROD`, `PRIVATE_HELLOCLEVER_SECRET_KEY_PROD`
+  - `PRIVATE_HELLOCLEVER_WEBHOOK_SECRET_SANDBOX`, `PRIVATE_HELLOCLEVER_WEBHOOK_SECRET_PROD`
+- Sandbox testing notes (PayTo):
+  - Hello Clever sandbox returns `422 {"errors":{"message":"Agreement details is invalid."}}` even for the docs’ example payload (PayID-only).
+  - When both `bank_account_details` and `pay_id_details` are provided, sandbox returns `422 {"errors":{"message":"Payer details provide either bank_account_details or pay_id_details"}}`.
+  - Conclusion: sandbox enforces “one payment method only,” but still rejects the example payload with PayID-only.
+  - Likely sandbox validation issue; support ticket submitted with the failing example payload.
+  - Admin UI currently sends PayID-only and `payment_agreement_type = OTHER_SERVICE`.
+
+### Square OAuth flow + admin UX
+- Added Square connect flow in `src/routes/admin/+page.svelte`:
+  - Generates state + venue cookies (`square_oauth_state`, `square_oauth_venue`) with SameSite/secure handling.
+  - Uses sandbox/prod app IDs and correct base URLs.
+  - Shows success/error banner based on URL params and clears them from history.
+- Added `/api/square/callback` handler:
+  - Exchanges auth code for tokens in sandbox/prod.
+  - Writes to `square_connections` via service role.
+  - Redirects to `/admin` with `square=connected|error` and merchant id.
+- Added connect/disconnect UI and status polling:
+  - `Connect Square` and `Disconnect Square` buttons live alongside "Save Changes".
+  - Disconnect revokes token via Square OAuth revoke, then deletes DB row.
+  - "Square connected" banner now shown in admin when callback returns.
+- OAuth fixes:
+  - Localhost state cookies allow SameSite=Lax; HTTPS uses SameSite=None + Secure.
+  - Callback allows missing state cookie on localhost, strict elsewhere.
+  - Re-throws redirects correctly so callback errors surface.
+
+### Square data storage + schema expectations
+- `square_connections` table used for per-venue OAuth storage:
+  - `venue_id` unique, `merchant_id`, `access_token`, `refresh_token`, `expires_at`, `scope`, `token_type`, `updated_at`, `last_sync_at`.
+- `claims` extended to support Square linkage:
+  - `square_payment_id`, `square_card_fingerprint`, `square_location_id`.
+- `square_location_links` added to map Kickback venues to Square location IDs for multi-location accounts.
+
+### Square location mapping UX
+- Admin location picker added (only visible when connected + more than one location).
+- Location picker loads:
+  - `/api/square/locations` (Square Locations API)
+  - `/api/square/location-links` (stored mapping)
+- Save writes full replacement set to `square_location_links`.
+- Picker hidden when there is exactly one location or not loaded; errors still surface.
+
+### Auto-check in admin (bulk)
+- New "Auto-check Square" bulk action:
+  - Visible only when Square is connected.
+  - Replaces CSV upload when connected.
+  - Fetches Square payments over selected claim date range (±10 mins).
+  - Matches by last 4 + amount + time window (±5 mins) and records matches/unmatched.
+  - Approve/deny buttons for matched/unmatched claims.
+- Matched claims now persist:
+  - `square_payment_id`, `square_card_fingerprint`, `square_location_id` written on approval.
+
+### Manual claim -> Square fingerprint link
+- On manual claim submission:
+  - Attempt Square lookup within ±10 minutes of claim time.
+  - If a payment matches (last 4 + amount + ±5 mins), claim is marked `approved` and linked to fingerprint.
+  - This makes the card "known" for future auto-claims.
+- Auto-claims popup:
+  - After a successful claim with a Square match, show a banner:
+    - “{venue} supports auto claims… next {daysLeft} days”.
+  - Uses the same days-left calculation as the claim detail panel.
+  - Auto-dismisses after ~6.5s with a close button.
+
+### Webhook-based auto-claims
+- Added `/api/square/webhook`:
+  - Validates Square signatures (sandbox + prod keys; handles forwarded host/proto).
+  - Handles `payment.created` and `payment.updated`.
+  - Fetches payment details with OAuth access token.
+  - Matches by card fingerprint + venue/location links.
+  - Creates approved claims automatically.
+  - Ignores if payment already linked or missing fingerprint fields.
+- Webhook signature config:
+  - `PRIVATE_SQUARE_WEBHOOK_SIGNATURE_KEY_SANDBOX` + `..._PROD`.
+  - Works with one URL aliasing because handler checks both keys.
+- Webhook troubleshooting:
+  - 404 means route not deployed.
+  - 401 means signature mismatch (keys or URL mismatch).
+  - 502 means payment fetch failed; handler now retries opposite environment and logs details.
+
+### New server-side helpers (SOLID cleanup)
+- `src/lib/server/square/payments.ts`:
+  - Centralizes Square API base selection and fetch logic.
+  - Provides `fetchSquarePayment` and `listSquarePayments`.
+- `src/lib/server/square/webhook.ts`:
+  - Centralizes signature validation + public URL reconstruction.
+- Route handlers simplified to orchestration (webhook, link-claim, payments, sync).
+
+### Claims logic helpers (SOLID cleanup)
+- `src/lib/claims/submit.ts`:
+  - `validateClaimInput` and `buildClaimInsert` extracted from the page component.
+- `src/lib/claims/match.ts`:
+  - `matchClaimsToSquarePayments` extracted from admin bulk flow.
+
+### UI tweaks (admin + member)
+- Admin:
+  - Disconnect button styled orange to match Connect.
+  - Merchant id display removed for cleaner layout.
+  - Location picker hidden unless >1 location.
+- Member:
+  - Auto-claims banner text is centered horizontally/vertically in its card.
+  - Auto-claims approval is reflected immediately because link call is awaited before dashboard refresh.
+
+### Endpoint list (Square)
+- OAuth:
+  - `GET /api/square/callback`
+  - `POST /api/square/disconnect`
+  - `GET /api/square/status`
+- Locations:
+  - `GET /api/square/locations`
+  - `GET/POST /api/square/location-links`
+- Payments:
+  - `GET /api/square/payments`
+  - `POST /api/square/link-claim`
+  - `POST /api/square/sync` (manual backfill; still available even with webhooks)
+- Webhook:
+  - `POST /api/square/webhook`
+
+### Environment + deployment notes
+- Webhooks require a public HTTPS endpoint:
+  - Sandbox typically points to preview/alias (e.g., `kickback-ruddy.vercel.app`).
+  - Prod points to `https://kkbk.app/api/square/webhook`.
+- Ensure both webhook signature keys are set in Vercel.
+- Deployments that lack keys will return `missing_signature_key`.
