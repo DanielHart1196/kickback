@@ -14,7 +14,6 @@ const WEEKDAY_INDEX: Record<string, number> = {
   Sat: 6
 };
 const PLATFORM_FEE_RATE = 1;
-const GST_RATE = 0.1;
 
 type ZonedParts = {
   year: number;
@@ -99,7 +98,6 @@ function buildOrderDetails(
   imageUrl: string
 ) {
   return {
-    gst: true,
     billing_details: contactDetails,
     shipping_details: contactDetails,
     items: [
@@ -118,9 +116,10 @@ function buildOrderDetails(
 
 async function getGatewayAccessToken(
   appId: string,
-  secretKey: string
-): Promise<{ accessToken: string; raw: unknown }> {
-  const response = await fetch('https://api.cleverhub.co/api/v1/payment_gateways/access_token', {
+  secretKey: string,
+  baseUrl: string
+): Promise<string> {
+  const response = await fetch(`${baseUrl}/api/v1/payment_gateways/access_token`, {
     method: 'GET',
     headers: {
       Accept: 'application/json',
@@ -130,9 +129,13 @@ async function getGatewayAccessToken(
   });
   const payload = await response.json().catch(() => null);
   if (!response.ok || !payload?.access_token) {
-    throw new Error(JSON.stringify(payload ?? { error: 'access_token_failed' }));
+    throw new Error(payload?.error ?? 'access_token_failed');
   }
-  return { accessToken: payload.access_token as string, raw: payload };
+  return payload.access_token as string;
+}
+
+function getGatewayBaseUrl(isDev: boolean): string {
+  return isDev ? 'https://api.cleverhub.co' : 'https://api-merchant.helloclever.co';
 }
 
 export async function POST({ request, url }) {
@@ -224,45 +227,31 @@ export async function POST({ request, url }) {
   platformFeeAmount = Number(platformFeeAmount.toFixed(2));
   kickbackAmount = Number(kickbackAmount.toFixed(2));
 
-  const baseAmount = Number((kickbackAmount + platformFeeAmount).toFixed(2));
-  const totalAmount = Number((baseAmount * (1 + GST_RATE)).toFixed(2));
+  const invoiceAmount = Number((kickbackAmount + platformFeeAmount).toFixed(2));
   const orderId =
     (globalThis.crypto && 'randomUUID' in globalThis.crypto
       ? globalThis.crypto.randomUUID()
       : `invoice-${venueId}-${Date.now()}`);
 
   try {
-    let accessToken = '';
-    try {
-      const token = await getGatewayAccessToken(appId, secretKey);
-      accessToken = token.accessToken;
-    } catch (error) {
-      return json(
-        {
-          ok: false,
-          error: 'access_token_failed',
-          details: error instanceof Error ? error.message : String(error)
-        },
-        { status: 502 }
-      );
-    }
+    const baseUrl = getGatewayBaseUrl(dev);
+    const accessToken = await getGatewayAccessToken(appId, secretKey, baseUrl);
     const callbackUrl = new URL('/api/helloclever/gateway/webhook', url.origin).toString();
     const contactDetails = buildContactDetails(venue, billingEmail);
     const imageUrl = venue.logo_url ?? new URL('/favicon.svg', url.origin).toString();
     const payload = {
       order_id: orderId,
-      amount: totalAmount.toFixed(2),
+      amount: invoiceAmount,
       description,
-      gst: true,
       order_success_url: new URL('/admin?invoice=paid', url.origin).toString(),
       payment_gateway_notification: {
         endpoint_url: callbackUrl,
         authorization_header: `Bearer ${webhookSecret}`
       },
-      order_details: buildOrderDetails(description, baseAmount, weekLabel, contactDetails, imageUrl)
+      order_details: buildOrderDetails(description, invoiceAmount, weekLabel, contactDetails, imageUrl)
     };
 
-    const response = await fetch('https://api.cleverhub.co/api/v1/payment_gateways/create_payment', {
+    const response = await fetch(`${baseUrl}/api/v1/payment_gateways/create_payment`, {
       method: 'POST',
       headers: {
         Accept: 'application/json',
@@ -282,7 +271,7 @@ export async function POST({ request, url }) {
       order_id: orderId,
       payment_id: result?.payment_id ?? null,
       redirect_url: result?.redirect_url ?? null,
-      amount: totalAmount,
+      amount: invoiceAmount,
       description,
       status: 'created',
       week_start: startIso,
