@@ -1,13 +1,12 @@
 import { json } from '@sveltejs/kit';
 import { supabaseAdmin } from '$lib/server/supabaseAdmin';
-import {
-  PRIVATE_HELLOCLEVER_WEBHOOK_SECRET_PROD,
-  PRIVATE_HELLOCLEVER_WEBHOOK_SECRET_SANDBOX
-} from '$env/static/private';
+import { env } from '$env/dynamic/private';
 import { dev } from '$app/environment';
 
 export async function POST({ request }) {
-  const secret = dev ? PRIVATE_HELLOCLEVER_WEBHOOK_SECRET_SANDBOX : PRIVATE_HELLOCLEVER_WEBHOOK_SECRET_PROD;
+  const secret = dev
+    ? env.PRIVATE_HELLOCLEVER_WEBHOOK_SECRET_SANDBOX
+    : env.PRIVATE_HELLOCLEVER_WEBHOOK_SECRET_PROD;
   const authHeader = request.headers.get('authorization') ?? '';
   const expected = `Bearer ${secret}`;
   if (!secret || authHeader !== expected) {

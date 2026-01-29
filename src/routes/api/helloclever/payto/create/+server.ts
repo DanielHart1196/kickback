@@ -1,14 +1,7 @@
 import { json } from '@sveltejs/kit';
 import { dev } from '$app/environment';
 import { supabaseAdmin } from '$lib/server/supabaseAdmin';
-import {
-  PRIVATE_HELLOCLEVER_APP_ID_PROD,
-  PRIVATE_HELLOCLEVER_APP_ID_SANDBOX,
-  PRIVATE_HELLOCLEVER_SECRET_KEY_PROD,
-  PRIVATE_HELLOCLEVER_SECRET_KEY_SANDBOX,
-  PRIVATE_HELLOCLEVER_WEBHOOK_SECRET_PROD,
-  PRIVATE_HELLOCLEVER_WEBHOOK_SECRET_SANDBOX
-} from '$env/static/private';
+import { env } from '$env/dynamic/private';
 
 type PayIdType = 'EMAIL' | 'PHONE' | 'ABN';
 
@@ -117,11 +110,13 @@ export async function POST({ request, url }) {
     return json({ ok: false, error: 'invalid_pay_id' }, { status: 400 });
   }
 
-  const appId = dev ? PRIVATE_HELLOCLEVER_APP_ID_SANDBOX : PRIVATE_HELLOCLEVER_APP_ID_PROD;
-  const secretKey = dev ? PRIVATE_HELLOCLEVER_SECRET_KEY_SANDBOX : PRIVATE_HELLOCLEVER_SECRET_KEY_PROD;
+  const appId = dev ? env.PRIVATE_HELLOCLEVER_APP_ID_SANDBOX : env.PRIVATE_HELLOCLEVER_APP_ID_PROD;
+  const secretKey = dev
+    ? env.PRIVATE_HELLOCLEVER_SECRET_KEY_SANDBOX
+    : env.PRIVATE_HELLOCLEVER_SECRET_KEY_PROD;
   const webhookSecret = dev
-    ? PRIVATE_HELLOCLEVER_WEBHOOK_SECRET_SANDBOX
-    : PRIVATE_HELLOCLEVER_WEBHOOK_SECRET_PROD;
+    ? env.PRIVATE_HELLOCLEVER_WEBHOOK_SECRET_SANDBOX
+    : env.PRIVATE_HELLOCLEVER_WEBHOOK_SECRET_PROD;
 
   if (!appId || !secretKey || !webhookSecret) {
     return json({ ok: false, error: 'missing_credentials' }, { status: 500 });
