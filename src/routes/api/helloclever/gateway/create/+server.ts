@@ -99,6 +99,7 @@ function buildOrderDetails(
   imageUrl: string
 ) {
   return {
+    gst: true,
     billing_details: contactDetails,
     shipping_details: contactDetails,
     items: [
@@ -115,7 +116,10 @@ function buildOrderDetails(
   };
 }
 
-async function getGatewayAccessToken(appId: string, secretKey: string): Promise<string> {
+async function getGatewayAccessToken(
+  appId: string,
+  secretKey: string
+): Promise<{ accessToken: string; raw: unknown }> {
   const response = await fetch('https://api.cleverhub.co/api/v1/payment_gateways/access_token', {
     method: 'GET',
     headers: {
@@ -126,9 +130,9 @@ async function getGatewayAccessToken(appId: string, secretKey: string): Promise<
   });
   const payload = await response.json().catch(() => null);
   if (!response.ok || !payload?.access_token) {
-    throw new Error(payload?.error ?? 'access_token_failed');
+    throw new Error(JSON.stringify(payload ?? { error: 'access_token_failed' }));
   }
-  return payload.access_token as string;
+  return { accessToken: payload.access_token as string, raw: payload };
 }
 
 export async function POST({ request, url }) {
@@ -228,13 +232,26 @@ export async function POST({ request, url }) {
       : `invoice-${venueId}-${Date.now()}`);
 
   try {
-    const accessToken = await getGatewayAccessToken(appId, secretKey);
+    let accessToken = '';
+    try {
+      const token = await getGatewayAccessToken(appId, secretKey);
+      accessToken = token.accessToken;
+    } catch (error) {
+      return json(
+        {
+          ok: false,
+          error: 'access_token_failed',
+          details: error instanceof Error ? error.message : String(error)
+        },
+        { status: 502 }
+      );
+    }
     const callbackUrl = new URL('/api/helloclever/gateway/webhook', url.origin).toString();
     const contactDetails = buildContactDetails(venue, billingEmail);
     const imageUrl = venue.logo_url ?? new URL('/favicon.svg', url.origin).toString();
     const payload = {
       order_id: orderId,
-      amount: totalAmount,
+      amount: totalAmount.toFixed(2),
       description,
       gst: true,
       order_success_url: new URL('/admin?invoice=paid', url.origin).toString(),
