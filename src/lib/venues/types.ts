@@ -5,5 +5,16 @@ export type Venue = {
   logo_url?: string | null;
   kickback_guest?: number | null;
   kickback_referrer?: number | null;
+  payment_methods?: string[] | null;
+  billing_email?: string | null;
+  billing_contact_first_name?: string | null;
+  billing_contact_last_name?: string | null;
+  billing_phone?: string | null;
+  billing_company?: string | null;
+  billing_country_code?: string | null;
+  billing_state?: string | null;
+  billing_postal_code?: string | null;
+  billing_city?: string | null;
+  billing_address?: string | null;
   active?: boolean;
 };

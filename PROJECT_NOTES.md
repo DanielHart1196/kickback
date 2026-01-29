@@ -341,3 +341,6 @@ using (auth.uid() = submitter_id);
   - Prod points to `https://kkbk.app/api/square/webhook`.
 - Ensure both webhook signature keys are set in Vercel.
 - Deployments that lack keys will return `missing_signature_key`.
+
+## Workflow Preference
+- For schema changes, share SQL directly in chat instead of adding new files, unless explicitly requested.

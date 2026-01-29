@@ -18,6 +18,22 @@
   let venueName = '';
   let guestRate = '5';
   let referrerRate = '5';
+  let billingEmail = '';
+  let billingFirstName = '';
+  let billingLastName = '';
+  let billingPhone = '';
+  let billingCompany = '';
+  let billingCountryCode = 'AU';
+  let billingState = 'VIC';
+  let billingPostalCode = '3095';
+  let billingCity = 'Eltham';
+  let billingAddress = '';
+  let paymentMethods: string[] = [];
+  const paymentMethodOptions = [
+    { id: 'payto', label: 'PayTo (Auto Debit)' },
+    { id: 'card', label: 'Credit/Debit Card' },
+    { id: 'gateway', label: 'Invoice + Manual Payment' }
+  ];
   let savingVenue = false;
   let savingError = '';
   let logoUploading = false;
@@ -95,11 +111,34 @@
   let payToLoading = false;
   let payToError = '';
   let payToSuccess = '';
+  type PaymentRequest = {
+    id: string;
+    amount: number;
+    description: string | null;
+    order_id: string;
+    payment_id: string | null;
+    redirect_url: string | null;
+    status: string | null;
+    week_start: string | null;
+    week_end: string | null;
+    claim_count: number | null;
+    total_claim_amount: number | null;
+    platform_fee_amount: number | null;
+    kickback_amount: number | null;
+    created_at: string;
+  };
+  let latestPaymentRequest: PaymentRequest | null = null;
+  let gatewayDescription = 'Weekly Kickback invoice';
+  let gatewayCreating = false;
+  let gatewayLoading = false;
+  let gatewayError = '';
+  let gatewaySuccess = '';
   const SQUARE_SCOPES = 'ORDERS_READ PAYMENTS_READ MERCHANT_PROFILE_READ';
   const squareAppId = dev ? PUBLIC_SQUARE_APP_ID_SANDBOX : PUBLIC_SQUARE_APP_ID_PROD;
   const squareOauthBase = dev
     ? 'https://connect.squareupsandbox.com/oauth2/authorize'
     : 'https://connect.squareup.com/oauth2/authorize';
+
 
   function connectSquare() {
     if (typeof window === 'undefined') return;
@@ -136,6 +175,7 @@
           await fetchSquareLocations();
         }
         await fetchPayToAgreement();
+        await fetchLatestPaymentRequest();
       } else {
         claims = [];
       }
@@ -291,6 +331,27 @@
     }
   }
 
+  async function fetchLatestPaymentRequest() {
+    if (!venue?.id) return;
+    gatewayLoading = true;
+    gatewayError = '';
+    try {
+      const { data, error } = await supabase
+        .from('venue_payment_requests')
+        .select('*')
+        .eq('venue_id', venue.id)
+        .order('created_at', { ascending: false })
+        .limit(1);
+      if (error) throw error;
+      latestPaymentRequest = (data?.[0] as PaymentRequest) ?? null;
+    } catch (error) {
+      console.error('Error loading payment request:', error);
+      gatewayError = 'Failed to load payment request.';
+    } finally {
+      gatewayLoading = false;
+    }
+  }
+
   function getNextWednesdayLabel(): string {
     const timeZone = 'Australia/Sydney';
     const weekdayIndex: Record<string, number> = {
@@ -375,6 +436,75 @@
       payToSaving = false;
     }
   }
+
+  async function saveBillingDetails(): Promise<boolean> {
+    if (!venue?.id) return false;
+    const payload = {
+      billing_email: billingEmail.trim() || null,
+      billing_contact_first_name: billingFirstName.trim() || null,
+      billing_contact_last_name: billingLastName.trim() || null,
+      billing_phone: billingPhone.trim() || null,
+      billing_company: billingCompany.trim() || null,
+      billing_country_code: billingCountryCode.trim() || null,
+      billing_state: billingState.trim() || null,
+      billing_postal_code: billingPostalCode.trim() || null,
+      billing_city: billingCity.trim() || null,
+      billing_address: billingAddress.trim() || null
+    };
+    const { error } = await supabase.from('venues').update(payload).eq('id', venue.id);
+    if (error) {
+      gatewayError = error.message;
+      return false;
+    }
+    venue = { ...venue, ...payload };
+    return true;
+  }
+
+  async function handleCreatePaymentLink() {
+    if (!venue?.id || gatewayCreating) return;
+    gatewayCreating = true;
+    gatewayError = '';
+    gatewaySuccess = '';
+    try {
+      const descriptionValue = gatewayDescription.trim() || 'Weekly Kickback invoice';
+      const saved = await saveBillingDetails();
+      if (!saved) {
+        return;
+      }
+      const response = await fetch('/api/helloclever/gateway/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          venue_id: venue.id,
+          description: descriptionValue
+        })
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        const errorPayload = data?.error ?? 'Failed to create payment link.';
+        gatewayError = typeof errorPayload === 'string' ? errorPayload : JSON.stringify(errorPayload);
+        return;
+      }
+      latestPaymentRequest = data?.payment_request ?? null;
+      gatewaySuccess = 'Payment link created.';
+    } catch (error) {
+      console.error('Error creating payment link:', error);
+      gatewayError = 'Failed to create payment link.';
+    } finally {
+      gatewayCreating = false;
+    }
+  }
+
+  $: billingDetailsReady = Boolean(
+    billingFirstName.trim() &&
+    billingLastName.trim() &&
+    billingPhone.trim() &&
+    billingEmail.trim() &&
+    billingCountryCode.trim() &&
+    billingPostalCode.trim() &&
+    billingCity.trim() &&
+    billingAddress.trim()
+  );
 
   async function disconnectSquare() {
     if (!venue?.id || squareSyncing) return;
@@ -489,7 +619,9 @@
 
     const { data: directVenues, error: directError } = await supabase
       .from('venues')
-      .select('id, name, short_code, logo_url, kickback_guest, kickback_referrer, active, created_by')
+      .select(
+        'id, name, short_code, logo_url, kickback_guest, kickback_referrer, payment_methods, billing_email, billing_contact_first_name, billing_contact_last_name, billing_phone, billing_company, billing_country_code, billing_state, billing_postal_code, billing_city, billing_address, active, created_by'
+      )
       .eq('created_by', user.id)
       .limit(1);
 
@@ -513,7 +645,9 @@
       if (venueIds.length > 0) {
         const { data: linkedVenues, error: linkedError } = await supabase
           .from('venues')
-        .select('id, name, short_code, logo_url, kickback_guest, kickback_referrer, active')
+        .select(
+          'id, name, short_code, logo_url, kickback_guest, kickback_referrer, payment_methods, billing_email, billing_contact_first_name, billing_contact_last_name, billing_phone, billing_company, billing_country_code, billing_state, billing_postal_code, billing_city, billing_address, active'
+        )
         .in('id', venueIds)
         .limit(1);
 
@@ -528,6 +662,17 @@
     venueName = venue?.name ?? '';
     guestRate = venue?.kickback_guest != null ? String(venue.kickback_guest) : '5';
     referrerRate = venue?.kickback_referrer != null ? String(venue.kickback_referrer) : '5';
+    paymentMethods = Array.isArray(venue?.payment_methods) ? venue.payment_methods : [];
+    billingEmail = venue?.billing_email ?? userEmail ?? '';
+    billingFirstName = venue?.billing_contact_first_name ?? '';
+    billingLastName = venue?.billing_contact_last_name ?? '';
+    billingPhone = venue?.billing_phone ?? '';
+    billingCompany = venue?.billing_company ?? '';
+    billingCountryCode = venue?.billing_country_code ?? 'AU';
+    billingState = venue?.billing_state ?? 'VIC';
+    billingPostalCode = venue?.billing_postal_code ?? '3095';
+    billingCity = venue?.billing_city ?? 'Eltham';
+    billingAddress = venue?.billing_address ?? '';
   }
 
   async function createVenue() {
@@ -544,7 +689,18 @@
         created_by: user.id,
         kickback_guest: Number(guestRate),
         kickback_referrer: Number(referrerRate),
-        short_code: shortCode
+        short_code: shortCode,
+        payment_methods: paymentMethods,
+        billing_email: billingEmail.trim() || user.email,
+        billing_contact_first_name: billingFirstName.trim() || null,
+        billing_contact_last_name: billingLastName.trim() || null,
+        billing_phone: billingPhone.trim() || null,
+        billing_company: billingCompany.trim() || null,
+        billing_country_code: billingCountryCode.trim() || null,
+        billing_state: billingState.trim() || null,
+        billing_postal_code: billingPostalCode.trim() || null,
+        billing_city: billingCity.trim() || null,
+        billing_address: billingAddress.trim() || null
       };
 
       const { data, error } = await supabase.from('venues').insert(payload).select().single();
@@ -574,7 +730,18 @@
         name: trimmedName,
         kickback_guest: Number(guestRate),
         kickback_referrer: Number(referrerRate),
-        short_code: shortCode
+        short_code: shortCode,
+        payment_methods: paymentMethods,
+        billing_email: billingEmail.trim() || null,
+        billing_contact_first_name: billingFirstName.trim() || null,
+        billing_contact_last_name: billingLastName.trim() || null,
+        billing_phone: billingPhone.trim() || null,
+        billing_company: billingCompany.trim() || null,
+        billing_country_code: billingCountryCode.trim() || null,
+        billing_state: billingState.trim() || null,
+        billing_postal_code: billingPostalCode.trim() || null,
+        billing_city: billingCity.trim() || null,
+        billing_address: billingAddress.trim() || null
       };
       const { error } = await supabase.from('venues').update(payload).eq('id', venue.id);
       if (error) throw error;
@@ -709,6 +876,21 @@
     }
 
     return Array.from(groups.values()).sort((a, b) => b.weekStart.getTime() - a.weekStart.getTime());
+  }
+
+  function formatIsoDate(value: string | null | undefined): string {
+    if (!value) return '';
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return '';
+    return parsed.toISOString().slice(0, 10);
+  }
+
+  function formatIsoDateMinusOneDay(value: string | null | undefined): string {
+    if (!value) return '';
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return '';
+    const adjusted = new Date(parsed.getTime() - 24 * 60 * 60 * 1000);
+    return adjusted.toISOString().slice(0, 10);
   }
 
   function getSelectedWeekLabel(
@@ -1217,7 +1399,7 @@
       </button>
     </div>
   {/if}
-    <section class="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-6 md:p-8">
+  <section class="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-6 md:p-8">
       <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
         <div class="flex items-center gap-5">
           <div class="relative logo-wrap">
@@ -1263,6 +1445,15 @@
               placeholder="Venue name"
               class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-lg font-bold text-white w-full md:w-72"
             />
+            <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
+              Billing Email
+              <input
+                type="email"
+                bind:value={billingEmail}
+                placeholder="billing@venue.com"
+                class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-white w-full md:w-72"
+              />
+            </label>
           </div>
         </div>
         <div class="flex flex-col gap-3 w-full md:w-auto">
@@ -1400,8 +1591,35 @@
           if (target) target.value = '';
         }}
       />
+  </section>
+    <section class="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-6 md:p-8">
+      <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div>
+          <p class="text-xs font-black uppercase tracking-widest text-zinc-500">Payment Methods</p>
+          <p class="text-sm font-bold text-white mt-2">
+            Select at least one to enable claims for this venue.
+          </p>
+        </div>
+      </div>
+
+      <div class="mt-6">
+        <div class="grid gap-2">
+          {#each paymentMethodOptions as option}
+            <label class="flex items-center gap-3 text-xs font-bold uppercase tracking-widest text-zinc-300">
+              <input
+                type="checkbox"
+                value={option.id}
+                bind:group={paymentMethods}
+                class="h-3.5 w-3.5 accent-blue-500"
+              />
+              <span>{option.label}</span>
+            </label>
+          {/each}
+        </div>
+      </div>
     </section>
 
+    {#if paymentMethods.includes('payto')}
     <section class="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-6 md:p-8">
       <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
@@ -1486,6 +1704,184 @@
         </div>
       {/if}
     </section>
+    {/if}
+
+    {#if paymentMethods.includes('gateway')}
+    <section class="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-6 md:p-8">
+      <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div>
+          <p class="text-xs font-black uppercase tracking-widest text-zinc-500">Invoice + Manual Payment</p>
+          <p class="text-sm font-bold text-white mt-2">
+            Creates last week&#39;s invoice (approved claims + platform fee).
+          </p>
+        </div>
+        {#if latestPaymentRequest}
+          <span class="text-[10px] font-black uppercase tracking-widest text-zinc-400">
+            Status: {latestPaymentRequest.status ?? 'unknown'}
+          </span>
+        {/if}
+      </div>
+
+      <div class="mt-6 space-y-4">
+        <div class="border border-zinc-800 rounded-xl p-4 bg-zinc-950">
+          <p class="text-[10px] font-black uppercase tracking-widest text-zinc-500">
+            Gateway Billing Details
+          </p>
+          <div class="mt-3 grid gap-3 md:grid-cols-2">
+            <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
+              First Name
+              <input
+                type="text"
+                bind:value={billingFirstName}
+                placeholder="Clever"
+                class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-white"
+              />
+            </label>
+            <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
+              Last Name
+              <input
+                type="text"
+                bind:value={billingLastName}
+                placeholder="Hello"
+                class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-white"
+              />
+            </label>
+            <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
+              Phone
+              <input
+                type="tel"
+                bind:value={billingPhone}
+                placeholder="+61412345678"
+                class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-white"
+              />
+            </label>
+            <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
+              Company
+              <input
+                type="text"
+                bind:value={billingCompany}
+                placeholder="Venue Pty Ltd"
+                class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-white"
+              />
+            </label>
+            <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
+              Country Code
+              <input
+                type="text"
+                bind:value={billingCountryCode}
+                placeholder="AU"
+                class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-white"
+              />
+            </label>
+            <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
+              State
+              <input
+                type="text"
+                bind:value={billingState}
+                placeholder="VIC"
+                class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-white"
+              />
+            </label>
+            <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
+              Postal Code
+              <input
+                type="text"
+                bind:value={billingPostalCode}
+                placeholder="3095"
+                class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-white"
+              />
+            </label>
+            <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
+              City
+              <input
+                type="text"
+                bind:value={billingCity}
+                placeholder="Eltham"
+                class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-white"
+              />
+            </label>
+          </div>
+          <label class="mt-3 flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
+            Address
+            <input
+              type="text"
+              bind:value={billingAddress}
+              placeholder="388 George Street"
+              class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-white"
+            />
+          </label>
+        </div>
+
+        <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500 md:col-span-2">
+          Description
+          <input
+            type="text"
+            bind:value={gatewayDescription}
+            placeholder="Weekly Kickback invoice"
+            class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-base font-bold text-white"
+          />
+        </label>
+      </div>
+
+      <div class="mt-5 flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          on:click={handleCreatePaymentLink}
+          disabled={!venue || gatewayCreating || gatewayLoading || !billingDetailsReady}
+          class="bg-white text-black font-black px-6 py-3 rounded-xl uppercase tracking-tight disabled:opacity-50"
+        >
+          {gatewayCreating ? 'Creating...' : 'Create Payment Link'}
+        </button>
+        {#if !billingDetailsReady}
+          <span class="text-xs font-bold uppercase tracking-widest text-zinc-500">
+            Add billing details to enable payment links.
+          </span>
+        {/if}
+        {#if gatewayLoading}
+          <span class="text-xs font-bold uppercase tracking-widest text-zinc-500">Loading...</span>
+        {/if}
+        {#if gatewayError}
+          <span class="text-xs font-bold uppercase tracking-widest text-red-400">{gatewayError}</span>
+        {/if}
+        {#if gatewaySuccess}
+          <span class="text-xs font-bold uppercase tracking-widest text-green-400">{gatewaySuccess}</span>
+        {/if}
+      </div>
+
+      {#if latestPaymentRequest}
+        <div class="mt-5 bg-zinc-950 border border-zinc-800 rounded-xl p-4 text-xs font-bold uppercase tracking-widest text-zinc-400 space-y-2">
+          <div>
+            Week:
+            <span class="text-zinc-200">
+              {formatIsoDate(latestPaymentRequest.week_start) || 'n/a'}
+            </span>
+            {#if latestPaymentRequest.week_end}
+              <span class="text-zinc-500">
+                {' '}
+                - {formatIsoDateMinusOneDay(latestPaymentRequest.week_end)}
+              </span>
+            {/if}
+          </div>
+          <div>
+            Amount: <span class="text-zinc-200">${Number(latestPaymentRequest.amount ?? 0).toFixed(2)}</span>
+          </div>
+          {#if latestPaymentRequest.redirect_url}
+            <div>
+              Link:
+              <a
+                href={latestPaymentRequest.redirect_url}
+                class="text-orange-400 underline underline-offset-2"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Open payment link
+              </a>
+            </div>
+          {/if}
+        </div>
+      {/if}
+    </section>
+    {/if}
 
     <section class="flex items-start justify-between gap-4">
       <div class="min-w-0">
