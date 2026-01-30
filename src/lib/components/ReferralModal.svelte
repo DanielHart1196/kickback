@@ -8,6 +8,8 @@
   export let referralEditLocked = false;
   export let referralOriginalCode: string | null = null;
   export let venues: { id: string; name: string; short_code?: string | null; logo_url?: string | null }[] = [];
+  export let initialVenueId: string | null = null;
+  export let initialVenueName: string | null = null;
   export let onClose: () => void = () => {};
   export let onUpdateReferralCode: (code: string) => Promise<{ ok: boolean; message?: string; code?: string }> =
     async () => ({ ok: false, message: 'Code update unavailable.' });
@@ -35,6 +37,7 @@
   let venueWrap: HTMLDivElement | null = null;
   let venueInputFocused = false;
   let venueClearKeepsOpen = false;
+  let initialVenueApplied = false;
   let codeChangeInfoButton: HTMLButtonElement | null = null;
   let codeChangeInfoTooltip: HTMLDivElement | null = null;
   let referralEditButton: HTMLButtonElement | null = null;
@@ -204,6 +207,24 @@
     currentYOffset = 0;
   }
 
+  function resolveInitialVenue(): { id: string; name: string } | null {
+    if (initialVenueId) {
+      const match = venues.find((venue) => venue.id === initialVenueId);
+      if (match) return { id: match.id, name: match.name };
+    }
+    const rawName = initialVenueName?.trim() ?? '';
+    if (!rawName) return null;
+    const codeMatch = venues.find(
+      (venue) => (venue.short_code ?? '').toUpperCase() === rawName.toUpperCase()
+    );
+    if (codeMatch) return { id: codeMatch.id, name: codeMatch.name };
+    const nameMatch = venues.find(
+      (venue) => venue.name.trim().toLowerCase() === rawName.toLowerCase()
+    );
+    if (nameMatch) return { id: nameMatch.id, name: nameMatch.name };
+    return { id: '', name: rawName };
+  }
+
   onMount(() => {
     if (typeof document === 'undefined') return;
     const original = document.body.style.overflow;
@@ -233,6 +254,18 @@
       document.removeEventListener('click', handleCodeInfoClick);
     };
   });
+
+  $: if (!initialVenueApplied && venues.length > 0 && (initialVenueId || initialVenueName)) {
+    const resolved = resolveInitialVenue();
+    if (resolved) {
+      referralVenueId = resolved.id;
+      venueSearch = resolved.name;
+      venueDirty = true;
+      venueOpen = false;
+      hasAppliedDefault = true;
+    }
+    initialVenueApplied = true;
+  }
 
   $: if (!hasAppliedDefault && !referralVenueId && venues.length > 0) {
     const storedId =

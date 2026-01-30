@@ -35,6 +35,7 @@
   import { buildClaimInsert, validateClaimInput } from '$lib/claims/submit';
   import Dashboard from '$lib/components/Dashboard.svelte';
   import ClaimForm from '$lib/components/ClaimForm.svelte';
+  import Landing from '$lib/components/Landing.svelte';
   import AutoClaimWarningModal from '$lib/components/AutoClaimWarningModal.svelte';
   import ClaimWindowExpiredModal from '$lib/components/ClaimWindowExpiredModal.svelte';
   import GuestWarningModal from '$lib/components/GuestWarningModal.svelte';
@@ -52,6 +53,10 @@
   let successMessage = '';
 
   let showReferModal = false;
+  let showLanding = false;
+  let referralPresetVenueId = '';
+  let referralPresetVenueName = '';
+  let shouldOpenReferFromUrl = false;
 
   let venues: Venue[] = [];
 
@@ -549,7 +554,14 @@
     }
     const urlParams =
       typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
-    const hasRefOnly = Boolean(urlParams?.get('ref')) && !urlParams?.get('venue') && !urlParams?.get('venue_id');
+    const refParam = urlParams?.get('ref')?.trim() ?? '';
+    const venueParam = urlParams?.get('venue')?.trim() ?? '';
+    const venueIdParam = urlParams?.get('venue_id')?.trim() ?? '';
+    const hasRef = Boolean(refParam);
+    const hasVenueParam = Boolean(venueParam || venueIdParam);
+    const hasRefAndVenue = hasRef && hasVenueParam;
+    const hasVenueOnly = hasVenueParam && !hasRef;
+    const hasRefOnly = hasRef && !hasVenueParam;
 
     const localNow = getLocalNowInputValue();
     purchaseTime = localNow;
@@ -561,6 +573,20 @@
     session = data.session;
     userId = session?.user?.id ?? null;
 
+    const venueFromParams = urlParams ? getVenueFromParams(urlParams) : null;
+    referralPresetVenueId = venueFromParams?.id ?? venueIdParam ?? '';
+    referralPresetVenueName = venueFromParams?.name ?? venueParam ?? '';
+
+    if (hasVenueOnly) {
+      if (!session) {
+        window.location.href = `/login?${urlParams?.toString() ?? ''}`;
+        return;
+      }
+      showForm = false;
+      showLanding = false;
+      shouldOpenReferFromUrl = true;
+    }
+
     if (hasRefOnly) {
       if (!session) {
         window.location.href = `/login?${urlParams?.toString() ?? ''}`;
@@ -569,9 +595,15 @@
       showForm = true;
     }
 
-    const urlDraft = getDraftFromUrl(window.location.search);
+    if (hasRefAndVenue) {
+      showForm = true;
+      showLanding = false;
+    }
+
+    const allowDraft = !hasVenueOnly;
+    const urlDraft = allowDraft ? getDraftFromUrl(window.location.search) : null;
     const storedDraft = getDraftFromStorage(localStorage);
-    const draft = urlDraft ?? storedDraft;
+    const draft = allowDraft ? urlDraft ?? storedDraft : null;
 
     if (draft) {
       amountInput = draft.amount ?? '';
@@ -619,12 +651,18 @@
       await ensureReferralCode(session.user.id, session.user.email ?? 'member');
       await fetchDashboardData();
 
+      if (shouldOpenReferFromUrl) {
+        showReferModal = true;
+      }
+
       if (typeof window !== 'undefined') {
         const state = getHistoryState();
         if (!state[historyViewKey]) {
           replaceState('', { ...state, [historyViewKey]: showForm ? 'claim' : 'dashboard' });
         }
       }
+    } else if (!hasRefAndVenue && !hasVenueOnly && !hasRefOnly && !draft) {
+      showLanding = true;
     }
   });
 
@@ -826,6 +864,23 @@
     return match?.id ?? '';
   }
 
+  function getVenueFromParams(params: URLSearchParams): Venue | null {
+    const venueIdParam = params.get('venue_id')?.trim() ?? '';
+    if (venueIdParam) {
+      return venues.find((v) => v.id === venueIdParam) ?? null;
+    }
+    const venueParam = params.get('venue')?.trim() ?? '';
+    if (!venueParam) return null;
+    const codeMatch = venues.find(
+      (v) => (v.short_code ?? '').toUpperCase() === venueParam.toUpperCase()
+    );
+    if (codeMatch) return codeMatch;
+    const nameMatch = venues.find(
+      (v) => v.name.trim().toLowerCase() === venueParam.toLowerCase()
+    );
+    return nameMatch ?? null;
+  }
+
 
   function getVenueByCode(code: string): Venue | undefined {
     const normalizedCode = code.trim().toUpperCase();
@@ -999,6 +1054,8 @@
 <main class="min-h-screen bg-zinc-950 text-white flex flex-col items-center p-6">
   {#if session === undefined}
     <div class="min-h-screen"></div>
+  {:else if !session && showLanding}
+    <Landing />
   {:else if session && !showForm}
     <Dashboard
       {claims}
@@ -1075,6 +1132,8 @@
       userRefCode={userRefCode}
       referralEditLocked={referralEditLocked}
       referralOriginalCode={referralOriginalCode}
+      initialVenueId={referralPresetVenueId}
+      initialVenueName={referralPresetVenueName}
       onUpdateReferralCode={updateReferralCode}
       onClose={closeReferModal}
     />

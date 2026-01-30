@@ -10,7 +10,12 @@
   import type { Venue } from '$lib/venues/types';
   import { buildVenueBase, generateVenueCode } from '$lib/venues/code';
   import { dev } from '$app/environment';
-  import { PUBLIC_SQUARE_APP_ID_PROD, PUBLIC_SQUARE_APP_ID_SANDBOX } from '$env/static/public';
+  import {
+    PUBLIC_SQUARE_APP_ID_PROD,
+    PUBLIC_SQUARE_APP_ID_SANDBOX,
+    PUBLIC_ZEPTO_OAUTH_CLIENT_ID_PROD,
+    PUBLIC_ZEPTO_OAUTH_CLIENT_ID_SANDBOX
+  } from '$env/static/public';
 
   let claims: Claim[] = [];
   let loading = true;
@@ -29,6 +34,7 @@
   let billingCity = 'Eltham';
   let billingAddress = '';
   let paymentMethods: string[] = [];
+  const showHelloClever = false;
   const paymentMethodOptions = [
     { id: 'payto', label: 'PayTo (Auto Debit)' },
     { id: 'card', label: 'Credit/Debit Card' },
@@ -75,6 +81,7 @@
   let showClaimsScrollFade = false;
   let showClaimsScrollLeftFade = false;
   let squareBanner: { type: 'success' | 'error'; message: string } | null = null;
+  let zeptoBanner: { type: 'success' | 'error'; message: string } | null = null;
   let squareConnected = false;
   let squareMerchantId = '';
   let squareSyncing = false;
@@ -138,6 +145,14 @@
   const squareOauthBase = dev
     ? 'https://connect.squareupsandbox.com/oauth2/authorize'
     : 'https://connect.squareup.com/oauth2/authorize';
+  const zeptoOauthBase = dev
+    ? 'https://go.sandbox.zeptopayments.com/oauth/authorize'
+    : 'https://go.zeptopayments.com/oauth/authorize';
+  const zeptoScopes =
+    'public agreements bank_accounts bank_connections contacts open_agreements payment_requests payments refunds transfers transactions webhooks offline_access pay_to_agreements pay_to_amendment_recalls pay_to_amendments pay_to_cancellations pay_to_payments pay_to_reactivations pay_to_refunds pay_to_suspensions pay_to_aliases clients cop_account_validations';
+  const zeptoClientId = dev ? PUBLIC_ZEPTO_OAUTH_CLIENT_ID_SANDBOX : PUBLIC_ZEPTO_OAUTH_CLIENT_ID_PROD;
+  let zeptoConnected = false;
+  let zeptoSyncing = false;
 
 
   function connectSquare() {
@@ -165,17 +180,45 @@
     }
   }
 
+  function connectZepto() {
+    if (typeof window === 'undefined') return;
+    if (!venue?.id) return;
+    if (!zeptoClientId) return;
+    zeptoSyncing = true;
+    const state =
+      typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? crypto.randomUUID()
+        : Math.random().toString(36).slice(2);
+    const isHttps = window.location.protocol === 'https:';
+    const sameSite = isHttps ? 'none' : 'lax';
+    const secureFlag = isHttps ? '; secure' : '';
+    document.cookie = `zepto_oauth_state=${state}; path=/; max-age=600; samesite=${sameSite}${secureFlag}`;
+    document.cookie = `zepto_oauth_venue=${venue.id}; path=/; max-age=600; samesite=${sameSite}${secureFlag}`;
+    const redirectUri = `${window.location.origin}/api/zepto/callback`;
+    const scopeParam = encodeURIComponent(zeptoScopes);
+    const redirectParam = encodeURIComponent(redirectUri);
+    const target = `${zeptoOauthBase}?response_type=code&client_id=${zeptoClientId}&redirect_uri=${redirectParam}&scope=${scopeParam}&state=${state}`;
+    if (window.top) {
+      window.top.location.href = target;
+    } else {
+      window.location.href = target;
+    }
+  }
+
   onMount(async () => {
     try {
       await fetchVenue();
       if (venue?.id) {
         claims = await fetchClaimsForVenueId(venue.id);
         await fetchSquareStatus();
+        await fetchZeptoStatus();
         if (squareConnected) {
           await fetchSquareLocations();
         }
-        await fetchPayToAgreement();
-        await fetchLatestPaymentRequest();
+        if (showHelloClever) {
+          await fetchPayToAgreement();
+          await fetchLatestPaymentRequest();
+        }
       } else {
         claims = [];
       }
@@ -189,24 +232,35 @@
   onMount(() => {
     if (typeof window === 'undefined') return;
     const url = new URL(window.location.href);
-    const status = url.searchParams.get('square');
+    const squareStatus = url.searchParams.get('square');
+    const zeptoStatus = url.searchParams.get('zepto');
     const reason = url.searchParams.get('reason');
     const merchant = url.searchParams.get('merchant');
 
-    if (status === 'connected') {
+    if (squareStatus === 'connected') {
       squareBanner = {
         type: 'success',
         message: merchant ? `Square connected (merchant ${merchant}).` : 'Square connected.'
       };
-    } else if (status === 'error') {
+    } else if (squareStatus === 'error') {
       squareBanner = {
         type: 'error',
         message: reason ? `Square connection failed: ${decodeURIComponent(reason)}.` : 'Square connection failed.'
       };
     }
 
-    if (status) {
+    if (zeptoStatus === 'connected') {
+      zeptoBanner = { type: 'success', message: 'Zepto connected.' };
+    } else if (zeptoStatus === 'error') {
+      zeptoBanner = {
+        type: 'error',
+        message: reason ? `Zepto connection failed: ${decodeURIComponent(reason)}.` : 'Zepto connection failed.'
+      };
+    }
+
+    if (squareStatus || zeptoStatus) {
       url.searchParams.delete('square');
+      url.searchParams.delete('zepto');
       url.searchParams.delete('reason');
       url.searchParams.delete('merchant');
       replaceState(url.toString(), window.history.state ?? {});
@@ -231,36 +285,58 @@
     }
   }
 
+  async function fetchZeptoStatus() {
+    if (!venue?.id) return;
+    try {
+      const response = await fetch(`/api/zepto/status?venue_id=${encodeURIComponent(venue.id)}`);
+      if (!response.ok) return;
+      const data = await response.json();
+      zeptoConnected = Boolean(data?.connected);
+    } catch (error) {
+      console.error('Error loading Zepto status:', error);
+    }
+  }
+
   async function fetchSquareLocations() {
     if (!venue?.id || !squareConnected) return;
     squareLocationsLoading = true;
     squareLocationsError = '';
     squareLocationsLoaded = false;
     try {
-      const [locationsResponse, linksResponse] = await Promise.all([
-        fetch(`/api/square/locations?venue_id=${encodeURIComponent(venue.id)}`),
-        fetch(`/api/square/location-links?venue_id=${encodeURIComponent(venue.id)}`)
-      ]);
-      const locationsPayload = await locationsResponse.json().catch(() => null);
-      const linksPayload = await linksResponse.json().catch(() => null);
-      if (!locationsResponse.ok) {
-        squareLocationsError = locationsPayload?.error ?? 'Failed to load Square locations.';
-        return;
+      let attempt = 0;
+      while (attempt < 3) {
+        attempt += 1;
+        try {
+          const [locationsResponse, linksResponse] = await Promise.all([
+            fetch(`/api/square/locations?venue_id=${encodeURIComponent(venue.id)}`),
+            fetch(`/api/square/location-links?venue_id=${encodeURIComponent(venue.id)}`)
+          ]);
+          const locationsPayload = await locationsResponse.json().catch(() => null);
+          const linksPayload = await linksResponse.json().catch(() => null);
+          if (!locationsResponse.ok) {
+            squareLocationsError = locationsPayload?.error ?? 'Failed to load Square locations.';
+          } else if (!linksResponse.ok) {
+            squareLocationsError = linksPayload?.error ?? 'Failed to load Square location links.';
+          } else {
+            squareLocations = (locationsPayload?.locations ?? []) as {
+              id: string;
+              name: string;
+              status?: string;
+            }[];
+            const linkedIds = new Set<string>(linksPayload?.location_ids ?? []);
+            squareLocationIds = linkedIds;
+            squareLocationsError = '';
+            return;
+          }
+        } catch (error) {
+          console.error('Error loading Square locations:', error);
+          squareLocationsError = 'Failed to load Square locations.';
+        }
+
+        if (attempt < 3) {
+          await new Promise((resolve) => setTimeout(resolve, attempt * 300));
+        }
       }
-      if (!linksResponse.ok) {
-        squareLocationsError = linksPayload?.error ?? 'Failed to load Square location links.';
-        return;
-      }
-      squareLocations = (locationsPayload?.locations ?? []) as {
-        id: string;
-        name: string;
-        status?: string;
-      }[];
-      const linkedIds = new Set<string>(linksPayload?.location_ids ?? []);
-      squareLocationIds = linkedIds;
-    } catch (error) {
-      console.error('Error loading Square locations:', error);
-      squareLocationsError = 'Failed to load Square locations.';
     } finally {
       squareLocationsLoading = false;
       squareLocationsLoaded = true;
@@ -703,14 +779,14 @@
         billing_address: billingAddress.trim() || null
       };
 
-      const { data, error } = await supabase.from('venues').insert(payload).select().single();
-      if (error) throw error;
+        const { data, error } = await supabase.from('venues').insert(payload).select().single();
+        if (error) throw error;
 
-      venue = data;
-    } catch (error) {
-      console.error('Error creating venue:', error);
-      savingError = 'Failed to create venue.';
-    } finally {
+        venue = data;
+      } catch (error) {
+        console.error('Error creating venue:', error);
+        savingError = 'Failed to create venue.';
+      } finally {
       savingVenue = false;
     }
   }
@@ -743,13 +819,13 @@
         billing_city: billingCity.trim() || null,
         billing_address: billingAddress.trim() || null
       };
-      const { error } = await supabase.from('venues').update(payload).eq('id', venue.id);
-      if (error) throw error;
-      venue = { ...venue, ...payload };
-    } catch (error) {
-      console.error('Error saving venue:', error);
-      savingError = 'Failed to save venue.';
-    } finally {
+        const { error } = await supabase.from('venues').update(payload).eq('id', venue.id);
+        if (error) throw error;
+        venue = { ...venue, ...payload };
+      } catch (error) {
+        console.error('Error saving venue:', error);
+        savingError = 'Failed to save venue.';
+      } finally {
       savingVenue = false;
     }
   }
@@ -1399,6 +1475,19 @@
       </button>
     </div>
   {/if}
+  {#if zeptoBanner}
+    <div class={`rounded-2xl border px-4 py-3 text-sm font-bold uppercase tracking-widest flex items-center justify-between gap-4 ${zeptoBanner.type === 'success' ? 'border-green-500/30 bg-green-500/10 text-green-200' : 'border-red-500/30 bg-red-500/10 text-red-200'}`}>
+      <span>{zeptoBanner.message}</span>
+      <button
+        type="button"
+        on:click={() => (zeptoBanner = null)}
+        class="text-zinc-300 hover:text-white transition-colors text-xs font-black tracking-[0.3em]"
+        aria-label="Dismiss Zepto status"
+      >
+        CLOSE
+      </button>
+    </div>
+  {/if}
   <section class="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-6 md:p-8">
       <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
         <div class="flex items-center gap-5">
@@ -1483,15 +1572,15 @@
           </div>
           <div class="flex flex-wrap items-center gap-3">
             {#if venue}
-              <div class="flex flex-wrap items-center gap-3">
-                <button
-                  type="button"
-                  on:click={saveVenue}
-                  disabled={savingVenue || !venueName.trim()}
-                  class="bg-white text-black font-black px-6 py-3 rounded-xl uppercase tracking-tight disabled:opacity-50"
-                >
-                  {savingVenue ? 'Saving...' : 'Save Changes'}
-                </button>
+                <div class="flex flex-wrap items-center gap-3">
+                  <button
+                    type="button"
+                    on:click={saveVenue}
+                    disabled={savingVenue || !venueName.trim()}
+                    class="bg-white text-black font-black px-6 py-3 rounded-xl uppercase tracking-tight disabled:opacity-50"
+                  >
+                    {savingVenue ? 'Saving...' : 'Save Changes'}
+                  </button>
                 {#if squareConnected}
                   <button
                     type="button"
@@ -1508,6 +1597,20 @@
                     class="bg-orange-500 text-black font-black px-6 py-3 rounded-xl uppercase tracking-tight shadow-xl shadow-orange-500/10"
                   >
                     Connect Square
+                  </button>
+                {/if}
+                {#if zeptoClientId}
+                  <button
+                    type="button"
+                    on:click={connectZepto}
+                    disabled={zeptoSyncing || !venue?.id}
+                    class="bg-white/10 text-white font-black px-6 py-3 rounded-xl uppercase tracking-tight border border-zinc-800 hover:border-zinc-600 transition-colors disabled:opacity-50"
+                  >
+                    {zeptoSyncing
+                      ? 'Connecting...'
+                      : zeptoConnected
+                        ? 'Reconnect Zepto'
+                        : 'Connect Zepto'}
                   </button>
                 {/if}
               </div>
@@ -1528,10 +1631,10 @@
               <span class="text-xs font-bold uppercase tracking-widest text-red-400">{logoError}</span>
             {/if}
           </div>
-          {#if squareConnected && (squareLocationsError || (squareLocationsLoaded && squareLocations.length !== 1))}
-            <div class="mt-2 bg-zinc-950 border border-zinc-800 rounded-xl p-4 w-full">
-              <div class="flex flex-wrap items-center justify-between gap-3">
-                <div>
+            {#if squareConnected && squareLocationsLoaded && !squareLocationsError && squareLocations.length !== 1}
+              <div class="mt-2 bg-zinc-950 border border-zinc-800 rounded-xl p-4 w-full">
+                <div class="flex flex-wrap items-center justify-between gap-3">
+                  <div>
                   <p class="text-xs font-black uppercase tracking-widest text-zinc-500">Square Locations</p>
                   <p class="text-[10px] font-black uppercase tracking-widest text-zinc-600 mt-1">
                     Leave unchecked to allow all locations
@@ -1619,7 +1722,7 @@
       </div>
     </section>
 
-    {#if paymentMethods.includes('payto')}
+    {#if showHelloClever && paymentMethods.includes('payto')}
     <section class="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-6 md:p-8">
       <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
@@ -1706,7 +1809,7 @@
     </section>
     {/if}
 
-    {#if paymentMethods.includes('gateway')}
+    {#if showHelloClever && paymentMethods.includes('gateway')}
     <section class="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-6 md:p-8">
       <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
