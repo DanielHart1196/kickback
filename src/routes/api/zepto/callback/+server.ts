@@ -7,6 +7,7 @@ export async function GET({ url, cookies }) {
   const state = url.searchParams.get('state');
   const error = url.searchParams.get('error');
   const errorDescription = url.searchParams.get('error_description');
+  const forceSandbox = url.searchParams.get('sandbox') === '1' || url.searchParams.get('sandbox') === 'true';
 
   if (error) {
     const redirectUrl = new URL('/admin', url.origin);
@@ -19,8 +20,11 @@ export async function GET({ url, cookies }) {
     return new Response('Missing code', { status: 400 });
   }
 
-  const clientId = dev ? env.PRIVATE_ZEPTO_OAUTH_CLIENT_ID_SANDBOX : env.PRIVATE_ZEPTO_OAUTH_CLIENT_ID_PROD;
-  const clientSecret = dev
+  const useSandbox = dev || forceSandbox;
+  const clientId = useSandbox
+    ? env.PRIVATE_ZEPTO_OAUTH_CLIENT_ID_SANDBOX
+    : env.PRIVATE_ZEPTO_OAUTH_CLIENT_ID_PROD;
+  const clientSecret = useSandbox
     ? env.PRIVATE_ZEPTO_OAUTH_CLIENT_SECRET_SANDBOX
     : env.PRIVATE_ZEPTO_OAUTH_CLIENT_SECRET_PROD;
   if (!clientId || !clientSecret) {
@@ -45,8 +49,10 @@ export async function GET({ url, cookies }) {
 
   const connectionId = venueId ?? 'sandbox';
 
-  const tokenBase = dev ? 'https://go.sandbox.zeptopayments.com' : 'https://go.zeptopayments.com';
-  const redirectUri = `${url.origin}/api/zepto/callback`;
+  const tokenBase = useSandbox ? 'https://go.sandbox.zeptopayments.com' : 'https://go.zeptopayments.com';
+  const redirectUri = forceSandbox
+    ? `${url.origin}/api/zepto/callback?sandbox=1`
+    : `${url.origin}/api/zepto/callback`;
   const payload = new URLSearchParams();
   payload.set('grant_type', 'authorization_code');
   payload.set('client_id', clientId);
