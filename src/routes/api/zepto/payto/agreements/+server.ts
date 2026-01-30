@@ -14,6 +14,14 @@ async function getAccessToken(venueId: string): Promise<string | null> {
     .eq('venue_id', venueId)
     .maybeSingle();
   if (!error && data?.access_token) return data.access_token;
+
+  const { data: connection, error: connectionError } = await supabaseAdmin
+    .from('zepto_connections')
+    .select('access_token')
+    .eq('connection_id', 'sandbox')
+    .maybeSingle();
+  if (!connectionError && connection?.access_token) return connection.access_token;
+
   return dev ? env.PRIVATE_ZEPTO_ACCESS_TOKEN_SANDBOX ?? null : env.PRIVATE_ZEPTO_ACCESS_TOKEN_PROD ?? null;
 }
 

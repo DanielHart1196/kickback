@@ -29,27 +29,21 @@ export async function GET({ url, cookies }) {
 
   const stateCookie = cookies.get('zepto_oauth_state');
   const venueIdCookie = cookies.get('zepto_oauth_venue');
-  const venueId = url.searchParams.get('venue_id') ?? venueIdCookie;
+  const fallbackVenueId = env.PRIVATE_ZEPTO_DEFAULT_VENUE_ID ?? null;
+  const venueId = url.searchParams.get('venue_id') ?? venueIdCookie ?? fallbackVenueId ?? null;
 
-  const isLocalhost =
-    url.origin.startsWith('http://localhost') || url.origin.startsWith('http://127.0.0.1');
-  if (!state) {
-    return new Response('Missing state', { status: 400 });
-  }
-  if (!stateCookie) {
-    if (!isLocalhost) {
-      return new Response('Missing state cookie', { status: 400 });
-    }
-  } else if (state !== stateCookie) {
+  if (stateCookie && state && state !== stateCookie) {
     return new Response('Invalid state', { status: 400 });
   }
 
-  cookies.delete('zepto_oauth_state', { path: '/' });
-  cookies.delete('zepto_oauth_venue', { path: '/' });
-
-  if (!venueId) {
-    return new Response('Missing venue', { status: 400 });
+  if (stateCookie) {
+    cookies.delete('zepto_oauth_state', { path: '/' });
   }
+  if (venueIdCookie) {
+    cookies.delete('zepto_oauth_venue', { path: '/' });
+  }
+
+  const connectionId = venueId ?? 'sandbox';
 
   const tokenBase = dev ? 'https://go.sandbox.zeptopayments.com' : 'https://go.zeptopayments.com';
   const redirectUri = `${url.origin}/api/zepto/callback`;
@@ -79,6 +73,7 @@ export async function GET({ url, cookies }) {
     : null;
 
   const insertPayload = {
+    connection_id: connectionId,
     venue_id: venueId,
     access_token: tokenPayload?.access_token ?? null,
     refresh_token: tokenPayload?.refresh_token ?? null,
@@ -90,7 +85,7 @@ export async function GET({ url, cookies }) {
 
   const { error: storeError } = await supabaseAdmin
     .from('zepto_connections')
-    .upsert(insertPayload, { onConflict: 'venue_id' });
+    .upsert(insertPayload, { onConflict: 'connection_id' });
 
   if (storeError) {
     return new Response(storeError.message, { status: 500 });
@@ -98,8 +93,5 @@ export async function GET({ url, cookies }) {
 
   const redirectUrl = new URL('/admin', url.origin);
   redirectUrl.searchParams.set('zepto', 'connected');
-  if (venueId) {
-    redirectUrl.searchParams.set('venue_id', venueId);
-  }
   return new Response(null, { status: 302, headers: { Location: redirectUrl.toString() } });
 }
