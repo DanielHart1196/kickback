@@ -21,9 +21,6 @@
 
     <section class="mt-14 grid gap-10 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
       <div class="space-y-7">
-        <p class="text-xs font-semibold uppercase tracking-[0.3em] text-zinc-400">
-          Claims Portal for bar tabs
-        </p>
         <h1 class="text-4xl font-extrabold uppercase tracking-tight text-white sm:text-5xl lg:text-6xl">
           Turn every round into a kickback.
         </h1>
