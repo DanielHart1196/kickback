@@ -6,12 +6,6 @@
   import { KICKBACK_RATE } from '$lib/claims/constants';
   import { fade } from 'svelte/transition';
   import {
-    buildReferralCodeFromEmail,
-    generateReferralCode,
-    isReferralCodeValid,
-    normalizeReferralCode
-  } from '$lib/referrals/code';
-  import {
     buildDraftFromParams,
     draftToQuery,
     clearDraftFromStorage,
@@ -20,40 +14,10 @@
     saveDraftToStorage
   } from '$lib/claims/draft';
 
-  let email = '';
-  let password = '';
   let loading = false;
   let message = '';
-  let resendMessage = '';
-  let showResend = false;
   let pendingKickback: string | null = null;
-  let mode: 'signup' | 'signin' = 'signup';
   let venueRates: { id: string; name: string; short_code?: string | null; kickback_guest?: number | null }[] = [];
-  let showPassword = false;
-
-  async function isReferralCodeAvailable(code: string, userId?: string): Promise<boolean> {
-    const normalized = normalizeReferralCode(code);
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('id')
-      .or(`referral_code.ilike.${normalized},referral_code_original.ilike.${normalized}`);
-    if (error) throw error;
-    if (!data || data.length === 0) return true;
-    if (userId) return data.every((row) => row.id === userId);
-    return false;
-  }
-
-  async function generateUniqueReferralCode(userId: string, email: string): Promise<string> {
-    const preferred = buildReferralCodeFromEmail(email);
-    if (preferred && isReferralCodeValid(preferred)) {
-      if (await isReferralCodeAvailable(preferred, userId)) return preferred;
-    }
-    for (let i = 0; i < 20; i += 1) {
-      const code = generateReferralCode(4);
-      if (await isReferralCodeAvailable(code, userId)) return code;
-    }
-    return generateReferralCode(4);
-  }
 
   onMount(async () => {
     try {
@@ -85,16 +49,15 @@
         : null;
   });
 
-  async function handleAuth() {
+  async function handleOAuth(provider: 'google' | 'apple') {
     loading = true;
     message = '';
-    resendMessage = '';
-    showResend = false;
 
     const params = new URLSearchParams(window.location.search);
     const draft = buildDraftFromParams(params);
     const draftQuery = draftToQuery(draft);
-    const redirectUrl = draftQuery ? `https://kkbk.app/?${draftQuery}` : 'https://kkbk.app/';
+    const baseUrl = window.location.origin;
+    const redirectUrl = draftQuery ? `${baseUrl}/?${draftQuery}` : `${baseUrl}/`;
 
     if (draftQuery) {
       saveDraftToStorage(localStorage, draft);
@@ -103,105 +66,14 @@
     }
 
     try {
-      let user = null;
-      let session = null;
-
-      let isSignup = false;
-
-      if (mode === 'signin') {
-        const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({ email, password });
-        if (signInError) {
-          message = signInError.message;
-          return;
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider,
+        options: {
+          redirectTo: redirectUrl
         }
-        user = signInData?.user ?? null;
-        session = signInData?.session ?? null;
-      } else {
-        const { data: signUpData, error: signUpError } = await supabase.auth.signUp({ 
-          email, 
-          password,
-          options: {
-            // IMPORTANT: This tells Supabase where to send them after email confirmation
-            emailRedirectTo: redirectUrl
-          }
-        });
-
-        if (signUpError) {
-          const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-            email,
-            password
-          });
-          if (signInError) {
-            message = signUpError.message;
-            return;
-          }
-          user = signInData?.user ?? null;
-          session = signInData?.session ?? null;
-        } else {
-          user = signUpData?.user ?? null;
-          session = signUpData?.session ?? null;
-          isSignup = Boolean(user);
-          if (!session) {
-            const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-              email,
-              password
-            });
-            if (signInError) {
-              message = 'Check your email to confirm!';
-              showResend = true;
-              return;
-            }
-            user = signInData?.user ?? null;
-            session = signInData?.session ?? null;
-          }
-        }
-      }
-
-      // 4. Ensure session is persisted, then sync profile if user exists
-      if (session) {
-        await supabase.auth.setSession({
-          access_token: session.access_token,
-          refresh_token: session.refresh_token
-        });
-      }
-
-      if (user) {
-        const profilePayload: {
-          id: string;
-          updated_at: string;
-          last_4?: string;
-          referral_code?: string;
-          referral_code_original?: string;
-        } = {
-          id: user.id,
-          updated_at: new Date().toISOString()
-        };
-        if (draft.last4) profilePayload.last_4 = draft.last4;
-        if (isSignup) {
-          try {
-            const generatedCode = await generateUniqueReferralCode(user.id, email);
-            profilePayload.referral_code = generatedCode;
-            profilePayload.referral_code_original = generatedCode;
-          } catch (error) {
-            console.error('Failed to generate referral code:', error);
-          }
-        }
-        await supabase.from('profiles').upsert(profilePayload);
-      }
-
-      // 5. Final Redirect (only when session is established)
-      if (session) {
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('role')
-          .eq('id', user?.id ?? '')
-          .maybeSingle();
-        const role = profile?.role ?? 'member';
-        if (role === 'owner' || role === 'admin') {
-          window.location.href = '/admin';
-        } else {
-          window.location.href = draftQuery ? `/?${draftQuery}` : '/';
-        }
+      });
+      if (error) {
+        message = error.message;
       }
     } catch (error) {
       message = error instanceof Error ? error.message : 'Login failed';
@@ -209,121 +81,67 @@
       loading = false;
     }
   }
-
-  async function handleResend() {
-    resendMessage = '';
-    if (!email) {
-      resendMessage = 'Enter your email above to resend.';
-      return;
-    }
-
-    const { error } = await supabase.auth.resend({
-      type: 'signup',
-      email
-    });
-
-    resendMessage = error ? error.message : 'Confirmation email sent.';
-  }
 </script>
 
-<main class="min-h-screen bg-zinc-950 text-white flex flex-col items-center justify-center p-6">
+<main class="min-h-screen bg-zinc-950 text-white flex flex-col items-center p-6 pt-16">
   <div class="w-full max-w-sm space-y-8">
-    
     <div class="text-center">
-      <h1 class="text-3xl font-black italic uppercase tracking-tighter">
-        {#if mode === 'signin'}
-          Welcome Back
+      <div class="min-h-[44px] flex items-center justify-center">
+        <h1 class="text-3xl font-black italic uppercase tracking-tighter leading-none">
+          Welcome to <span class="text-white">Kick</span><span class="text-orange-500">back</span>
+        </h1>
+      </div>
+      <div class="mt-2 min-h-[20px]">
+        {#if pendingKickback}
+          <p class="text-orange-500 font-bold">Sign in to claim your ${pendingKickback} kickback</p>
         {:else}
-          Join <span class="text-white">Kick</span><span class="text-orange-500">back</span>
+          <p class="text-zinc-500">Use Google or Apple to continue.</p>
         {/if}
-      </h1>
-      {#if pendingKickback}
-        <p class="text-orange-500 font-bold mt-2">Sign up to claim your ${pendingKickback} kickback</p>
-      {:else}
-        <p class="text-zinc-500 mt-2">Start earning 5% on every round.</p>
-      {/if}
+      </div>
     </div>
 
-    <form class="bg-zinc-900 border border-zinc-800 p-6 rounded-3xl space-y-4" on:submit|preventDefault={handleAuth}>
-      <input 
-        type="email" 
-        bind:value={email} 
-        placeholder="Email" 
-        class="w-full bg-zinc-800 border-none p-4 rounded-2xl outline-none focus:ring-2 focus:ring-white"
-      />
-      <div class="relative">
-        <input 
-          type={showPassword ? 'text' : 'password'} 
-          bind:value={password} 
-          placeholder="Create Password" 
-          class="w-full bg-zinc-800 border-none p-4 pr-16 rounded-2xl outline-none focus:ring-2 focus:ring-white"
-        />
-        <button
-          type="button"
-          on:click={() => (showPassword = !showPassword)}
-          aria-label={showPassword ? 'Hide password' : 'Show password'}
-          class="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-white transition-colors"
-        >
-          {#if showPassword}
-            <svg viewBox="0 0 24 24" aria-hidden="true" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M2 12s4-6 10-6 10 6 10 6-4 6-10 6-10-6-10-6z" />
-              <circle cx="12" cy="12" r="3" />
-            </svg>
-          {:else}
-            <svg viewBox="0 0 24 24" aria-hidden="true" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M3 3l18 18" />
-              <path d="M10.6 10.6a2 2 0 0 0 2.8 2.8" />
-              <path d="M6.8 6.8C4.2 8.4 2 12 2 12s4 6 10 6c2.1 0 3.9-.6 5.4-1.6" />
-              <path d="M9.9 4.2C10.6 4.1 11.3 4 12 4c6 0 10 6 10 6s-.9 1.4-2.4 2.9" />
-            </svg>
-          {/if}
-        </button>
-      </div>
-      
-      <button 
-        type="submit"
-        disabled={loading || !email || !password}
+    <div class="bg-zinc-900 border border-zinc-800 p-6 rounded-3xl space-y-4 flex flex-col items-center">
+      <button
+        type="button"
+        on:click={() => handleOAuth('google')}
+        disabled={loading}
+        class="w-fit rounded-full border border-[#747775] bg-white text-[#1F1F1F] text-[14px] leading-[20px] font-medium h-10 px-3 inline-flex items-center justify-start gap-[10px] active:scale-95 transition-all disabled:opacity-50"
+        style="font-family: 'Roboto', sans-serif;"
+      >
+        <svg aria-hidden="true" viewBox="0 0 48 48" class="h-5 w-5">
+          <path fill="#EA4335" d="M24 9.5c3.6 0 6.6 1.4 9 3.8l6.7-6.7C35.8 2.7 30.3.5 24 .5 14.7.5 6.6 5.8 2.7 13.5l7.8 6.1C12.4 13 17.8 9.5 24 9.5z"/>
+          <path fill="#4285F4" d="M46.5 24.5c0-1.7-.2-3.3-.5-4.9H24v9.3h12.6c-.6 3.1-2.3 5.7-4.9 7.5l7.5 5.8c4.4-4 6.8-10 6.8-17.7z"/>
+          <path fill="#FBBC05" d="M10.5 28.6c-1-3.1-1-6.5 0-9.6l-7.8-6.1C-.3 18.3-.3 29.7 2.7 35.9l7.8-6.1z"/>
+          <path fill="#34A853" d="M24 47.5c6.3 0 11.8-2.1 15.7-5.8l-7.5-5.8c-2.1 1.4-4.8 2.3-8.2 2.3-6.2 0-11.6-3.5-13.5-8.5l-7.8 6.1C6.6 42.2 14.7 47.5 24 47.5z"/>
+        </svg>
+        {loading ? 'Connecting...' : 'Continue with Google'}
+      </button>
+      <button
+        type="button"
+        on:click={() => handleOAuth('apple')}
+        disabled={loading}
         class="w-full bg-white text-black font-black py-4 rounded-2xl uppercase tracking-tight active:scale-95 transition-all disabled:opacity-50"
       >
-        {loading ? 'Processing...' : mode === 'signin' ? 'Sign In' : 'Continue'}
+        {loading ? 'Connecting...' : 'Continue with Apple'}
       </button>
 
       {#if message}
         <p transition:fade class="text-center text-xs font-bold text-zinc-400 uppercase">{message}</p>
       {/if}
-      {#if showResend}
-        <button
-          type="button"
-          on:click={handleResend}
-          class="w-full text-zinc-500 text-[10px] font-bold uppercase tracking-[0.3em] hover:text-white transition-colors"
-        >
-          Resend confirmation email
-        </button>
-        {#if resendMessage}
-          <p transition:fade class="text-center text-[10px] font-bold text-zinc-500 uppercase">{resendMessage}</p>
-        {/if}
-      {/if}
-    </form>
+    </div>
 
-    {#if mode === 'signup'}
-      <p class="text-center text-[10px] text-zinc-500 leading-snug">
-        By creating an account, you are agreeing to our
-        <a href="/terms" class="text-zinc-300 hover:text-white transition-colors">terms of service</a>
-        and
-        <a href="/privacy" class="text-zinc-300 hover:text-white transition-colors">privacy policy</a>.
-      </p>
-      <button type="button" on:click={() => { mode = 'signin'; message = ''; }} class="w-full text-zinc-600 text-xs font-bold uppercase tracking-widest">
-        Already have an account? Sign in
-      </button>
-    {:else}
-      <button type="button" on:click={() => { mode = 'signup'; message = ''; }} class="w-full text-zinc-600 text-xs font-bold uppercase tracking-widest">
-        New here? Join <span class="text-white">Kick</span><span class="text-orange-500">back</span>
-      </button>
-    {/if}
-    
     <button on:click={() => window.history.back()} class="w-full text-zinc-600 text-xs font-bold uppercase tracking-widest">
       Go Back
     </button>
   </div>
 </main>
 
+<style>
+  @font-face {
+    font-family: 'Roboto';
+    src: url('/fonts/roboto/Roboto-Medium.ttf') format('truetype');
+    font-weight: 500;
+    font-style: normal;
+    font-display: swap;
+  }
+</style>

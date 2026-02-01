@@ -32,12 +32,13 @@
   let billingCity = 'Eltham';
   let billingAddress = '';
   let paymentMethods: string[] = [];
-  const showHelloClever = false;
+  let selectedPaymentMethod = '';
+  const showHelloClever = true;
   const paymentMethodOptions = [
     { id: 'payto', label: 'PayTo (Auto Debit)' },
-    { id: 'card', label: 'Credit/Debit Card' },
-    { id: 'gateway', label: 'Invoice + Manual Payment' }
+    { id: 'gateway', label: 'Online Payment' }
   ];
+  $: paymentMethods = selectedPaymentMethod ? [selectedPaymentMethod] : [];
   let savingVenue = false;
   let savingError = '';
   let logoUploading = false;
@@ -115,6 +116,66 @@
   let payToLoading = false;
   let payToError = '';
   let payToSuccess = '';
+  let adminUserId = '';
+  let zeptoDebtorName = 'Test Debtor';
+  let zeptoDebtorIdValue = '123456-12345678';
+  const zeptoCreditorName = 'Kickback';
+  const zeptoCreditorIdType = 'bban';
+  const zeptoCreditorIdValue = '067873-21919407';
+  let zeptoDescription = 'Kickback PayTo agreement';
+  const zeptoPaymentType = 'variable';
+  const zeptoPaymentFrequency = 'weekly';
+  let zeptoPaymentAmount = '';
+  let zeptoPaymentMaxAmount = '200';
+  let zeptoSandboxSimulate = 'debtor_accept';
+  let zeptoSandboxDelay = '5';
+  let zeptoAliasStatus: 'idle' | 'checking' | 'valid' | 'invalid' = 'idle';
+  let zeptoAliasMessage = '';
+  let zeptoAliasValidatedValue = '';
+  let zeptoAgreementSaving = false;
+  let zeptoAgreementError = '';
+  let zeptoAgreementSuccess = '';
+  type ZeptoAgreementSummary = {
+    uid: string;
+    state: string | null;
+    last_event_type: string | null;
+    updated_at: string | null;
+    created_at?: string | null;
+  };
+  type ZeptoAgreementDetails = {
+    uid?: string | null;
+    state?: string | null;
+    description?: string | null;
+    created_at?: string | null;
+    payment_terms?: {
+      frequency?: string | null;
+      max_amount?: number | null;
+    } | null;
+  };
+  let zeptoAgreements: ZeptoAgreementSummary[] = [];
+  let zeptoAgreementsLoading = false;
+  let zeptoAgreementsError = '';
+  let zeptoSelectedAgreementUid = '';
+  let zeptoHasAgreement = false;
+  let selectedZeptoAgreement: ZeptoAgreementSummary | null = null;
+  let zeptoAgreementOverride: { uid: string; state: string } | null = null;
+  let zeptoSelectedMaxAmount = '';
+  let zeptoAgreementDetails: ZeptoAgreementDetails | null = null;
+  let zeptoAgreementDetailsLoading = false;
+  let zeptoAgreementDetailsError = '';
+
+  function isAgreementActive(state: string | null | undefined): boolean {
+    if (!state) return true;
+    return state !== 'cancelled' && state !== 'canceled';
+  }
+  let zeptoActionReason = 'customer_requested';
+  let zeptoActionNarrative = '';
+  const zeptoActionNarrativeLimit = 140;
+  let zeptoAmendDescription = '';
+  let zeptoAmendMaxAmount = '';
+  let zeptoActionLoading = false;
+  let zeptoActionError = '';
+  let zeptoActionSuccess = '';
   type PaymentRequest = {
     id: string;
     amount: number;
@@ -630,10 +691,11 @@
   }
 
   async function fetchVenue() {
-    const { data: sessionData } = await supabase.auth.getSession();
-    const user = sessionData.session?.user;
-    userEmail = user?.email ?? '';
-    if (!user) return;
+      const { data: sessionData } = await supabase.auth.getSession();
+      const user = sessionData.session?.user;
+      userEmail = user?.email ?? '';
+      adminUserId = user?.id ?? '';
+      if (!user) return;
 
     const { data: directVenues, error: directError } = await supabase
       .from('venues')
@@ -677,21 +739,22 @@
     }
 
     venue = venueRecord;
-    venueName = venue?.name ?? '';
-    guestRate = venue?.kickback_guest != null ? String(venue.kickback_guest) : '5';
+      venueName = venue?.name ?? '';
+      guestRate = venue?.kickback_guest != null ? String(venue.kickback_guest) : '5';
     referrerRate = venue?.kickback_referrer != null ? String(venue.kickback_referrer) : '5';
     paymentMethods = Array.isArray(venue?.payment_methods) ? venue.payment_methods : [];
+    selectedPaymentMethod = paymentMethods[0] ?? '';
     billingEmail = venue?.billing_email ?? userEmail ?? '';
     billingFirstName = venue?.billing_contact_first_name ?? '';
     billingLastName = venue?.billing_contact_last_name ?? '';
     billingPhone = venue?.billing_phone ?? '';
     billingCompany = venue?.billing_company ?? '';
     billingCountryCode = venue?.billing_country_code ?? 'AU';
-    billingState = venue?.billing_state ?? 'VIC';
-    billingPostalCode = venue?.billing_postal_code ?? '3095';
-    billingCity = venue?.billing_city ?? 'Eltham';
-    billingAddress = venue?.billing_address ?? '';
-  }
+      billingState = venue?.billing_state ?? 'VIC';
+      billingPostalCode = venue?.billing_postal_code ?? '3095';
+      billingCity = venue?.billing_city ?? 'Eltham';
+      billingAddress = venue?.billing_address ?? '';
+    }
 
   async function createVenue() {
     savingVenue = true;
@@ -839,6 +902,355 @@
 
   function triggerLogoUpload() {
     if (logoInput) logoInput.click();
+  }
+
+  function isAliasIdentifier(type: string): boolean {
+    return ['alias_phone', 'alias_email', 'alias_abn', 'alias_organisation_identifier'].includes(type);
+  }
+
+  function detectDebtorIdentifierType(value: string): string | null {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    if (trimmed.includes('-')) return 'bban';
+    if (trimmed.includes('@')) return 'alias_email';
+    const digits = trimmed.replace(/\D/g, '');
+    if (digits.length === 11) return 'alias_abn';
+    if (digits.length >= 8) return 'alias_phone';
+    return null;
+  }
+
+  function normalizeAmount(value: string): number | null {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  async function fetchZeptoAgreements() {
+    if (!venue?.id) return;
+    zeptoAgreementsLoading = true;
+    zeptoAgreementsError = '';
+    try {
+      const response = await fetch(
+        `/api/zepto/payto/agreements?venue_id=${encodeURIComponent(venue.id)}`
+      );
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.error ?? 'Failed to load agreements.');
+      }
+      zeptoAgreements = payload?.agreements ?? [];
+      zeptoHasAgreement = zeptoAgreements.length > 0;
+      if (zeptoHasAgreement) {
+        zeptoSelectedAgreementUid = zeptoAgreements[0]?.uid ?? '';
+      }
+      if (zeptoSelectedAgreementUid) {
+        await fetchZeptoAgreementDetails(zeptoSelectedAgreementUid);
+      }
+      if (zeptoAgreementOverride) {
+        const matched = zeptoAgreements.find(
+          (agreement) =>
+            agreement.uid === zeptoAgreementOverride?.uid &&
+            agreement.state === zeptoAgreementOverride?.state
+        );
+        if (matched) {
+          zeptoAgreementOverride = null;
+        }
+      }
+    } catch (error) {
+      console.error('Error loading Zepto agreements:', error);
+      zeptoAgreementsError = 'Failed to load agreements.';
+    } finally {
+      zeptoAgreementsLoading = false;
+    }
+  }
+
+  async function fetchZeptoAgreementDetails(uid: string) {
+    if (!venue?.id || !uid) return;
+    zeptoAgreementDetailsLoading = true;
+    zeptoAgreementDetailsError = '';
+    try {
+      const response = await fetch(
+        `/api/zepto/payto/agreements/${encodeURIComponent(uid)}?venue_id=${encodeURIComponent(venue.id)}`
+      );
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.error ?? 'Failed to load agreement details.');
+      }
+      zeptoAgreementDetails = payload?.agreement ?? null;
+      zeptoHasAgreement = isAgreementActive(zeptoAgreementDetails?.state ?? null);
+    } catch (error) {
+      console.error('Error loading Zepto agreement details:', error);
+      zeptoAgreementDetailsError = 'Failed to load agreement details.';
+      zeptoAgreementDetails = null;
+    } finally {
+      zeptoAgreementDetailsLoading = false;
+    }
+  }
+
+  async function runZeptoAgreementAction(
+    action: 'cancel' | 'suspend' | 'reactivate' | 'amend' | 'recall'
+  ) {
+    if (!zeptoSelectedAgreementUid) {
+      zeptoActionError = 'Select an agreement first.';
+      return;
+    }
+    zeptoActionError = '';
+    zeptoActionSuccess = '';
+
+    let payload: Record<string, unknown> = { venue_id: venue?.id ?? null };
+    if (action === 'cancel' || action === 'suspend') {
+        payload = {
+          ...payload,
+          reason: zeptoActionReason,
+          narrative: zeptoActionNarrative.trim().slice(0, zeptoActionNarrativeLimit) || undefined
+        };
+    }
+      if (action === 'amend') {
+        const changes: Record<string, unknown> = {};
+        const maxAmount = normalizeAmount(zeptoAmendMaxAmount);
+        if (maxAmount != null && maxAmount > 0) {
+          changes.payment_terms = { max_amount: Math.round(maxAmount * 100) };
+        }
+      if (Object.keys(changes).length === 0) {
+        zeptoActionError = 'Add a description or max amount to amend.';
+        return;
+      }
+      payload = { ...payload, changes };
+    }
+
+    zeptoActionLoading = true;
+    try {
+      const response = await fetch(`/api/zepto/payto/agreements/${zeptoSelectedAgreementUid}/${action}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const result = await response.json().catch(() => null);
+      if (!response.ok) {
+        const errorPayload = result?.error ?? result;
+        zeptoActionError =
+          typeof errorPayload === 'string'
+            ? errorPayload
+            : errorPayload?.title ?? JSON.stringify(errorPayload ?? 'Action failed.');
+        return;
+      }
+      if (action === 'suspend' || action === 'reactivate') {
+        const nextState = action === 'suspend' ? 'suspended' : 'active';
+        zeptoAgreements = zeptoAgreements.map((agreement) =>
+          agreement.uid === zeptoSelectedAgreementUid
+            ? { ...agreement, state: nextState, updated_at: new Date().toISOString() }
+            : agreement
+        );
+        zeptoAgreementOverride = zeptoSelectedAgreementUid
+          ? { uid: zeptoSelectedAgreementUid, state: nextState }
+          : null;
+      }
+      if (action === 'cancel') {
+        zeptoAgreements = zeptoAgreements.map((agreement) =>
+          agreement.uid === zeptoSelectedAgreementUid
+            ? { ...agreement, state: 'cancelled', updated_at: new Date().toISOString() }
+            : agreement
+        );
+        zeptoAgreementOverride = zeptoSelectedAgreementUid
+          ? { uid: zeptoSelectedAgreementUid, state: 'cancelled' }
+          : null;
+        zeptoHasAgreement = false;
+      }
+      zeptoActionSuccess = `Action ${action} submitted.`;
+      await fetchZeptoAgreements();
+      if (zeptoSelectedAgreementUid) {
+        await fetchZeptoAgreementDetails(zeptoSelectedAgreementUid);
+      }
+    } catch (error) {
+      console.error('Zepto action failed:', error);
+      zeptoActionError = 'Action failed.';
+    } finally {
+      zeptoActionLoading = false;
+    }
+  }
+
+  function buildZeptoUid(): string {
+    const suffix =
+      typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? crypto.randomUUID().slice(0, 8)
+        : Math.random().toString(36).slice(2, 10);
+    return `kickback_${Date.now()}_${suffix}`;
+  }
+
+  async function validateZeptoAlias() {
+    zeptoAliasStatus = 'checking';
+    zeptoAliasMessage = '';
+    try {
+      const response = await fetch('/api/zepto/alias-resolution', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: detectedDebtorType,
+          value: zeptoDebtorIdValue.trim(),
+          requester: {
+            id: adminUserId || venue?.id || 'admin'
+          }
+        })
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        zeptoAliasStatus = 'invalid';
+        const errorPayload = payload?.error ?? payload;
+        zeptoAliasMessage =
+          typeof errorPayload === 'string'
+            ? errorPayload
+            : errorPayload?.title ?? JSON.stringify(errorPayload ?? 'Alias validation failed.');
+        return;
+      }
+      zeptoAliasStatus = 'valid';
+      zeptoAliasMessage = 'PayID validated.';
+      zeptoAliasValidatedValue = zeptoDebtorIdValue.trim();
+    } catch (error) {
+      console.error('Zepto alias validation failed:', error);
+      zeptoAliasStatus = 'invalid';
+      zeptoAliasMessage = 'Alias validation failed.';
+    }
+  }
+
+  async function handleCreateZeptoAgreement() {
+    zeptoAgreementError = '';
+    zeptoAgreementSuccess = '';
+    if (!venue?.id) {
+      zeptoAgreementError = 'Select a venue before creating an agreement.';
+      return;
+    }
+
+    const debtorValue = zeptoDebtorIdValue.trim();
+    const creditorValue = zeptoCreditorIdValue.trim();
+    const missing = [];
+    if (!zeptoDebtorName.trim()) missing.push('Debtor name');
+    if (!debtorValue) missing.push('Debtor account identifier');
+    if (!detectedDebtorType) missing.push('Debtor identifier type');
+    if (!zeptoCreditorName.trim()) missing.push('Creditor name');
+    if (!creditorValue) missing.push('Creditor account identifier');
+    if (!zeptoDescription.trim()) missing.push('Description');
+    if (missing.length > 0) {
+      zeptoAgreementError = `Missing: ${missing.join(', ')}`;
+      return;
+    }
+
+    if (detectedDebtorType && isAliasIdentifier(detectedDebtorType)) {
+      if (zeptoAliasStatus !== 'valid' || zeptoAliasValidatedValue !== debtorValue) {
+        zeptoAgreementError = 'Validate the PayID before creating the agreement.';
+        return;
+      }
+    }
+
+    const paymentTerms: Record<string, unknown> = {
+      type: zeptoPaymentType,
+      frequency: zeptoPaymentFrequency
+    };
+    const amount = normalizeAmount(zeptoPaymentAmount);
+    const maxAmount = normalizeAmount(zeptoPaymentMaxAmount);
+
+    if (zeptoPaymentType === 'fixed' || zeptoPaymentType === 'balloon') {
+      if (amount == null || amount <= 0) {
+        zeptoAgreementError = 'Enter a fixed amount for fixed payment terms.';
+        return;
+      }
+      paymentTerms.amount = Math.round(amount * 100);
+    } else {
+      if (maxAmount == null || maxAmount <= 0) {
+        zeptoAgreementError = 'Enter a max amount for variable payment terms.';
+        return;
+      }
+      paymentTerms.max_amount = Math.round(maxAmount * 100);
+    }
+
+
+    const payload: Record<string, unknown> = {
+      venue_id: venue.id,
+      uid: buildZeptoUid(),
+      purpose: 'retail',
+      description: zeptoDescription.trim(),
+      debtor: {
+        party_name: zeptoDebtorName.trim(),
+        account_identifier: {
+          type: detectedDebtorType,
+          value: debtorValue
+        }
+      },
+      creditor: {
+        party_name: zeptoCreditorName,
+        ultimate_party_name: zeptoCreditorName,
+        account_identifier: {
+          type: zeptoCreditorIdType,
+          value: creditorValue
+        }
+      },
+      payment_terms: paymentTerms,
+      sandbox: {
+        simulate: zeptoSandboxSimulate,
+        delay: Math.max(0, Number(zeptoSandboxDelay) || 0)
+      }
+    };
+
+    zeptoAgreementSaving = true;
+    try {
+      const response = await fetch('/api/zepto/payto/agreements', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const result = await response.json().catch(() => null);
+      if (!response.ok) {
+        const errorPayload = result?.error ?? result;
+        zeptoAgreementError =
+          typeof errorPayload === 'string'
+            ? errorPayload
+            : errorPayload?.title ?? JSON.stringify(errorPayload ?? 'Failed to create agreement.');
+        return;
+      }
+      zeptoAgreementSuccess = `Agreement created (${result?.agreement?.uid ?? payload.uid}).`;
+      zeptoSelectedAgreementUid = result?.agreement?.uid ?? payload.uid;
+      zeptoHasAgreement = true;
+      await fetchZeptoAgreements();
+    } catch (error) {
+      console.error('Zepto agreement create failed:', error);
+      zeptoAgreementError = 'Failed to create agreement.';
+    } finally {
+      zeptoAgreementSaving = false;
+    }
+  }
+
+  $: detectedDebtorType = detectDebtorIdentifierType(zeptoDebtorIdValue);
+  $: selectedZeptoAgreement =
+    zeptoAgreements.find((agreement) => agreement.uid === zeptoSelectedAgreementUid) ?? null;
+  $: selectedZeptoAgreementState =
+    selectedZeptoAgreement && zeptoAgreementOverride?.uid === selectedZeptoAgreement.uid
+      ? zeptoAgreementOverride.state
+      : zeptoAgreementDetails?.state ?? selectedZeptoAgreement?.state ?? null;
+  function formatAmount(amount: number): string {
+    const fixed = amount.toFixed(2);
+    return fixed.endsWith('.00') ? fixed.slice(0, -3) : fixed;
+  }
+
+  $: {
+    if (zeptoAgreementDetails?.payment_terms) {
+      const maxAmountCents =
+        typeof zeptoAgreementDetails.payment_terms.max_amount === 'number'
+          ? zeptoAgreementDetails.payment_terms.max_amount
+          : null;
+      zeptoSelectedMaxAmount = maxAmountCents != null ? formatAmount(maxAmountCents / 100) : '';
+    } else {
+      zeptoSelectedMaxAmount = '';
+    }
+    if (!zeptoAmendMaxAmount && zeptoSelectedMaxAmount) {
+      zeptoAmendMaxAmount = zeptoSelectedMaxAmount;
+    }
+  }
+  $: if (!detectedDebtorType || !isAliasIdentifier(detectedDebtorType)) {
+    zeptoAliasStatus = 'idle';
+    zeptoAliasMessage = '';
+    zeptoAliasValidatedValue = '';
+  }
+
+  $: if (zeptoAliasValidatedValue && zeptoDebtorIdValue.trim() !== zeptoAliasValidatedValue) {
+    zeptoAliasStatus = 'idle';
+    zeptoAliasMessage = '';
   }
 
   function getClaimStatus(claim: Claim): ClaimStatus {
@@ -1042,8 +1454,28 @@
   async function handleSignOut() {
     signingOut = true;
     try {
-      await supabase.auth.signOut();
+      try {
+        await supabase.auth.signOut({ scope: 'local' });
+      } catch {
+        await supabase.auth.signOut();
+      }
     } finally {
+      if (typeof window !== 'undefined') {
+        const clearStorage = (storage: Storage) => {
+          const keys = [];
+          for (let i = 0; i < storage.length; i += 1) {
+            const key = storage.key(i);
+            if (key && key.startsWith('sb-')) keys.push(key);
+          }
+          for (const key of keys) storage.removeItem(key);
+        };
+        try {
+          clearStorage(window.localStorage);
+          clearStorage(window.sessionStorage);
+        } catch (error) {
+          console.error('Error clearing auth storage:', error);
+        }
+      }
       window.location.href = '/admin/login';
     }
   }
@@ -1625,9 +2057,9 @@
           {#each paymentMethodOptions as option}
             <label class="flex items-center gap-3 text-xs font-bold uppercase tracking-widest text-zinc-300">
               <input
-                type="checkbox"
+                type="radio"
                 value={option.id}
-                bind:group={paymentMethods}
+                bind:group={selectedPaymentMethod}
                 class="h-3.5 w-3.5 accent-blue-500"
               />
               <span>{option.label}</span>
@@ -1635,271 +2067,271 @@
           {/each}
         </div>
       </div>
-    </section>
 
-    {#if showHelloClever && paymentMethods.includes('payto')}
-    <section class="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-6 md:p-8">
-      <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div>
-          <p class="text-xs font-black uppercase tracking-widest text-zinc-500">PayTo Agreement</p>
-          <p class="text-sm font-bold text-white mt-2">
-            Weekly payments start {getNextWednesdayLabel()} at noon.
-          </p>
-        </div>
-        {#if payToAgreement}
-          <span class="text-[10px] font-black uppercase tracking-widest text-zinc-400">
-            Status: {payToAgreement.status ?? 'unknown'}
-          </span>
-        {/if}
-      </div>
-
-      <div class="mt-6 grid gap-4 md:grid-cols-2">
-        <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
-          Payer Name
-          <input
-            type="text"
-            bind:value={payToPayerName}
-            placeholder="Venue owner name"
-            class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-base font-bold text-white"
-          />
-        </label>
-        <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
-          PayID (Email, Phone, or ABN)
-          <input
-            type="text"
-            bind:value={payToPayId}
-            placeholder="owner@example.com"
-            class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-base font-bold text-white"
-          />
-        </label>
-        <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
-          Weekly Limit (AUD)
-          <input
-            type="number"
-            min="0"
-            step="0.01"
-            bind:value={payToLimitAmount}
-            placeholder="500"
-            class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-base font-bold text-white"
-          />
-        </label>
-        <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
-          Description
-          <input
-            type="text"
-            bind:value={payToDescription}
-            placeholder="Weekly Kickback settlement"
-            class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-base font-bold text-white"
-          />
-        </label>
-      </div>
-
-      <div class="mt-5 flex flex-wrap items-center gap-3">
-        <button
-          type="button"
-          on:click={handleCreatePayToAgreement}
-          disabled={!venue || payToSaving || payToLoading}
-          class="bg-white text-black font-black px-6 py-3 rounded-xl uppercase tracking-tight disabled:opacity-50"
-        >
-          {payToSaving ? 'Creating...' : 'Create PayTo Agreement'}
-        </button>
-        {#if payToLoading}
-          <span class="text-xs font-bold uppercase tracking-widest text-zinc-500">Loading...</span>
-        {/if}
-        {#if payToError}
-          <span class="text-xs font-bold uppercase tracking-widest text-red-400">{payToError}</span>
-        {/if}
-        {#if payToSuccess}
-          <span class="text-xs font-bold uppercase tracking-widest text-green-400">{payToSuccess}</span>
-        {/if}
-      </div>
-
-      {#if payToAgreement}
-        <div class="mt-5 bg-zinc-950 border border-zinc-800 rounded-xl p-4 text-xs font-bold uppercase tracking-widest text-zinc-400 space-y-2">
-          <div>Agreement ID: <span class="text-zinc-200">{payToAgreement.payment_agreement_id ?? 'Pending'}</span></div>
-          <div>Transaction ID: <span class="text-zinc-200">{payToAgreement.client_transaction_id ?? 'Pending'}</span></div>
-          <div>Limit: <span class="text-zinc-200">${Number(payToAgreement.limit_amount ?? 0).toFixed(2)}</span></div>
-        </div>
-      {/if}
-    </section>
-    {/if}
-
-    {#if showHelloClever && paymentMethods.includes('gateway')}
-    <section class="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-6 md:p-8">
-      <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div>
-          <p class="text-xs font-black uppercase tracking-widest text-zinc-500">Invoice + Manual Payment</p>
-          <p class="text-sm font-bold text-white mt-2">
-            Creates last week&#39;s invoice (approved claims + platform fee).
-          </p>
-        </div>
-        {#if latestPaymentRequest}
-          <span class="text-[10px] font-black uppercase tracking-widest text-zinc-400">
-            Status: {latestPaymentRequest.status ?? 'unknown'}
-          </span>
-        {/if}
-      </div>
-
-      <div class="mt-6 space-y-4">
-        <div class="border border-zinc-800 rounded-xl p-4 bg-zinc-950">
-          <p class="text-[10px] font-black uppercase tracking-widest text-zinc-500">
-            Gateway Billing Details
-          </p>
-          <div class="mt-3 grid gap-3 md:grid-cols-2">
-            <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
-              First Name
-              <input
-                type="text"
-                bind:value={billingFirstName}
-                placeholder="Clever"
-                class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-white"
-              />
-            </label>
-            <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
-              Last Name
-              <input
-                type="text"
-                bind:value={billingLastName}
-                placeholder="Hello"
-                class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-white"
-              />
-            </label>
-            <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
-              Phone
-              <input
-                type="tel"
-                bind:value={billingPhone}
-                placeholder="+61412345678"
-                class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-white"
-              />
-            </label>
-            <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
-              Company
-              <input
-                type="text"
-                bind:value={billingCompany}
-                placeholder="Venue Pty Ltd"
-                class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-white"
-              />
-            </label>
-            <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
-              Country Code
-              <input
-                type="text"
-                bind:value={billingCountryCode}
-                placeholder="AU"
-                class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-white"
-              />
-            </label>
-            <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
-              State
-              <input
-                type="text"
-                bind:value={billingState}
-                placeholder="VIC"
-                class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-white"
-              />
-            </label>
-            <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
-              Postal Code
-              <input
-                type="text"
-                bind:value={billingPostalCode}
-                placeholder="3095"
-                class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-white"
-              />
-            </label>
-            <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
-              City
-              <input
-                type="text"
-                bind:value={billingCity}
-                placeholder="Eltham"
-                class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-white"
-              />
-            </label>
-          </div>
-          <label class="mt-3 flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
-            Address
-            <input
-              type="text"
-              bind:value={billingAddress}
-              placeholder="388 George Street"
-              class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-white"
-            />
-          </label>
-        </div>
-
-        <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500 md:col-span-2">
-          Description
-          <input
-            type="text"
-            bind:value={gatewayDescription}
-            placeholder="Weekly Kickback invoice"
-            class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-base font-bold text-white"
-          />
-        </label>
-      </div>
-
-      <div class="mt-5 flex flex-wrap items-center gap-3">
-        <button
-          type="button"
-          on:click={handleCreatePaymentLink}
-          disabled={!venue || gatewayCreating || gatewayLoading || !billingDetailsReady}
-          class="bg-white text-black font-black px-6 py-3 rounded-xl uppercase tracking-tight disabled:opacity-50"
-        >
-          {gatewayCreating ? 'Creating...' : 'Create Payment Link'}
-        </button>
-        {#if !billingDetailsReady}
-          <span class="text-xs font-bold uppercase tracking-widest text-zinc-500">
-            Add billing details to enable payment links.
-          </span>
-        {/if}
-        {#if gatewayLoading}
-          <span class="text-xs font-bold uppercase tracking-widest text-zinc-500">Loading...</span>
-        {/if}
-        {#if gatewayError}
-          <span class="text-xs font-bold uppercase tracking-widest text-red-400">{gatewayError}</span>
-        {/if}
-        {#if gatewaySuccess}
-          <span class="text-xs font-bold uppercase tracking-widest text-green-400">{gatewaySuccess}</span>
-        {/if}
-      </div>
-
-      {#if latestPaymentRequest}
-        <div class="mt-5 bg-zinc-950 border border-zinc-800 rounded-xl p-4 text-xs font-bold uppercase tracking-widest text-zinc-400 space-y-2">
-          <div>
-            Week:
-            <span class="text-zinc-200">
-              {formatIsoDate(latestPaymentRequest.week_start) || 'n/a'}
-            </span>
-            {#if latestPaymentRequest.week_end}
-              <span class="text-zinc-500">
-                {' '}
-                - {formatIsoDateMinusOneDay(latestPaymentRequest.week_end)}
+      {#if showHelloClever && selectedPaymentMethod === 'payto'}
+        <div class="mt-8 border-t border-zinc-800 pt-6">
+          <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div>
+              <p class="text-xs font-black uppercase tracking-widest text-zinc-500">PayTo Agreement</p>
+              <p class="text-sm font-bold text-white mt-2">
+                Weekly payments start {getNextWednesdayLabel()} at noon.
+              </p>
+            </div>
+            {#if payToAgreement}
+              <span class="text-[10px] font-black uppercase tracking-widest text-zinc-400">
+                Status: {payToAgreement.status ?? 'unknown'}
               </span>
             {/if}
           </div>
-          <div>
-            Amount: <span class="text-zinc-200">${Number(latestPaymentRequest.amount ?? 0).toFixed(2)}</span>
+
+          <div class="mt-6 grid gap-4 md:grid-cols-2">
+            <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
+              Payer Name
+              <input
+                type="text"
+                bind:value={payToPayerName}
+                placeholder="Venue owner name"
+                class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-base font-bold text-white"
+              />
+            </label>
+            <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
+              PayID (Email, Phone, or ABN)
+              <input
+                type="text"
+                bind:value={payToPayId}
+                placeholder="owner@example.com"
+                class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-base font-bold text-white"
+              />
+            </label>
+            <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
+              Weekly Limit (AUD)
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                bind:value={payToLimitAmount}
+                placeholder="500"
+                class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-base font-bold text-white"
+              />
+            </label>
+            <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
+              Description
+              <input
+                type="text"
+                bind:value={payToDescription}
+                placeholder="Weekly Kickback settlement"
+                class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-base font-bold text-white"
+              />
+            </label>
           </div>
-          {#if latestPaymentRequest.redirect_url}
+
+          <div class="mt-5 flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              on:click={handleCreatePayToAgreement}
+              disabled={!venue || payToSaving || payToLoading}
+              class="bg-white text-black font-black px-6 py-3 rounded-xl uppercase tracking-tight disabled:opacity-50"
+            >
+              {payToSaving ? 'Creating...' : 'Create PayTo Agreement'}
+            </button>
+            {#if payToLoading}
+              <span class="text-xs font-bold uppercase tracking-widest text-zinc-500">Loading...</span>
+            {/if}
+            {#if payToError}
+              <span class="text-xs font-bold uppercase tracking-widest text-red-400">{payToError}</span>
+            {/if}
+            {#if payToSuccess}
+              <span class="text-xs font-bold uppercase tracking-widest text-green-400">{payToSuccess}</span>
+            {/if}
+          </div>
+
+          {#if payToAgreement}
+            <div class="mt-5 bg-zinc-950 border border-zinc-800 rounded-xl p-4 text-xs font-bold uppercase tracking-widest text-zinc-400 space-y-2">
+              <div>Agreement ID: <span class="text-zinc-200">{payToAgreement.payment_agreement_id ?? 'Pending'}</span></div>
+              <div>Transaction ID: <span class="text-zinc-200">{payToAgreement.client_transaction_id ?? 'Pending'}</span></div>
+              <div>Limit: <span class="text-zinc-200">${Number(payToAgreement.limit_amount ?? 0).toFixed(2)}</span></div>
+            </div>
+          {/if}
+        </div>
+        {/if}
+
+      {#if showHelloClever && selectedPaymentMethod === 'gateway'}
+        <div class="mt-8 border-t border-zinc-800 pt-6">
+          <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div>
-              Link:
-              <a
-                href={latestPaymentRequest.redirect_url}
-                class="text-orange-400 underline underline-offset-2"
-                target="_blank"
-                rel="noreferrer"
-              >
-                Open payment link
-              </a>
+              <p class="text-xs font-black uppercase tracking-widest text-zinc-500">Online Payment</p>
+              <p class="text-sm font-bold text-white mt-2">
+                Creates last week&#39;s invoice (approved claims + platform fee).
+              </p>
+            </div>
+            {#if latestPaymentRequest}
+              <span class="text-[10px] font-black uppercase tracking-widest text-zinc-400">
+                Status: {latestPaymentRequest.status ?? 'unknown'}
+              </span>
+            {/if}
+          </div>
+
+          <div class="mt-6 space-y-4">
+            <div class="border border-zinc-800 rounded-xl p-4 bg-zinc-950">
+              <p class="text-[10px] font-black uppercase tracking-widest text-zinc-500">
+                Gateway Billing Details
+              </p>
+              <div class="mt-3 grid gap-3 md:grid-cols-2">
+                <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
+                  First Name
+                  <input
+                    type="text"
+                    bind:value={billingFirstName}
+                    placeholder="Clever"
+                    class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-white"
+                  />
+                </label>
+                <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
+                  Last Name
+                  <input
+                    type="text"
+                    bind:value={billingLastName}
+                    placeholder="Hello"
+                    class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-white"
+                  />
+                </label>
+                <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
+                  Phone
+                  <input
+                    type="tel"
+                    bind:value={billingPhone}
+                    placeholder="+61412345678"
+                    class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-white"
+                  />
+                </label>
+                <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
+                  Company
+                  <input
+                    type="text"
+                    bind:value={billingCompany}
+                    placeholder="Venue Pty Ltd"
+                    class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-white"
+                  />
+                </label>
+                <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
+                  Country Code
+                  <input
+                    type="text"
+                    bind:value={billingCountryCode}
+                    placeholder="AU"
+                    class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-white"
+                  />
+                </label>
+                <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
+                  State
+                  <input
+                    type="text"
+                    bind:value={billingState}
+                    placeholder="VIC"
+                    class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-white"
+                  />
+                </label>
+                <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
+                  Postal Code
+                  <input
+                    type="text"
+                    bind:value={billingPostalCode}
+                    placeholder="3095"
+                    class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-white"
+                  />
+                </label>
+                <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
+                  City
+                  <input
+                    type="text"
+                    bind:value={billingCity}
+                    placeholder="Eltham"
+                    class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-white"
+                  />
+                </label>
+              </div>
+              <label class="mt-3 flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
+                Address
+                <input
+                  type="text"
+                  bind:value={billingAddress}
+                  placeholder="388 George Street"
+                  class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-white"
+                />
+              </label>
+            </div>
+
+            <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500 md:col-span-2">
+              Description
+              <input
+                type="text"
+                bind:value={gatewayDescription}
+                placeholder="Weekly Kickback invoice"
+                class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-base font-bold text-white"
+              />
+            </label>
+          </div>
+
+          <div class="mt-5 flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              on:click={handleCreatePaymentLink}
+              disabled={!venue || gatewayCreating || gatewayLoading || !billingDetailsReady}
+              class="bg-white text-black font-black px-6 py-3 rounded-xl uppercase tracking-tight disabled:opacity-50"
+            >
+              {gatewayCreating ? 'Creating...' : 'Create Payment Link'}
+            </button>
+            {#if !billingDetailsReady}
+              <span class="text-xs font-bold uppercase tracking-widest text-zinc-500">
+                Add billing details to enable payment links.
+              </span>
+            {/if}
+            {#if gatewayLoading}
+              <span class="text-xs font-bold uppercase tracking-widest text-zinc-500">Loading...</span>
+            {/if}
+            {#if gatewayError}
+              <span class="text-xs font-bold uppercase tracking-widest text-red-400">{gatewayError}</span>
+            {/if}
+            {#if gatewaySuccess}
+              <span class="text-xs font-bold uppercase tracking-widest text-green-400">{gatewaySuccess}</span>
+            {/if}
+          </div>
+
+          {#if latestPaymentRequest}
+            <div class="mt-5 bg-zinc-950 border border-zinc-800 rounded-xl p-4 text-xs font-bold uppercase tracking-widest text-zinc-400 space-y-2">
+              <div>
+                Week:
+                <span class="text-zinc-200">
+                  {formatIsoDate(latestPaymentRequest.week_start) || 'n/a'}
+                </span>
+                {#if latestPaymentRequest.week_end}
+                  <span class="text-zinc-500">
+                    {' '}
+                    - {formatIsoDateMinusOneDay(latestPaymentRequest.week_end)}
+                  </span>
+                {/if}
+              </div>
+              <div>
+                Amount: <span class="text-zinc-200">${Number(latestPaymentRequest.amount ?? 0).toFixed(2)}</span>
+              </div>
+              {#if latestPaymentRequest.redirect_url}
+                <div>
+                  Link:
+                  <a
+                    href={latestPaymentRequest.redirect_url}
+                    class="text-orange-400 underline underline-offset-2"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Open payment link
+                  </a>
+                </div>
+              {/if}
             </div>
           {/if}
         </div>
       {/if}
     </section>
-    {/if}
 
     <section class="flex items-start justify-between gap-4">
       <div class="min-w-0">

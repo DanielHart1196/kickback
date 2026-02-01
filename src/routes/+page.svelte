@@ -296,6 +296,18 @@
     }
   }
 
+  async function ensureProfileRow(userId: string) {
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .upsert({ id: userId, updated_at: new Date().toISOString() });
+      if (error) throw error;
+    } catch (error) {
+      console.error('Error ensuring profile row:', error);
+    }
+  }
+
+
   async function updateReferralCode(code: string): Promise<{ ok: boolean; message?: string; code?: string }> {
     if (!session?.user?.id) return { ok: false, message: 'Sign in to update your code.' };
     const normalized = normalizeReferralCode(code);
@@ -648,6 +660,7 @@
         if (profile?.last_4) last4 = String(profile.last_4);
       }
 
+      await ensureProfileRow(session.user.id);
       await ensureReferralCode(session.user.id, session.user.email ?? 'member');
       await fetchDashboardData();
 
@@ -787,11 +800,31 @@
 
   async function handleSignOut() {
     try {
-      const { error } = await supabase.auth.signOut();
-      if (error) {
-        console.error('Error logging out:', error.message);
+      try {
+        await supabase.auth.signOut({ scope: 'local' });
+      } catch (error) {
+        const fallback = await supabase.auth.signOut();
+        if (fallback?.error) {
+          console.error('Error logging out:', fallback.error.message);
+        }
       }
     } finally {
+      if (typeof window !== 'undefined') {
+        const clearStorage = (storage: Storage) => {
+          const keys = [];
+          for (let i = 0; i < storage.length; i += 1) {
+            const key = storage.key(i);
+            if (key && key.startsWith('sb-')) keys.push(key);
+          }
+          for (const key of keys) storage.removeItem(key);
+        };
+        try {
+          clearStorage(window.localStorage);
+          clearStorage(window.sessionStorage);
+        } catch (error) {
+          console.error('Error clearing auth storage:', error);
+        }
+      }
       window.location.href = '/login';
     }
   }

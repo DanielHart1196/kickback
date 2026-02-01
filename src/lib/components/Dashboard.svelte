@@ -4,6 +4,7 @@
   import { flip } from 'svelte/animate';
   import { GOAL_DAYS, KICKBACK_RATE } from '$lib/claims/constants';
   import { calculateKickbackWithRate, getDaysAtVenue, isClaimDenied } from '$lib/claims/utils';
+  import { supabase } from '$lib/supabase';
   import type { Claim } from '$lib/claims/types';
   import type { Venue } from '$lib/venues/types';
 
@@ -30,6 +31,13 @@
   let listContainer: HTMLDivElement | null = null;
   let filterMenuEl: HTMLDivElement | null = null;
   let filterButtonEl: HTMLButtonElement | null = null;
+  let showSettings = false;
+  let emailEditing = false;
+  let emailInput = '';
+  let emailSaving = false;
+  let emailError = '';
+  let emailMessage = '';
+  let emailInputEl: HTMLInputElement | null = null;
 
   onMount(() => {
     const handleOutsideClick = (event: MouseEvent) => {
@@ -44,6 +52,57 @@
       document.removeEventListener('click', handleOutsideClick);
     };
   });
+
+  function openSettings() {
+    showSettings = true;
+    emailEditing = false;
+    emailError = '';
+    emailMessage = '';
+  }
+
+  function closeSettings() {
+    showSettings = false;
+  }
+
+  async function startEmailEdit() {
+    emailEditing = true;
+    emailInput = userEmail;
+    emailError = '';
+    emailMessage = '';
+    await tick();
+    emailInputEl?.focus();
+  }
+
+  function cancelEmailEdit() {
+    emailEditing = false;
+    emailInput = userEmail;
+    emailError = '';
+    emailMessage = '';
+  }
+
+  async function saveEmail() {
+    if (!emailInput.trim()) {
+      emailError = 'Enter a valid email.';
+      return;
+    }
+    emailSaving = true;
+    emailError = '';
+    emailMessage = '';
+    try {
+      const { data, error } = await supabase.auth.updateUser({ email: emailInput.trim() });
+      if (error) {
+        emailError = error.message;
+      } else {
+        userEmail = data.user?.email ?? emailInput.trim();
+        emailMessage = 'Check your inbox to confirm the change.';
+        emailEditing = false;
+      }
+    } catch (error) {
+      emailError = error instanceof Error ? error.message : 'Failed to update email.';
+    } finally {
+      emailSaving = false;
+    }
+  }
 
   async function scrollToHighlightedClaim(key: string) {
     if (typeof document === 'undefined') return;
@@ -134,7 +193,7 @@
 </script>
 
 <div class="w-full max-w-sm space-y-10 mx-auto" in:fade>
-  <header class="text-center pt-2">
+  <header class="relative text-center pt-2">
     <button
       type="button"
       class="text-4xl font-black tracking-tighter italic uppercase cursor-pointer select-none"
@@ -143,6 +202,17 @@
       aria-label="Add Kickback to home"
     >
       <span class="text-white">Kick</span><span class="text-orange-500">back</span>
+    </button>
+    <button
+      type="button"
+      on:click={openSettings}
+      class="absolute right-0 top-0 inline-flex h-10 w-10 items-center justify-center rounded-full border border-zinc-800 bg-zinc-900/60 text-zinc-300 hover:text-white transition-colors"
+      aria-label="Open user settings"
+    >
+      <svg viewBox="0 0 24 24" aria-hidden="true" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+        <circle cx="12" cy="7" r="4" />
+      </svg>
     </button>
     <p class="text-zinc-500 text-[10px] font-black uppercase tracking-[0.3em] mt-2">Member Dashboard</p>
   </header>
@@ -423,6 +493,100 @@
     <div class="h-20 w-full"></div>
   </div>
 </div>
+
+{#if showSettings}
+  <div class="fixed inset-0 z-[240]">
+    <button
+      type="button"
+      on:click={closeSettings}
+      class="absolute inset-0 bg-black/60 backdrop-blur-sm"
+      aria-label="Close user settings"
+    ></button>
+    <aside
+      class="absolute right-0 top-0 h-full w-[320px] max-w-[88vw] bg-zinc-950 border-l border-zinc-800 p-6 shadow-2xl"
+      transition:fly={{ x: 320, duration: 220 }}
+    >
+      <div class="flex items-center justify-between">
+        <h2 class="text-sm font-black uppercase tracking-[0.2em] text-white">User Settings</h2>
+        <button
+          type="button"
+          on:click={closeSettings}
+          class="text-[10px] font-black uppercase tracking-[0.3em] text-zinc-500 hover:text-white transition-colors"
+        >
+          Close
+        </button>
+      </div>
+      <div class="mt-6 space-y-4 text-sm text-zinc-300">
+        <div class="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
+          <p class="text-[10px] font-black uppercase tracking-[0.25em] text-zinc-500">Account</p>
+          <div class="mt-3 flex items-center gap-2">
+            {#if emailEditing}
+              <input
+                type="email"
+                bind:value={emailInput}
+                bind:this={emailInputEl}
+                placeholder="you@email.com"
+                class="flex-1 bg-black border border-zinc-800 text-white h-9 px-3 rounded-xl text-sm font-semibold outline-none focus:ring-2 focus:ring-orange-500"
+              />
+              <button
+                type="button"
+                on:click={saveEmail}
+                disabled={emailSaving}
+                class="bg-orange-500 text-black p-2 rounded-xl disabled:opacity-50"
+                aria-label="Confirm email update"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="square" stroke-linejoin="miter">
+                  <path d="M5 13l4 4L19 7" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                on:click={cancelEmailEdit}
+                disabled={emailSaving}
+                class="bg-zinc-800 text-white p-2 rounded-xl disabled:opacity-50"
+                aria-label="Cancel email edit"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="square" stroke-linejoin="miter">
+                  <path d="M6 6l12 12" />
+                  <path d="M18 6l-12 12" />
+                </svg>
+              </button>
+            {:else}
+              <p class="flex-1 text-white truncate">{userEmail || 'Signed in'}</p>
+              <button
+                type="button"
+                on:click={startEmailEdit}
+                class="bg-zinc-800 text-zinc-300 p-2 rounded-xl hover:text-white transition-colors"
+                aria-label="Edit email"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="square" stroke-linejoin="miter">
+                  <path d="M3 17.25V21h3.75L19 8.75l-3.75-3.75L3 17.25z" />
+                  <path d="M14.75 5l3.75 3.75" />
+                </svg>
+              </button>
+            {/if}
+          </div>
+          {#if emailError}
+            <p class="mt-2 text-[10px] font-bold uppercase tracking-widest text-red-400">{emailError}</p>
+          {/if}
+          {#if emailMessage}
+            <p class="mt-2 text-[10px] font-bold uppercase tracking-widest text-zinc-400">{emailMessage}</p>
+          {/if}
+        </div>
+        <div class="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
+          <p class="text-[10px] font-black uppercase tracking-[0.25em] text-zinc-500">Actions</p>
+          <button
+            type="button"
+            on:click={onLogout}
+            class="mt-3 w-full rounded-xl border border-zinc-700 px-4 py-3 text-xs font-black uppercase tracking-[0.2em] text-zinc-200 hover:border-zinc-500 transition-colors"
+          >
+            Log out
+          </button>
+        </div>
+      </div>
+    </aside>
+  </div>
+{/if}
 
 <button 
   on:click={onOpenRefer}

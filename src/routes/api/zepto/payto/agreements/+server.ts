@@ -1,29 +1,6 @@
 import { json } from '@sveltejs/kit';
-import { dev } from '$app/environment';
-import { env } from '$env/dynamic/private';
 import { supabaseAdmin } from '$lib/server/supabaseAdmin';
-
-const zeptoBaseUrl = dev
-  ? 'https://api.sandbox.zeptopayments.com'
-  : 'https://api.zeptopayments.com';
-
-async function getAccessToken(venueId: string): Promise<string | null> {
-  const { data, error } = await supabaseAdmin
-    .from('zepto_connections')
-    .select('access_token')
-    .eq('venue_id', venueId)
-    .maybeSingle();
-  if (!error && data?.access_token) return data.access_token;
-
-  const { data: connection, error: connectionError } = await supabaseAdmin
-    .from('zepto_connections')
-    .select('access_token')
-    .eq('connection_id', 'sandbox')
-    .maybeSingle();
-  if (!connectionError && connection?.access_token) return connection.access_token;
-
-  return dev ? env.PRIVATE_ZEPTO_ACCESS_TOKEN_SANDBOX ?? null : env.PRIVATE_ZEPTO_ACCESS_TOKEN_PROD ?? null;
-}
+import { getZeptoAccessToken, zeptoBaseUrl } from '$lib/server/zepto';
 
 function getAgreementPayload(body: Record<string, unknown> | null): Record<string, unknown> | null {
   if (!body) return null;
@@ -68,7 +45,22 @@ export async function POST({ request }) {
   if (!venueId) {
     return json({ ok: false, error: 'missing_params', missing: ['venue_id'] }, { status: 400 });
   }
-  const token = await getAccessToken(venueId);
+
+  const { data: existingAgreement, error: existingError } = await supabaseAdmin
+    .from('zepto_payto_agreements')
+    .select('uid')
+    .eq('venue_id', venueId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (existingError) {
+    return json({ ok: false, error: existingError.message }, { status: 500 });
+  }
+  if (existingAgreement?.uid) {
+    return json({ ok: false, error: 'agreement_exists', uid: existingAgreement.uid }, { status: 409 });
+  }
+
+  const token = await getZeptoAccessToken(venueId);
   if (!token) {
     return json({ ok: false, error: 'missing_access_token' }, { status: 500 });
   }
@@ -116,4 +108,23 @@ export async function POST({ request }) {
   }
 
   return json({ ok: true, agreement: result });
+}
+
+export async function GET({ url }) {
+  const venueId = url.searchParams.get('venue_id');
+  if (!venueId) {
+    return json({ ok: false, error: 'missing_params', missing: ['venue_id'] }, { status: 400 });
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from('zepto_payto_agreements')
+    .select('uid,state,last_event_type,updated_at,created_at,request_payload')
+    .eq('venue_id', venueId)
+    .order('updated_at', { ascending: false })
+    .limit(20);
+  if (error) {
+    return json({ ok: false, error: error.message }, { status: 500 });
+  }
+
+  return json({ ok: true, agreements: data ?? [] });
 }

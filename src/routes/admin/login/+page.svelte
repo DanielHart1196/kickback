@@ -77,11 +77,15 @@
       }
 
       if (user) {
-        await supabase.from('profiles').upsert({
+        const { error: profileError } = await supabase.from('profiles').upsert({
           id: user.id,
           role: 'owner',
           updated_at: new Date().toISOString()
         });
+        if (profileError) {
+          console.error('Owner profile upsert failed:', profileError);
+          message = profileError.message;
+        }
       }
 
       if (session) {

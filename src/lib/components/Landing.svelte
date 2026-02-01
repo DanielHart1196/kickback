@@ -1,23 +1,16 @@
 <main class="relative min-h-screen overflow-hidden bg-zinc-950 text-white">
-  <div class="absolute inset-0">
-    <div class="absolute -top-40 left-1/2 h-[520px] w-[520px] -translate-x-1/2 rounded-full bg-orange-500/20 blur-[160px]"></div>
-    <div class="absolute -bottom-48 -left-24 h-[420px] w-[420px] rounded-full bg-amber-400/20 blur-[140px]"></div>
-    <div class="absolute right-0 top-16 h-[360px] w-[360px] rounded-full bg-white/5 blur-[120px]"></div>
-    <div class="absolute inset-0 bg-[radial-gradient(circle_at_top,#1c1917,transparent_55%)] opacity-70"></div>
-  </div>
-
+  <header class="flex items-center justify-between">
+    <div class="text-4xl font-black tracking-tighter italic uppercase select-none">
+      <span class="text-white">Kick</span><span class="text-orange-500">back</span>
+    </div>
+    <a
+      href="/login"
+      class="inline-flex items-center justify-center rounded-full bg-white px-5 py-2 text-xs font-black uppercase tracking-[0.2em] text-black shadow-lg shadow-black/20 transition-transform active:scale-95"
+    >
+      Sign In
+    </a>
+  </header>
   <div class="relative z-10 mx-auto flex min-h-screen max-w-6xl flex-col px-6 pb-16 pt-10">
-    <header class="flex items-center justify-between">
-      <div class="text-xl font-extrabold uppercase tracking-[0.3em] text-white">
-        <span class="text-white">Kick</span><span class="text-orange-500">back</span>
-      </div>
-      <a
-        href="/admin/login"
-        class="text-[11px] font-semibold uppercase tracking-[0.25em] text-zinc-400 hover:text-white transition-colors"
-      >
-        Venue Owners
-      </a>
-    </header>
 
     <section class="mt-14 grid gap-10 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
       <div class="space-y-7">
@@ -107,5 +100,20 @@
         </div>
       </div>
     </section>
+
+    <footer class="mt-16 flex flex-wrap items-center justify-center gap-6 text-[10px] font-bold uppercase tracking-[0.3em] text-zinc-500">
+      <a
+        href="https://kkbk.app/terms"
+        class="hover:text-white transition-colors"
+      >
+        Terms
+      </a>
+      <a
+        href="https://kkbk.app/privacy"
+        class="hover:text-white transition-colors"
+      >
+        Privacy
+      </a>
+    </footer>
   </div>
 </main>
