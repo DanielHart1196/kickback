@@ -32,12 +32,16 @@
   let filterMenuEl: HTMLDivElement | null = null;
   let filterButtonEl: HTMLButtonElement | null = null;
   let showSettings = false;
-  let emailEditing = false;
-  let emailInput = '';
-  let emailSaving = false;
-  let emailError = '';
-  let emailMessage = '';
-  let emailInputEl: HTMLInputElement | null = null;
+  let showDeleteWarning = false;
+  let deleteStatus: 'idle' | 'loading' | 'error' = 'idle';
+  let deleteError = '';
+  let payoutPayId = '';
+  let payoutFullName = '';
+  let payoutDob = '';
+  let payoutAddress = '';
+  let payoutStatus: 'idle' | 'loading' | 'saving' | 'error' | 'success' = 'idle';
+  let payoutError = '';
+  let payoutMessage = '';
 
   onMount(() => {
     const handleOutsideClick = (event: MouseEvent) => {
@@ -55,54 +59,104 @@
 
   function openSettings() {
     showSettings = true;
-    emailEditing = false;
-    emailError = '';
-    emailMessage = '';
+    void loadPayoutProfile();
   }
 
   function closeSettings() {
     showSettings = false;
   }
 
-  async function startEmailEdit() {
-    emailEditing = true;
-    emailInput = userEmail;
-    emailError = '';
-    emailMessage = '';
-    await tick();
-    emailInputEl?.focus();
-  }
-
-  function cancelEmailEdit() {
-    emailEditing = false;
-    emailInput = userEmail;
-    emailError = '';
-    emailMessage = '';
-  }
-
-  async function saveEmail() {
-    if (!emailInput.trim()) {
-      emailError = 'Enter a valid email.';
-      return;
-    }
-    emailSaving = true;
-    emailError = '';
-    emailMessage = '';
+  async function loadPayoutProfile() {
+    if (!userId) return;
+    payoutStatus = 'loading';
+    payoutError = '';
+    payoutMessage = '';
     try {
-      const { data, error } = await supabase.auth.updateUser({ email: emailInput.trim() });
-      if (error) {
-        emailError = error.message;
-      } else {
-        userEmail = data.user?.email ?? emailInput.trim();
-        emailMessage = 'Check your inbox to confirm the change.';
-        emailEditing = false;
-      }
+      const { data, error } = await supabase
+        .from('payout_profiles')
+        .select('pay_id, full_name, dob, address')
+        .eq('user_id', userId)
+        .maybeSingle();
+      if (error) throw error;
+      payoutPayId = data?.pay_id ?? '';
+      payoutFullName = data?.full_name ?? '';
+      payoutDob = data?.dob ?? '';
+      payoutAddress = data?.address ?? '';
+      payoutStatus = 'idle';
     } catch (error) {
-      emailError = error instanceof Error ? error.message : 'Failed to update email.';
-    } finally {
-      emailSaving = false;
+      payoutStatus = 'error';
+      payoutError = error instanceof Error ? error.message : 'Failed to load payout details.';
     }
   }
+
+  async function savePayoutProfile() {
+    if (!userId) return;
+    payoutStatus = 'saving';
+    payoutError = '';
+    payoutMessage = '';
+    try {
+      const payload = {
+        user_id: userId,
+        pay_id: payoutPayId.trim() || null,
+        full_name: payoutFullName.trim() || null,
+        dob: payoutDob || null,
+        address: payoutAddress.trim() || null,
+        updated_at: new Date().toISOString()
+      };
+      const { error } = await supabase.from('payout_profiles').upsert(payload, { onConflict: 'user_id' });
+      if (error) throw error;
+      payoutStatus = 'success';
+      payoutMessage = 'Payout details saved.';
+      setTimeout(() => {
+        if (payoutStatus === 'success') payoutStatus = 'idle';
+      }, 2000);
+    } catch (error) {
+      payoutStatus = 'error';
+      payoutError = error instanceof Error ? error.message : 'Failed to save payout details.';
+    }
+  }
+
+  function openDeleteWarning() {
+    deleteStatus = 'idle';
+    deleteError = '';
+    showDeleteWarning = true;
+  }
+
+  function closeDeleteWarning() {
+    showDeleteWarning = false;
+  }
+
+  async function confirmDeleteAccount() {
+    deleteStatus = 'loading';
+    deleteError = '';
+    try {
+      const { data, error } = await supabase.auth.getSession();
+      if (error || !data.session?.access_token) {
+        deleteStatus = 'error';
+        deleteError = 'Session expired. Please sign in again.';
+        return;
+      }
+      const response = await fetch('/api/account/delete', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${data.session.access_token}`
+        }
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        deleteStatus = 'error';
+        deleteError = payload?.error ?? 'Failed to delete account.';
+        return;
+      }
+      await supabase.auth.signOut();
+      window.location.href = '/login';
+    } catch (error) {
+      deleteStatus = 'error';
+      deleteError = error instanceof Error ? error.message : 'Failed to delete account.';
+    }
+  }
+
+  
 
   async function scrollToHighlightedClaim(key: string) {
     if (typeof document === 'undefined') return;
@@ -519,59 +573,52 @@
       <div class="mt-6 space-y-4 text-sm text-zinc-300">
         <div class="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
           <p class="text-[10px] font-black uppercase tracking-[0.25em] text-zinc-500">Account</p>
-          <div class="mt-3 flex items-center gap-2">
-            {#if emailEditing}
-              <input
-                type="email"
-                bind:value={emailInput}
-                bind:this={emailInputEl}
-                placeholder="you@email.com"
-                class="flex-1 bg-black border border-zinc-800 text-white h-9 px-3 rounded-xl text-sm font-semibold outline-none focus:ring-2 focus:ring-orange-500"
-              />
-              <button
-                type="button"
-                on:click={saveEmail}
-                disabled={emailSaving}
-                class="bg-orange-500 text-black p-2 rounded-xl disabled:opacity-50"
-                aria-label="Confirm email update"
-              >
-                <svg viewBox="0 0 24 24" aria-hidden="true" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="square" stroke-linejoin="miter">
-                  <path d="M5 13l4 4L19 7" />
-                </svg>
-              </button>
-              <button
-                type="button"
-                on:click={cancelEmailEdit}
-                disabled={emailSaving}
-                class="bg-zinc-800 text-white p-2 rounded-xl disabled:opacity-50"
-                aria-label="Cancel email edit"
-              >
-                <svg viewBox="0 0 24 24" aria-hidden="true" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="square" stroke-linejoin="miter">
-                  <path d="M6 6l12 12" />
-                  <path d="M18 6l-12 12" />
-                </svg>
-              </button>
-            {:else}
-              <p class="flex-1 text-white truncate">{userEmail || 'Signed in'}</p>
-              <button
-                type="button"
-                on:click={startEmailEdit}
-                class="bg-zinc-800 text-zinc-300 p-2 rounded-xl hover:text-white transition-colors"
-                aria-label="Edit email"
-              >
-                <svg viewBox="0 0 24 24" aria-hidden="true" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="square" stroke-linejoin="miter">
-                  <path d="M3 17.25V21h3.75L19 8.75l-3.75-3.75L3 17.25z" />
-                  <path d="M14.75 5l3.75 3.75" />
-                </svg>
-              </button>
+          <p class="mt-3 text-white truncate">{userEmail || 'Signed in'}</p>
+          <p class="mt-2 text-[10px] font-bold uppercase tracking-widest text-zinc-500">
+            Signed in with Google
+          </p>
+        </div>
+        <div class="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
+          <p class="text-[10px] font-black uppercase tracking-[0.25em] text-zinc-500">Payouts</p>
+          <div class="mt-4 space-y-3">
+            <input
+              type="text"
+              bind:value={payoutPayId}
+              placeholder="PayID (email or mobile)"
+              class="w-full bg-black border border-zinc-800 text-white h-10 px-3 rounded-xl text-sm font-semibold outline-none focus:ring-2 focus:ring-orange-500"
+            />
+            <input
+              type="text"
+              bind:value={payoutFullName}
+              placeholder="Full name"
+              class="w-full bg-black border border-zinc-800 text-white h-10 px-3 rounded-xl text-sm font-semibold outline-none focus:ring-2 focus:ring-orange-500"
+            />
+            <input
+              type="date"
+              bind:value={payoutDob}
+              class="w-full bg-black border border-zinc-800 text-white h-10 px-3 rounded-xl text-sm font-semibold outline-none focus:ring-2 focus:ring-orange-500"
+            />
+            <textarea
+              bind:value={payoutAddress}
+              rows="3"
+              placeholder="Address"
+              class="w-full bg-black border border-zinc-800 text-white px-3 py-2 rounded-xl text-sm font-semibold outline-none focus:ring-2 focus:ring-orange-500 resize-none"
+            ></textarea>
+            <button
+              type="button"
+              on:click={savePayoutProfile}
+              disabled={payoutStatus === 'saving' || payoutStatus === 'loading'}
+              class="w-full rounded-xl bg-white px-4 py-3 text-xs font-black uppercase tracking-[0.2em] text-black hover:bg-zinc-200 transition-colors disabled:opacity-60"
+            >
+              {payoutStatus === 'saving' ? 'Saving...' : 'Save payout details'}
+            </button>
+            {#if payoutError}
+              <p class="text-[10px] font-bold uppercase tracking-widest text-red-400">{payoutError}</p>
+            {/if}
+            {#if payoutMessage}
+              <p class="text-[10px] font-bold uppercase tracking-widest text-zinc-400">{payoutMessage}</p>
             {/if}
           </div>
-          {#if emailError}
-            <p class="mt-2 text-[10px] font-bold uppercase tracking-widest text-red-400">{emailError}</p>
-          {/if}
-          {#if emailMessage}
-            <p class="mt-2 text-[10px] font-bold uppercase tracking-widest text-zinc-400">{emailMessage}</p>
-          {/if}
         </div>
         <div class="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
           <p class="text-[10px] font-black uppercase tracking-[0.25em] text-zinc-500">Actions</p>
@@ -582,9 +629,54 @@
           >
             Log out
           </button>
+          <button
+            type="button"
+            on:click={openDeleteWarning}
+            class="mt-4 w-full text-center text-[10px] font-black uppercase tracking-[0.3em] text-red-400 hover:text-red-300 transition-colors"
+          >
+            Delete my account
+          </button>
         </div>
       </div>
     </aside>
+  </div>
+{/if}
+
+{#if showDeleteWarning}
+  <div class="fixed inset-0 z-[260]">
+    <button
+      type="button"
+      on:click={closeDeleteWarning}
+      class="absolute inset-0 bg-black/70 backdrop-blur-sm"
+      aria-label="Close delete account warning"
+    ></button>
+    <div class="absolute left-1/2 top-1/2 w-[90vw] max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-3xl border border-zinc-800 bg-zinc-950 p-6 shadow-2xl">
+      <h3 class="text-sm font-black uppercase tracking-[0.2em] text-white">Delete account</h3>
+      <p class="mt-4 text-sm text-zinc-300">
+        This cannot be undone. All data associated with your account will be deleted, and any
+        balance in your account will be lost.
+      </p>
+      {#if deleteError}
+        <p class="mt-3 text-[10px] font-bold uppercase tracking-widest text-red-400">
+          {deleteError}
+        </p>
+      {/if}
+      <button
+        type="button"
+        on:click={confirmDeleteAccount}
+        disabled={deleteStatus === 'loading'}
+        class="mt-6 w-full rounded-xl bg-red-500 px-4 py-3 text-xs font-black uppercase tracking-[0.2em] text-black hover:bg-red-400 transition-colors disabled:opacity-60"
+      >
+        {deleteStatus === 'loading' ? 'Deleting...' : 'Delete account'}
+      </button>
+      <button
+        type="button"
+        on:click={closeDeleteWarning}
+        class="mt-3 w-full rounded-xl border border-zinc-700 px-4 py-3 text-xs font-black uppercase tracking-[0.2em] text-zinc-200 hover:border-zinc-500 transition-colors"
+      >
+        Cancel
+      </button>
+    </div>
   </div>
 {/if}
 

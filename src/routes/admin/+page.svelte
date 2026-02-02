@@ -31,14 +31,14 @@
   let billingPostalCode = '3095';
   let billingCity = 'Eltham';
   let billingAddress = '';
-  let paymentMethods: string[] = [];
-  let selectedPaymentMethod = '';
+  let paymentMethods: string[] = ['gateway'];
+  let selectedPaymentMethod = 'gateway';
   const showHelloClever = true;
   const paymentMethodOptions = [
     { id: 'payto', label: 'PayTo (Auto Debit)' },
-    { id: 'gateway', label: 'Online Payment' }
+    { id: 'gateway', label: 'Invoice + Online Payment' }
   ];
-  $: paymentMethods = selectedPaymentMethod ? [selectedPaymentMethod] : [];
+  $: paymentMethods = ['gateway'];
   let savingVenue = false;
   let savingError = '';
   let logoUploading = false;
@@ -193,7 +193,6 @@
     created_at: string;
   };
   let latestPaymentRequest: PaymentRequest | null = null;
-  let gatewayDescription = 'Weekly Kickback invoice';
   let gatewayCreating = false;
   let gatewayLoading = false;
   let gatewayError = '';
@@ -545,7 +544,7 @@
     gatewayError = '';
     gatewaySuccess = '';
     try {
-      const descriptionValue = gatewayDescription.trim() || 'Weekly Kickback invoice';
+      const descriptionValue = 'Weekly Kickback invoice';
       const saved = await saveBillingDetails();
       if (!saved) {
         return;
@@ -742,8 +741,8 @@
       venueName = venue?.name ?? '';
       guestRate = venue?.kickback_guest != null ? String(venue.kickback_guest) : '5';
     referrerRate = venue?.kickback_referrer != null ? String(venue.kickback_referrer) : '5';
-    paymentMethods = Array.isArray(venue?.payment_methods) ? venue.payment_methods : [];
-    selectedPaymentMethod = paymentMethods[0] ?? '';
+    paymentMethods = ['gateway'];
+    selectedPaymentMethod = 'gateway';
     billingEmail = venue?.billing_email ?? userEmail ?? '';
     billingFirstName = venue?.billing_contact_first_name ?? '';
     billingLastName = venue?.billing_contact_last_name ?? '';
@@ -2055,12 +2054,13 @@
       <div class="mt-6">
         <div class="grid gap-2">
           {#each paymentMethodOptions as option}
-            <label class="flex items-center gap-3 text-xs font-bold uppercase tracking-widest text-zinc-300">
+            <label class={`flex items-center gap-3 text-xs font-bold uppercase tracking-widest ${option.id === 'payto' ? 'text-zinc-600' : 'text-zinc-300'}`}>
               <input
                 type="radio"
                 value={option.id}
                 bind:group={selectedPaymentMethod}
                 class="h-3.5 w-3.5 accent-blue-500"
+                disabled={option.id === 'payto'}
               />
               <span>{option.label}</span>
             </label>
@@ -2159,7 +2159,7 @@
         <div class="mt-8 border-t border-zinc-800 pt-6">
           <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div>
-              <p class="text-xs font-black uppercase tracking-widest text-zinc-500">Online Payment</p>
+              <p class="text-xs font-black uppercase tracking-widest text-zinc-500">Invoice + Online Payment</p>
               <p class="text-sm font-bold text-white mt-2">
                 Creates last week&#39;s invoice (approved claims + platform fee).
               </p>
@@ -2263,12 +2263,6 @@
 
             <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500 md:col-span-2">
               Description
-              <input
-                type="text"
-                bind:value={gatewayDescription}
-                placeholder="Weekly Kickback invoice"
-                class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-base font-bold text-white"
-              />
             </label>
           </div>
 

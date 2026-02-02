@@ -49,6 +49,26 @@
 
   let selectedUserId: string | null = null;
   let selectedVenueId: string | null = null;
+  let invoiceRunStatus: 'idle' | 'running' | 'error' | 'success' = 'idle';
+  let invoiceRunError = '';
+  let invoiceRunResult: {
+    week_start?: string;
+    week_end?: string;
+    range_start?: string;
+    range_end?: string;
+    totals?: { venue_id: string; total: number }[];
+    results?: {
+      venue_id: string;
+      ok: boolean;
+      error?: string;
+      subtotal?: number;
+      total?: number;
+      amount_due?: number;
+      invoice_id?: string;
+      line_items?: { amount: number; description: string | null }[];
+    }[];
+  } | null = null;
+  let invoiceRunRaw = '';
 
   const venueById = new Map<string, Venue>();
   const profileById = new Map<string, Profile>();
@@ -254,6 +274,28 @@
     URL.revokeObjectURL(url);
   }
 
+  async function runWeeklyInvoices() {
+    invoiceRunStatus = 'running';
+    invoiceRunError = '';
+    invoiceRunResult = null;
+    invoiceRunRaw = '';
+    try {
+      const response = await fetch('/api/stripe/weekly-invoices', { method: 'POST' });
+      const payload = await response.json().catch(() => null);
+      invoiceRunRaw = payload ? JSON.stringify(payload, null, 2) : '';
+      if (!response.ok) {
+        invoiceRunStatus = 'error';
+        invoiceRunError = payload?.error ?? 'Invoice run failed.';
+        return;
+      }
+      invoiceRunStatus = 'success';
+      invoiceRunResult = payload;
+    } catch (error) {
+      invoiceRunStatus = 'error';
+      invoiceRunError = error instanceof Error ? error.message : 'Invoice run failed.';
+    }
+  }
+
   function buildVenueStats(list: Claim[]): VenueStats[] {
     const totals = new Map<string, VenueStats>();
     for (const claim of list) {
@@ -361,6 +403,14 @@
         </button>
         <button
           type="button"
+          on:click={runWeeklyInvoices}
+          class="bg-orange-500 text-black font-black px-4 py-2 rounded-xl uppercase tracking-tight text-xs"
+          disabled={invoiceRunStatus === 'running'}
+        >
+          {invoiceRunStatus === 'running' ? 'Running...' : 'Run Weekly Invoices'}
+        </button>
+        <button
+          type="button"
           on:click={exportClaimsCsv}
           class="bg-zinc-800 text-white font-black px-4 py-2 rounded-xl uppercase tracking-tight text-xs"
         >
@@ -369,7 +419,63 @@
         {#if loadError}
           <span class="text-xs font-bold uppercase tracking-widest text-red-400">{loadError}</span>
         {/if}
+        {#if invoiceRunError}
+          <span class="text-xs font-bold uppercase tracking-widest text-red-400">{invoiceRunError}</span>
+        {/if}
       </div>
+      {#if invoiceRunResult}
+        <div class="mt-4 rounded-xl border border-zinc-800 bg-zinc-950/60 p-3 text-[10px] uppercase tracking-widest text-zinc-400">
+          <div>
+            Week: {invoiceRunResult.week_start ?? 'n/a'} - {invoiceRunResult.week_end ?? 'n/a'}
+          </div>
+          <div class="mt-2 text-zinc-500">
+            Range: {invoiceRunResult.range_start ?? 'n/a'} → {invoiceRunResult.range_end ?? 'n/a'}
+          </div>
+          <div class="mt-2 text-zinc-500">
+            Results: {invoiceRunResult.results?.length ?? 0}
+          </div>
+          {#if invoiceRunResult.totals && invoiceRunResult.totals.length > 0}
+            <div class="mt-3 text-[10px] text-zinc-400 normal-case tracking-normal">
+              <p class="uppercase tracking-widest text-zinc-500">Totals</p>
+              {#each invoiceRunResult.totals as total}
+                <div class="flex items-center justify-between gap-2">
+                  <span class="truncate">
+                    {venueById.get(total.venue_id)?.name ?? total.venue_id}
+                  </span>
+                  <span>${total.total.toFixed(2)}</span>
+                </div>
+              {/each}
+            </div>
+          {/if}
+          {#if invoiceRunResult.results && invoiceRunResult.results.length > 0}
+            <div class="mt-3 space-y-1 text-[10px] text-zinc-300 normal-case tracking-normal">
+              {#each invoiceRunResult.results as result}
+                <div class="flex items-center justify-between gap-2">
+                  <span class="truncate">
+                    {venueById.get(result.venue_id)?.name ?? result.venue_id}
+                  </span>
+                  <span class={result.ok ? 'text-green-400' : 'text-red-400'}>
+                    {result.ok ? `sent ($${(result.amount_due ?? 0).toFixed(2)})` : result.error ?? 'skipped'}
+                  </span>
+                </div>
+                {#if result.ok && result.line_items && result.line_items.length > 0}
+                  <div class="ml-3 text-[10px] text-zinc-500">
+                    {#each result.line_items as line}
+                      <div class="flex items-center justify-between gap-2">
+                        <span class="truncate">{line.description ?? 'Line item'}</span>
+                        <span>${line.amount.toFixed(2)}</span>
+                      </div>
+                    {/each}
+                  </div>
+                {/if}
+              {/each}
+            </div>
+          {/if}
+          {#if invoiceRunRaw}
+            <pre class="mt-4 whitespace-pre-wrap break-words text-[10px] text-zinc-500 normal-case tracking-normal">{invoiceRunRaw}</pre>
+          {/if}
+        </div>
+      {/if}
     </section>
 
     <section class="grid gap-6 lg:grid-cols-[2.2fr_1fr]">
