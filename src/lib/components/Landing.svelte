@@ -36,20 +36,20 @@
 </script>
 
 <main class="relative min-h-screen overflow-hidden bg-zinc-950 text-white">
-  <header class="flex items-center justify-between">
+    <header class="flex items-center justify-between">
     <div class="text-4xl font-black tracking-tighter italic uppercase select-none">
       <span class="text-white">Kick</span><span class="text-orange-500">back</span>
     </div>
     <a
       href="/login"
-      class="inline-flex items-center justify-center rounded-full bg-white px-5 py-2 text-xs font-black uppercase tracking-[0.2em] text-black shadow-lg shadow-black/20 transition-transform active:scale-95"
+      class="inline-flex items-center justify-center rounded-full bg-white px-5 py-2 text-xs font-black uppercase tracking-[0.2em] text-black shadow-lg shadow-black/20 transition-transform transition-colors active:scale-95 hover:bg-zinc-200"
     >
       Sign In
     </a>
   </header>
   <div class="relative z-10 mx-auto flex min-h-screen max-w-6xl flex-col px-6 pb-16 pt-10">
 
-    <section class="mt-14 grid gap-12 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
+    <section class="mt-14 grid gap-12 grid-cols-1 items-start">
       <div class="space-y-10">
         <h1 class="text-4xl font-extrabold uppercase tracking-tight text-white text-center sm:text-5xl lg:text-6xl">
           EAT. DRINK. <br /> GET PAID.
@@ -57,7 +57,7 @@
         <div class="flex justify-center">
           <a
             href="/login"
-            class="inline-flex items-center justify-center rounded-full bg-orange-500 px-8 py-3 text-lg font-black uppercase tracking-tight text-black transition-transform active:scale-95"
+            class="inline-flex items-center justify-center rounded-full bg-orange-500 px-8 py-3 text-lg font-black uppercase tracking-tight text-black transition-transform active:scale-95 hover-lift"
           >
             Join
           </a>
@@ -99,6 +99,28 @@
                   No points. No credits.<br />Just cash.
                 </p>
               </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Venues marquee: drop images into `static/venues/` (e.g. platform3095.png) -->
+        <div class="venue-marquee mt-6">
+          <div class="marquee-track">
+            <div class="marquee-group">
+              <img src="/venues/platform3095.png" alt="platform3095" class="marquee-img" />
+              <img src="/venues/barpic-logo.jpg" alt="barpic" class="marquee-img" />
+              <img src="/venues/pro-bros.avif" alt="pro bros" class="marquee-img" />
+              <img src="/venues/platform3095.png" alt="platform3095" class="marquee-img" />
+              <img src="/venues/barpic-logo.jpg" alt="barpic" class="marquee-img" />
+              <img src="/venues/pro-bros.avif" alt="pro bros" class="marquee-img" />
+            </div>
+            <div class="marquee-group" aria-hidden="true">
+              <img src="/venues/platform3095.png" alt="platform3095" class="marquee-img" />
+              <img src="/venues/barpic-logo.jpg" alt="barpic" class="marquee-img" />
+              <img src="/venues/pro-bros.avif" alt="pro bros" class="marquee-img" />
+              <img src="/venues/platform3095.png" alt="platform3095" class="marquee-img" />
+              <img src="/venues/barpic-logo.jpg" alt="barpic" class="marquee-img" />
+              <img src="/venues/pro-bros.avif" alt="pro bros" class="marquee-img" />
             </div>
           </div>
         </div>
@@ -166,7 +188,7 @@
             <button
               type="submit"
               disabled={contactSubmitting}
-              class="w-full rounded-2xl border border-orange-500 px-5 py-3 text-xs font-bold uppercase tracking-[0.25em] text-orange-400 transition-colors hover:bg-orange-500 hover:text-black disabled:opacity-50 disabled:cursor-not-allowed"
+              class="w-full inline-flex items-center justify-center rounded-full bg-orange-500 px-8 py-3 text-lg font-black uppercase tracking-tight text-black transition-transform active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed hover-lift"
             >
               {contactSubmitting ? 'Sending…' : 'Send'}
             </button>
@@ -191,3 +213,50 @@
     </footer>
   </div>
 </main>
+
+<style>
+@media (hover: hover) and (pointer: fine) {
+  .hover-lift:hover {
+    transform: translateY(-4px) scale(1.02);
+    box-shadow: 0 18px 40px rgba(0, 0, 0, 0.6);
+  }
+}
+
+/* Venues marquee */
+.venue-marquee {
+  width: 100%;
+  overflow: hidden;
+}
+.marquee-track {
+  display: flex;
+  gap: 2rem;
+  align-items: center;
+  width: max-content;
+  animation: marquee-left 40s linear infinite;
+}
+.marquee-group {
+  display: flex;
+  gap: 2rem;
+  align-items: center;
+}
+.marquee-img {
+  width: 96px;
+  height: 96px;
+  object-fit: contain;
+  opacity: 1;
+  filter: none;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+}
+
+@keyframes marquee-left {
+  0% { transform: translateX(0%); }
+  100% { transform: translateX(-50%); }
+}
+
+/* Slow down on reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .marquee-track { animation-duration: 0s; }
+}
+</style>
