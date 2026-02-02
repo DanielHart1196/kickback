@@ -103,22 +103,22 @@
           </div>
         </div>
 
-        <!-- Venues marquee: drop images into `static/venues/` (e.g. platform3095.png) -->
+        <!-- Venues marquee: drop images into `static/venues/` (e.g. platform3095.jpg) -->
         <div class="venue-marquee mt-6">
           <div class="marquee-track">
             <div class="marquee-group">
-              <img src="/venues/platform3095.png" alt="platform3095" class="marquee-img" />
+              <img src="/venues/platform3095-black.jpg" alt="platform3095" class="marquee-img" />
               <img src="/venues/barpic-logo.jpg" alt="barpic" class="marquee-img" />
               <img src="/venues/pro-bros.avif" alt="pro bros" class="marquee-img" />
-              <img src="/venues/platform3095.png" alt="platform3095" class="marquee-img" />
+              <img src="/venues/platform3095-black.jpg" alt="platform3095" class="marquee-img" />
               <img src="/venues/barpic-logo.jpg" alt="barpic" class="marquee-img" />
               <img src="/venues/pro-bros.avif" alt="pro bros" class="marquee-img" />
             </div>
             <div class="marquee-group" aria-hidden="true">
-              <img src="/venues/platform3095.png" alt="platform3095" class="marquee-img" />
+              <img src="/venues/platform3095-black.jpg" alt="platform3095" class="marquee-img" />
               <img src="/venues/barpic-logo.jpg" alt="barpic" class="marquee-img" />
               <img src="/venues/pro-bros.avif" alt="pro bros" class="marquee-img" />
-              <img src="/venues/platform3095.png" alt="platform3095" class="marquee-img" />
+              <img src="/venues/platform3095-black.jpg" alt="platform3095" class="marquee-img" />
               <img src="/venues/barpic-logo.jpg" alt="barpic" class="marquee-img" />
               <img src="/venues/pro-bros.avif" alt="pro bros" class="marquee-img" />
             </div>
@@ -240,8 +240,8 @@
   align-items: center;
 }
 .marquee-img {
-  width: 96px;
-  height: 96px;
+  width: 144px;
+  height: 144px;
   object-fit: contain;
   opacity: 1;
   filter: none;
