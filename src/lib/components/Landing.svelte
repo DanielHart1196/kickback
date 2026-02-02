@@ -35,9 +35,9 @@
   }
 </script>
 
-<main class="relative min-h-screen overflow-hidden bg-zinc-950 text-white">
-    <header class="flex items-center justify-between">
-    <div class="text-4xl font-black tracking-tighter italic uppercase select-none">
+<main class="relative min-h-screen overflow-hidden bg-black text-white">
+    <header class="mx-auto flex w-full max-w-6xl items-center justify-between px-6 pt-5">
+    <div class="kickback-wordmark text-4xl font-black tracking-tighter uppercase select-none">
       <span class="text-white">Kick</span><span class="text-orange-500">back</span>
     </div>
     <a
@@ -47,7 +47,7 @@
       Sign In
     </a>
   </header>
-  <div class="relative z-10 mx-auto flex min-h-screen max-w-6xl flex-col px-6 pb-16 pt-10">
+  <div class="relative z-10 mx-auto flex min-h-screen max-w-6xl flex-col px-12 md:px-12 pb-16 pt-10">
 
     <section class="mt-14 grid gap-12 grid-cols-1 items-start">
       <div class="space-y-10">
@@ -104,7 +104,7 @@
         </div>
 
         <!-- Venues marquee: drop images into `static/venues/` (e.g. platform3095.jpg) -->
-        <div class="venue-marquee mt-6">
+        <div class="venue-marquee !my-8 [mask-image:_linear_gradient(to_right,transparent_0,_black_10%,_black_90%,transparent_100%)]">
           <div class="marquee-track">
             <div class="marquee-group">
               <img src="/venues/platform3095-black.jpg" alt="platform3095" class="marquee-img" />
@@ -224,8 +224,14 @@
 
 /* Venues marquee */
 .venue-marquee {
-  width: 100%;
+  width: 100vw;
+  position: relative;
+  left: 50%;
+  margin-left: -50vw;
   overflow: hidden;
+  mask-image: linear-gradient(to right, transparent 0%, black 10%, black 90%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to right, transparent 0%, black 10%, black 90%, transparent 100%);
+  z-index: 1;
 }
 .marquee-track {
   display: flex;
@@ -240,8 +246,8 @@
   align-items: center;
 }
 .marquee-img {
-  width: 144px;
-  height: 144px;
+  width: 134px;
+  height: 134px;
   object-fit: contain;
   opacity: 1;
   filter: none;

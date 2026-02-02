@@ -255,7 +255,7 @@
       title="Add Kickback to home"
       aria-label="Add Kickback to home"
     >
-      <span class="text-white">Kick</span><span class="text-orange-500">back</span>
+      <span class="kickback-wordmark"><span class="text-white">Kick</span><span class="text-orange-500">back</span></span>
     </button>
     <button
       type="button"

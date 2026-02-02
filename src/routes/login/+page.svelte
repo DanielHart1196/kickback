@@ -87,8 +87,8 @@
   <div class="w-full max-w-sm space-y-8">
     <div class="text-center">
       <div class="min-h-[44px] flex items-center justify-center">
-        <h1 class="text-3xl font-black italic uppercase tracking-tighter leading-none">
-          Welcome to <span class="text-white">Kick</span><span class="text-orange-500">back</span>
+        <h1 class="text-3xl font-black uppercase tracking-tighter leading-none">
+          Welcome to <span class="kickback-wordmark"><span class="text-white">Kick</span><span class="text-orange-500">back</span></span>
         </h1>
       </div>
       <div class="mt-2 min-h-[20px]">

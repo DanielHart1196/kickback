@@ -2,11 +2,65 @@
 @tailwind components;
 @tailwind utilities;
 
+@font-face {
+  font-family: 'Fact Black';
+  src: url('/fonts/fact/Fact_Black.otf') format('opentype');
+  font-weight: 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Fact Black';
+  src: url('/fonts/fact/Fact_Black-Italic.otf') format('opentype');
+  font-weight: 900;
+  font-style: italic;
+  font-display: swap;
+}
+
+@layer base {
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6,
+  button,
+  a,
+  input,
+  textarea {
+    font-family: ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6,
+  button,
+  a,
+  .font-black,
+  .font-extrabold,
+  .font-bold {
+    font-family: 'Fact Black', ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  }
+
+  .kickback-wordmark {
+    font-family: 'Fact Black', ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+    font-style: italic;
+    font-weight: 900;
+  }
+}
+
 :root {
   --scrollbar-width: calc(100vw - 100%);
 }
 
 html, body {
+  margin: 0;
+  padding: 0;
+  background-color: #000000; /* Match the landing page background */
   height: 100%;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;

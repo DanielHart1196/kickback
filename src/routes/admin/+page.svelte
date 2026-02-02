@@ -2330,7 +2330,7 @@
     <section class="flex items-start justify-between gap-4">
       <div class="min-w-0">
         <h1 class="text-zinc-500 uppercase tracking-tighter text-sm font-bold">
-          <span class="text-white">Kick</span><span class="text-orange-500">back</span> Dashboard
+          <span class="kickback-wordmark"><span class="text-white">Kick</span><span class="text-orange-500">back</span></span> Dashboard
         </h1>
         <div class="text-[3.4rem] sm:text-6xl md:text-6xl font-black text-white mt-1">${totalAmount.toFixed(2)}</div>
         <p class="text-xs font-black uppercase tracking-widest text-zinc-500 mt-1">

@@ -211,7 +211,7 @@
 
   <div class="w-full max-w-sm space-y-8">
     <div class="text-center">
-      <h1 class="text-4xl font-black tracking-tighter italic uppercase">
+      <h1 class="kickback-wordmark text-4xl font-black tracking-tighter uppercase">
         <span class="text-white">Kick</span><span class="text-orange-500">back</span>
       </h1>
       <p class="text-zinc-500 text-sm mt-2">Claim Portal</p>

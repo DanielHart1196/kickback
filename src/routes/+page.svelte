@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
+  import { fly } from 'svelte/transition';
   import { pushState, replaceState } from '$app/navigation';
   import type { Session } from '@supabase/supabase-js';
   import { supabase } from '$lib/supabase';
@@ -1084,65 +1085,61 @@
   }
 </script>
 
-<main class="min-h-screen bg-zinc-950 text-white flex flex-col items-center p-6">
+<main class="min-h-screen bg-black text-white">
   {#if session === undefined}
     <div class="min-h-screen"></div>
   {:else if !session && showLanding}
     <Landing />
   {:else if session && !showForm}
-    <Dashboard
-      {claims}
-      {totalPending}
-      {highlightClaimKey}
-      {venues}
-      userEmail={session?.user?.email ?? ''}
-      userId={userId ?? ''}
-      claimantCodes={claimantCodes}
-      onNewClaim={startNewClaim}
-      onDeleteClaim={handleDeleteClaim}
-      onLogout={handleSignOut}
-      onOpenRefer={openReferModal}
-      onRequestInstall={triggerInstallBanner}
-    />
-  {:else}
-    <ClaimForm
-      {session}
-      showBack={Boolean(session)}
-      {status}
-      {errorMessage}
-      {successMessage}
-      {amount}
-      {canSubmit}
-      {venues}
-      {kickbackRatePercent}
-      {referrerLookupStatus}
-      {isSelfReferral}
-      bind:amountInput
-      maxBill={MAX_BILL}
-      {kickback}
-      bind:venue
-      bind:referrer
-      bind:purchaseTime
-      bind:last4
-      {maxPurchaseTime}
-      {isVenueLocked}
-      {isReferrerLocked}
-      loginUrl={loginUrl}
-      onBack={handleFormBack}
-      onSubmit={handleSubmitClaim}
-      onConfirmGuest={confirmGuestSubmit}
-      onAmountInput={handleInput}
-      onAmountHydrate={hydrateAmountInput}
-      onLogout={handleSignOut}
-    />
-    {#if showGuestWarning}
-      <GuestWarningModal
-        kickback={kickback}
-        {kickbackRatePercent}
-        {loginUrl}
-        onProceed={proceedAsGuest}
+    <div class="mx-auto w-full max-w-6xl p-6 flex flex-col items-center">
+      <Dashboard
+        {claims}
+        {totalPending}
+        {highlightClaimKey}
+        {venues}
+        userEmail={session?.user?.email ?? ''}
+        userId={userId ?? ''}
+        claimantCodes={claimantCodes}
+        onNewClaim={startNewClaim}
+        onDeleteClaim={handleDeleteClaim}
+        onLogout={handleSignOut}
+        onOpenRefer={openReferModal}
+        onRequestInstall={triggerInstallBanner}
       />
-    {/if}
+    </div>
+  {:else}
+    <div class="mx-auto w-full max-w-6xl p-6 flex flex-col items-center">
+      <ClaimForm
+        {session}
+        showBack={Boolean(session)}
+        {status}
+        {errorMessage}
+        {successMessage}
+        {amount}
+        {canSubmit}
+        {venues}
+        {kickbackRatePercent}
+        {referrerLookupStatus}
+        {isSelfReferral}
+        bind:amountInput
+        maxBill={MAX_BILL}
+        {kickback}
+        bind:venue
+        bind:referrer
+        bind:purchaseTime
+        bind:last4
+        {maxPurchaseTime}
+        {isVenueLocked}
+        {isReferrerLocked}
+        loginUrl={loginUrl}
+        onBack={handleFormBack}
+        onSubmit={handleSubmitClaim}
+        onConfirmGuest={confirmGuestSubmit}
+        onAmountInput={handleInput}
+        onAmountHydrate={hydrateAmountInput}
+        onLogout={handleSignOut}
+      />
+    </div>
     {#if showAutoClaimWarning}
       <AutoClaimWarningModal
         venue={autoClaimWarningVenue || venue}

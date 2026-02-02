@@ -302,8 +302,8 @@
 
     <div class="px-8">
       <header class="text-center mb-6">
-        <h2 class="text-2xl font-black italic uppercase tracking-tighter text-white">
-          Share the <span class="text-white">Kick</span><span class="text-orange-500">back</span>
+        <h2 class="text-2xl font-black uppercase tracking-tighter text-white">
+          Share the <span class="kickback-wordmark"><span class="text-white">Kick</span><span class="text-orange-500">back</span></span>
         </h2>
       </header>
 
