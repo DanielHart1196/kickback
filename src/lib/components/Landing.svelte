@@ -129,11 +129,11 @@
           <p class="text-[10px] font-semibold uppercase tracking-[0.3em] text-zinc-500">
             For venues
           </p>
-          <p class="mt-3 text-lg font-extrabold uppercase tracking-[0.2em] text-white">
+          <p class="mt-3 text-lg font-black uppercase tracking-[0.2em] text-white">
             TURN YOUR<br />
-            <span class="text-orange-500">REGULARS</span><br />
+            <span class="text-orange-500 font-black">REGULARS</span><br />
             INTO YOUR<br />
-            <span class="text-orange-500">MARKETING TEAM</span>
+            <span class="text-orange-500 font-black">MARKETING TEAM</span>
           </p>
           <form
             class="mt-5 space-y-4"

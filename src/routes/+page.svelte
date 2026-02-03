@@ -1089,7 +1089,9 @@
   {#if session === undefined}
     <div class="min-h-screen"></div>
   {:else if !session && showLanding}
-    <Landing />
+    <div class="w-full">
+      <Landing />
+    </div>
   {:else if session && !showForm}
     <div class="mx-auto w-full max-w-6xl p-6 flex flex-col items-center">
       <Dashboard

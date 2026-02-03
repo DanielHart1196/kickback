@@ -113,7 +113,7 @@
   }
 </script>
 
-<main class="min-h-screen bg-zinc-950 text-white flex flex-col items-center p-6 pt-16">
+<main class="min-h-screen bg-black text-white flex flex-col items-center p-6 pt-16">
   <div class="w-full max-w-sm space-y-8">
     <div class="text-center">
       <div class="min-h-[44px] flex items-center justify-center">
@@ -134,7 +134,7 @@
         on:click={() => handleOAuth('google')}
         disabled={loading}
         class="w-fit rounded-full border border-[#747775] bg-white text-[#1F1F1F] text-[14px] leading-[20px] font-medium h-10 px-3 inline-flex items-center justify-start gap-[10px] active:scale-95 transition-all disabled:opacity-50"
-        style="font-family: 'Roboto', sans-serif;"
+        style="font-family: 'Roboto', sans-serif !important;"
       >
         <svg aria-hidden="true" viewBox="0 0 48 48" class="h-5 w-5">
           <path fill="#EA4335" d="M24 9.5c3.6 0 6.6 1.4 9 3.8l6.7-6.7C35.8 2.7 30.3.5 24 .5 14.7.5 6.6 5.8 2.7 13.5l7.8 6.1C12.4 13 17.8 9.5 24 9.5z"/>
@@ -162,9 +162,9 @@
         type="button"
         on:click={handleMagicLink}
         disabled={magicLinkLoading}
-        class="w-full h-10 rounded-full bg-orange-500 text-black text-[14px] leading-[20px] font-medium inline-flex items-center justify-center active:scale-95 transition-all disabled:opacity-50 hover:bg-orange-600"
+        class="w-full h-10 rounded-full bg-orange-500 text-black text-[14px] leading-[20px] font-black inline-flex items-center justify-center active:scale-95 transition-all disabled:opacity-50 hover:bg-orange-600"
       >
-        {magicLinkLoading ? 'Sending...' : 'Send Magic Link'}
+        {magicLinkLoading ? 'Sending...' : 'SEND MAGIC LINK'}
       </button>
 
       {#if message}

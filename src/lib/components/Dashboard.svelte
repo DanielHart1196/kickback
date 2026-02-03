@@ -557,10 +557,10 @@
       aria-label="Close user settings"
     ></button>
     <aside
-      class="absolute right-0 top-0 h-full w-[320px] max-w-[88vw] bg-zinc-950 border-l border-zinc-800 p-6 shadow-2xl"
+      class="absolute right-0 top-0 h-full w-[320px] max-w-[88vw] bg-zinc-950 border-l border-zinc-800 p-6 shadow-2xl flex flex-col"
       transition:fly={{ x: 320, duration: 220 }}
     >
-      <div class="flex items-center justify-between">
+      <div class="flex items-center justify-between flex-shrink-0">
         <h2 class="text-sm font-black uppercase tracking-[0.2em] text-white">User Settings</h2>
         <button
           type="button"
@@ -570,7 +570,7 @@
           Close
         </button>
       </div>
-      <div class="mt-6 space-y-4 text-sm text-zinc-300">
+      <div class="mt-6 space-y-4 text-sm text-zinc-300 overflow-y-auto flex-1">
         <div class="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
           <p class="text-[10px] font-black uppercase tracking-[0.25em] text-zinc-500">Account</p>
           <p class="mt-3 text-white truncate">{userEmail || 'Signed in'}</p>

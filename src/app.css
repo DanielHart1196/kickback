@@ -43,6 +43,63 @@
 }
 
 @font-face {
+  font-family: 'Acorde';
+  src: url('/fonts/acorde/acorde-medium.otf') format('opentype');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+  ascent-override: 90%;
+  descent-override: 10%;
+  line-gap-override: 0%;
+}
+
+@font-face {
+  font-family: 'Acorde';
+  src: url('/fonts/acorde/acorde-black.otf') format('opentype');
+  font-weight: 900;
+  font-style: normal;
+  font-display: swap;
+  ascent-override: 90%;
+  descent-override: 10%;
+  line-gap-override: 0%;
+}
+
+@font-face {
+  font-family: 'Acorde';
+  src: url('/fonts/acorde/acorde-extra-black-italic.otf') format('opentype');
+  font-weight: 900;
+  font-style: italic;
+  font-display: swap;
+  ascent-override: 90%;
+  descent-override: 10%;
+  line-gap-override: 0%;
+}
+
+@font-face {
+  font-family: 'TheSans';
+  src: url('/fonts/thesans/TheSans Black.ttf') format('truetype');
+  font-weight: 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Supra';
+  src: url('/fonts/supra/Supra-BlackMezzo.ttf') format('truetype');
+  font-weight: 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Mundo Sans Std';
+  src: url('/fonts/mundo/Mundo Sans Std Black.otf') format('opentype');
+  font-weight: 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
   font-family: 'Dizhitl';
   src: url('/fonts/dizhitl/dizhitl-extrabolditalic.ttf') format('truetype');
   font-weight: 800;
@@ -64,7 +121,6 @@
   h3,
   h4,
   h5,
-  h6,
   button,
   a,
   input,
@@ -78,19 +134,28 @@
   h4,
   h5,
   h6,
-  button,
-  a,
   .font-black,
   .font-extrabold,
   .font-bold {
-    font-family: ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
-    font-weight: 800;
+    font-family: 'Acorde', ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+    font-weight: 900;
+  }
+
+  body,
+  p,
+  span,
+  textarea,
+  .font-normal,
+  .font-medium,
+  input::placeholder {
+    font-family: 'Acorde', ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+    font-weight: 500;
   }
 
   .kickback-wordmark {
-    font-family: 'Fact Bold', ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+    font-family: 'Acorde', ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
     font-style: italic;
-    font-weight: 800;
+    font-weight: 900;
     letter-spacing: 0.01em;
   }
 }

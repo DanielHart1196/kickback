@@ -58,7 +58,7 @@
   }
 </script>
 
-<main class="min-h-screen bg-zinc-950 text-white flex flex-col items-center justify-center p-6">
+<main class="min-h-screen bg-black text-white flex flex-col items-center justify-center p-6">
   <div class="w-full max-w-sm space-y-8">
     <div class="text-center">
       <h1 class="text-3xl font-black italic uppercase tracking-tighter">
@@ -101,9 +101,9 @@
         type="button"
         on:click={handleMagicLink}
         disabled={magicLinkLoading}
-        class="w-full h-10 rounded-full bg-orange-500 text-black text-[14px] leading-[20px] font-medium inline-flex items-center justify-center active:scale-95 transition-all disabled:opacity-50 hover:bg-orange-600"
+        class="w-full h-10 rounded-full bg-orange-500 text-black text-[14px] leading-[20px] font-black inline-flex items-center justify-center active:scale-95 transition-all disabled:opacity-50 hover:bg-orange-600"
       >
-        {magicLinkLoading ? 'Sending...' : 'Send Magic Link'}
+        {magicLinkLoading ? 'Sending...' : 'SEND MAGIC LINK'}
       </button>
 
       {#if message}
