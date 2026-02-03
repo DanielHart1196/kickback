@@ -18,6 +18,8 @@
   let message = '';
   let pendingKickback: string | null = null;
   let venueRates: { id: string; name: string; short_code?: string | null; kickback_guest?: number | null }[] = [];
+  let email = '';
+  let magicLinkLoading = false;
 
   onMount(async () => {
     try {
@@ -49,16 +51,15 @@
         : null;
   });
 
-  async function handleOAuth(provider: 'google' | 'apple') {
+  async function handleOAuth(provider: 'google') {
     loading = true;
     message = '';
 
     const params = new URLSearchParams(window.location.search);
     const draft = buildDraftFromParams(params);
     const draftQuery = draftToQuery(draft);
-    const baseUrl = window.location.origin;
-    const redirectUrl = draftQuery ? `${baseUrl}/?${draftQuery}` : `${baseUrl}/`;
-
+    const redirectUrl = `${window.location.origin}${window.location.pathname}?${draftQuery}`;
+    // Save draft if we have query params
     if (draftQuery) {
       saveDraftToStorage(localStorage, draft);
     } else {
@@ -81,6 +82,35 @@
       loading = false;
     }
   }
+
+  async function handleMagicLink() {
+    if (!email) {
+      message = 'Please enter your email address';
+      return;
+    }
+
+    magicLinkLoading = true;
+    message = '';
+
+    try {
+      const { error } = await supabase.auth.signInWithOtp({
+        email,
+        options: {
+          emailRedirectTo: `${window.location.origin}/auth/callback`
+        }
+      });
+
+      if (error) {
+        message = error.message;
+      } else {
+        message = 'Check your email for the magic link!';
+      }
+    } catch (error) {
+      message = error instanceof Error ? error.message : 'Failed to send magic link';
+    } finally {
+      magicLinkLoading = false;
+    }
+  }
 </script>
 
 <main class="min-h-screen bg-zinc-950 text-white flex flex-col items-center p-6 pt-16">
@@ -94,8 +124,6 @@
       <div class="mt-2 min-h-[20px]">
         {#if pendingKickback}
           <p class="text-orange-500 font-bold">Sign in to claim your ${pendingKickback} kickback</p>
-        {:else}
-          <p class="text-zinc-500">Use Google or Apple to continue.</p>
         {/if}
       </div>
     </div>
@@ -116,19 +144,40 @@
         </svg>
         {loading ? 'Connecting...' : 'Continue with Google'}
       </button>
+      
+      <div class="w-full flex items-center gap-4">
+        <div class="flex-1 h-px bg-zinc-700"></div>
+        <span class="text-xs text-zinc-500 uppercase tracking-wider">or</span>
+        <div class="flex-1 h-px bg-zinc-700"></div>
+      </div>
+
+      <input
+        type="email"
+        bind:value={email}
+        placeholder="Enter your email"
+        disabled={magicLinkLoading}
+        class="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-xl text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+      />
       <button
         type="button"
-        on:click={() => handleOAuth('apple')}
-        disabled={loading}
-        class="w-full bg-white text-black font-black py-4 rounded-2xl uppercase tracking-tight active:scale-95 transition-all disabled:opacity-50"
+        on:click={handleMagicLink}
+        disabled={magicLinkLoading}
+        class="w-full h-10 rounded-full bg-orange-500 text-black text-[14px] leading-[20px] font-medium inline-flex items-center justify-center active:scale-95 transition-all disabled:opacity-50 hover:bg-orange-600"
       >
-        {loading ? 'Connecting...' : 'Continue with Apple'}
+        {magicLinkLoading ? 'Sending...' : 'Send Magic Link'}
       </button>
 
       {#if message}
         <p transition:fade class="text-center text-xs font-bold text-zinc-400 uppercase">{message}</p>
       {/if}
     </div>
+
+    <p class="text-center text-[10px] text-zinc-500 leading-snug">
+      By creating an account, you are agreeing to our
+      <a href="/terms" class="text-zinc-300 hover:text-white transition-colors">terms of service</a>
+      and
+      <a href="/privacy" class="text-zinc-300 hover:text-white transition-colors">privacy policy</a>.
+    </p>
 
     <button on:click={() => window.history.back()} class="w-full text-zinc-600 text-xs font-bold uppercase tracking-widest">
       Go Back

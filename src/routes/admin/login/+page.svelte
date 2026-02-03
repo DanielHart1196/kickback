@@ -1,95 +1,25 @@
 <script lang="ts">
   import { supabase } from '$lib/supabase';
 
-  let email = '';
-  let password = '';
   let loading = false;
   let message = '';
-  let resendMessage = '';
-  let showResend = false;
-  let mode: 'signup' | 'signin' = 'signup';
-  let showPassword = false;
+  let magicLinkEmail = '';
+  let magicLinkLoading = false;
 
-  async function handleAuth() {
+  async function handleGoogleOAuth() {
     loading = true;
     message = '';
-    resendMessage = '';
-    showResend = false;
 
     try {
-      let user = null;
-      let session = null;
-
-      if (mode === 'signin') {
-        const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-          email,
-          password
-        });
-        if (signInError) {
-          message = signInError.message;
-          return;
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback?redirect_to=/admin`
         }
-        user = signInData?.user ?? null;
-        session = signInData?.session ?? null;
-      } else {
-        const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
-          email,
-          password,
-          options: {
-            emailRedirectTo: `${window.location.origin}/admin`
-          }
-        });
-        if (signUpError) {
-          const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-            email,
-            password
-          });
-          if (signInError) {
-            message = signUpError.message;
-            return;
-          }
-          user = signInData?.user ?? null;
-          session = signInData?.session ?? null;
-        } else {
-          user = signUpData?.user ?? null;
-          session = signUpData?.session ?? null;
-          if (!session) {
-            const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-              email,
-              password
-            });
-            if (signInError) {
-              message = 'Check your email to confirm your admin access.';
-              showResend = true;
-              return;
-            }
-            user = signInData?.user ?? null;
-            session = signInData?.session ?? null;
-          }
-        }
-      }
+      });
 
-      if (session) {
-        await supabase.auth.setSession({
-          access_token: session.access_token,
-          refresh_token: session.refresh_token
-        });
-      }
-
-      if (user) {
-        const { error: profileError } = await supabase.from('profiles').upsert({
-          id: user.id,
-          role: 'owner',
-          updated_at: new Date().toISOString()
-        });
-        if (profileError) {
-          console.error('Owner profile upsert failed:', profileError);
-          message = profileError.message;
-        }
-      }
-
-      if (session) {
-        window.location.href = '/admin';
+      if (error) {
+        message = error.message;
       }
     } catch (error) {
       message = error instanceof Error ? error.message : 'Login failed';
@@ -98,19 +28,33 @@
     }
   }
 
-  async function handleResend() {
-    resendMessage = '';
-    if (!email) {
-      resendMessage = 'Enter your email above to resend.';
+  async function handleMagicLink() {
+    if (!magicLinkEmail) {
+      message = 'Please enter your email address';
       return;
     }
 
-    const { error } = await supabase.auth.resend({
-      type: 'signup',
-      email
-    });
+    magicLinkLoading = true;
+    message = '';
 
-    resendMessage = error ? error.message : 'Confirmation email sent.';
+    try {
+      const { data, error } = await supabase.auth.signInWithOtp({
+        email: magicLinkEmail,
+        options: {
+          emailRedirectTo: `${window.location.origin}/auth/callback?redirect_to=/admin`
+        }
+      });
+
+      if (error) {
+        message = error.message;
+      } else {
+        message = 'Check your email for the magic link!';
+      }
+    } catch (error) {
+      message = error instanceof Error ? error.message : 'Failed to send magic link';
+    } finally {
+      magicLinkLoading = false;
+    }
   }
 </script>
 
@@ -118,88 +62,61 @@
   <div class="w-full max-w-sm space-y-8">
     <div class="text-center">
       <h1 class="text-3xl font-black italic uppercase tracking-tighter">
-        {mode === 'signin' ? 'Admin Sign In' : 'Admin Sign Up'}
+        Admin Sign In
       </h1>
       <p class="text-zinc-500 mt-2">Pilot admin login for venue owners.</p>
     </div>
 
-    <form class="bg-zinc-900 border border-zinc-800 p-6 rounded-3xl space-y-4" on:submit|preventDefault={handleAuth}>
-      <input
-        type="email"
-        bind:value={email}
-        placeholder="Email"
-        class="w-full bg-zinc-800 border-none p-4 rounded-2xl outline-none focus:ring-2 focus:ring-white"
-      />
-      <div class="relative">
-        <input
-          type={showPassword ? 'text' : 'password'}
-          bind:value={password}
-          placeholder={mode === 'signin' ? 'Password' : 'Create Password'}
-          class="w-full bg-zinc-800 border-none p-4 pr-16 rounded-2xl outline-none focus:ring-2 focus:ring-white"
-        />
-        <button
-          type="button"
-          on:click={() => (showPassword = !showPassword)}
-          aria-label={showPassword ? 'Hide password' : 'Show password'}
-          class="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-white transition-colors"
-        >
-          {#if showPassword}
-            <svg viewBox="0 0 24 24" aria-hidden="true" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M2 12s4-6 10-6 10 6 10 6-4 6-10 6-10-6-10-6z" />
-              <circle cx="12" cy="12" r="3" />
-            </svg>
-          {:else}
-            <svg viewBox="0 0 24 24" aria-hidden="true" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M3 3l18 18" />
-              <path d="M10.6 10.6a2 2 0 0 0 2.8 2.8" />
-              <path d="M6.8 6.8C4.2 8.4 2 12 2 12s4 6 10 6c2.1 0 3.9-.6 5.4-1.6" />
-              <path d="M9.9 4.2C10.6 4.1 11.3 4 12 4c6 0 10 6 10 6s-.9 1.4-2.4 2.9" />
-            </svg>
-          {/if}
-        </button>
+    <div class="bg-zinc-900 border border-zinc-800 p-6 rounded-3xl space-y-4 flex flex-col items-center">
+      <button
+        type="button"
+        on:click={handleGoogleOAuth}
+        disabled={loading}
+        class="w-fit rounded-full border border-[#747775] bg-white text-[#1F1F1F] text-[14px] leading-[20px] font-medium h-10 px-3 inline-flex items-center justify-start gap-[10px] active:scale-95 transition-all disabled:opacity-50"
+        style="font-family: 'Roboto', sans-serif;"
+      >
+        <svg aria-hidden="true" viewBox="0 0 48 48" class="h-5 w-5">
+          <path fill="#EA4335" d="M24 9.5c3.6 0 6.6 1.4 9 3.8l6.7-6.7C35.8 2.7 30.3.5 24 .5 14.7.5 6.6 5.8 2.7 13.5l7.8 6.1C12.4 13 17.8 9.5 24 9.5z"/>
+          <path fill="#4285F4" d="M46.5 24.5c0-1.7-.2-3.3-.5-4.9H24v9.3h12.6c-.6 3.1-2.3 5.7-4.9 7.5l7.5 5.8c4.4-4 6.8-10 6.8-17.7z"/>
+          <path fill="#FBBC05" d="M10.5 28.6c-1-3.1-1-6.5 0-9.6l-7.8-6.1C-.3 18.3-.3 29.7 2.7 35.9l7.8-6.1z"/>
+          <path fill="#34A853" d="M24 47.5c6.3 0 11.8-2.1 15.7-5.8l-7.5-5.8c-2.1 1.4-4.8 2.3-8.2 2.3-6.2 0-11.6-3.5-13.5-8.5l-7.8 6.1C6.6 42.2 14.7 47.5 24 47.5z"/>
+        </svg>
+        {loading ? 'Connecting...' : 'Continue with Google'}
+      </button>
+      
+      <div class="w-full flex items-center gap-4">
+        <div class="flex-1 h-px bg-zinc-700"></div>
+        <span class="text-xs text-zinc-500 uppercase tracking-wider">or</span>
+        <div class="flex-1 h-px bg-zinc-700"></div>
       </div>
 
+      <input
+        type="email"
+        bind:value={magicLinkEmail}
+        placeholder="Enter your email"
+        disabled={magicLinkLoading}
+        class="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-xl text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-white focus:border-transparent"
+      />
       <button
-        type="submit"
-        disabled={loading || !email || !password}
-        class="w-full bg-white text-black font-black py-4 rounded-2xl uppercase tracking-tight active:scale-95 transition-all disabled:opacity-50"
+        type="button"
+        on:click={handleMagicLink}
+        disabled={magicLinkLoading}
+        class="w-full h-10 rounded-full bg-orange-500 text-black text-[14px] leading-[20px] font-medium inline-flex items-center justify-center active:scale-95 transition-all disabled:opacity-50 hover:bg-orange-600"
       >
-        {loading ? 'Processing...' : mode === 'signin' ? 'Sign In' : 'Sign Up'}
+        {magicLinkLoading ? 'Sending...' : 'Send Magic Link'}
       </button>
 
       {#if message}
         <p class="text-center text-xs font-bold text-zinc-400 uppercase">{message}</p>
       {/if}
+    </div>
 
-      {#if showResend}
-        <button
-          type="button"
-          on:click={handleResend}
-          class="w-full text-zinc-500 text-[10px] font-bold uppercase tracking-[0.3em] hover:text-white transition-colors"
-        >
-          Resend confirmation email
-        </button>
-        {#if resendMessage}
-          <p class="text-center text-[10px] font-bold text-zinc-500 uppercase">{resendMessage}</p>
-        {/if}
-      {/if}
-    </form>
-
-    {#if mode === 'signup'}
-      <p class="text-center text-[10px] text-zinc-500 leading-snug">
-        By creating an account, you are agreeing to our
-        <a href="/terms" class="text-zinc-300 hover:text-white transition-colors">terms of service</a>
-        and
-        <a href="/privacy" class="text-zinc-300 hover:text-white transition-colors">privacy policy</a>.
-      </p>
-      <button type="button" on:click={() => { mode = 'signin'; message = ''; }} class="w-full text-zinc-600 text-xs font-bold uppercase tracking-widest">
-        Already have an account? Sign in
-      </button>
-    {:else}
-      <button type="button" on:click={() => { mode = 'signup'; message = ''; }} class="w-full text-zinc-600 text-xs font-bold uppercase tracking-widest">
-        New venue owner? Create account
-      </button>
-    {/if}
+    <p class="text-center text-[10px] text-zinc-500 leading-snug">
+      By creating an account, you are agreeing to our
+      <a href="/terms" class="text-zinc-300 hover:text-white transition-colors">terms of service</a>
+      and
+      <a href="/privacy" class="text-zinc-300 hover:text-white transition-colors">privacy policy</a>.
+    </p>
 
     <button on:click={() => window.location.href = '/login'} class="w-full text-zinc-600 text-xs font-bold uppercase tracking-widest">
       Back to member login

@@ -3,18 +3,58 @@
 @tailwind utilities;
 
 @font-face {
-  font-family: 'Fact Black';
-  src: url('/fonts/fact/Fact_Black.otf') format('opentype');
-  font-weight: 900;
+  font-family: 'Fact Bold';
+  src: url('/fonts/fact/Fact_Bold.otf') format('opentype');
+  font-weight: 700;
   font-style: normal;
   font-display: swap;
 }
 
 @font-face {
-  font-family: 'Fact Black';
-  src: url('/fonts/fact/Fact_Black-Italic.otf') format('opentype');
-  font-weight: 900;
+  font-family: 'Fact Bold';
+  src: url('/fonts/fact/Fact_Bold-Italic.otf') format('opentype');
+  font-weight: 700;
   font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Fact Bold';
+  src: url('/fonts/fact/Fact_Black.otf') format('opentype');
+  font-weight: 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Fact Bold';
+  src: url('/fonts/fact/Fact_Black-Italic.otf') format('opentype');
+  font-weight: 800;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Dizhitl';
+  src: url('/fonts/dizhitl/dizhitl-extrabold.ttf') format('truetype');
+  font-weight: 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Dizhitl';
+  src: url('/fonts/dizhitl/dizhitl-extrabolditalic.ttf') format('truetype');
+  font-weight: 800;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Roboto';
+  src: url('/fonts/roboto/Roboto-Medium.ttf') format('truetype');
+  font-weight: 500;
+  font-style: normal;
   font-display: swap;
 }
 
@@ -43,13 +83,33 @@
   .font-black,
   .font-extrabold,
   .font-bold {
-    font-family: 'Fact Black', ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+    font-family: ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+    font-weight: 800;
   }
 
   .kickback-wordmark {
-    font-family: 'Fact Black', ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+    font-family: 'Fact Bold', ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
     font-style: italic;
-    font-weight: 900;
+    font-weight: 800;
+    letter-spacing: 0.01em;
+  }
+}
+
+@layer utilities {
+  .fact-extrabold {
+    font-family: 'Fact Bold', ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+    font-weight: 800;
+  }
+
+  .dizhitl-extrabold {
+    font-family: 'Dizhitl', ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+    font-weight: 800;
+  }
+
+  .dizhitl-extrabolditalic {
+    font-family: 'Dizhitl', ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+    font-weight: 800;
+    font-style: italic;
   }
 }
 

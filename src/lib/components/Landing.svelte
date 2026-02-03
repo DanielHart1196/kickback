@@ -37,7 +37,7 @@
 
 <main class="relative min-h-screen overflow-hidden bg-black text-white">
     <header class="mx-auto flex w-full max-w-6xl items-center justify-between px-6 pt-5">
-    <div class="kickback-wordmark text-4xl font-black tracking-tighter uppercase select-none">
+    <div class="kickback-wordmark text-4xl tracking-tighter uppercase select-none">
       <span class="text-white">Kick</span><span class="text-orange-500">back</span>
     </div>
     <a
