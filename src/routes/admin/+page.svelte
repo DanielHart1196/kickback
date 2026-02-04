@@ -684,12 +684,12 @@
       adminUserId = user?.id ?? '';
       try {
         const u: any = user;
-        const identities = Array.isArray(u?.identities) ? u.identities : [];
-        const identityProviders = identities
-          .map((i: any) => String(i?.provider || '').toLowerCase())
-          .filter(Boolean);
+    const identities = Array.isArray(u?.identities) ? u.identities : [];
+    const identityProviders: string[] = identities
+      .map((i: any) => String(i?.provider || '').toLowerCase())
+      .filter(Boolean);
         const metaProvider = String(u?.app_metadata?.provider || '').toLowerCase();
-        let provider = metaProvider || identityProviders.find((p) => p && p !== 'email') || identityProviders[0] || '';
+    let provider = metaProvider || identityProviders.find((p: string) => p && p !== 'email') || identityProviders[0] || '';
         if (provider === 'email') {
           authProviderLabel = 'Signed in with Magic Link';
         } else if (provider) {
