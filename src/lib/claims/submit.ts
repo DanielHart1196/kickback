@@ -24,6 +24,7 @@ type ClaimInsertInput = {
   last4: string;
   createdAt: string;
   submitterId: string | null;
+  submitterReferralCode: string | null;
 };
 
 export function validateClaimInput(input: ClaimSubmitInput): string | null {
@@ -56,6 +57,7 @@ export function buildClaimInsert(input: ClaimInsertInput): ClaimInsert {
     purchased_at: new Date(input.purchaseTime).toISOString(),
     last_4: input.last4,
     created_at: input.createdAt,
-    submitter_id: input.submitterId
+    submitter_id: input.submitterId,
+    submitter_referral_code: input.submitterReferralCode
   };
 }

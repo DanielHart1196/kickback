@@ -31,8 +31,13 @@
   let billingPostalCode = '3095';
   let billingCity = 'Eltham';
   let billingAddress = '';
+  let abn = '';
+  let authProviderLabel = '';
+  let deletingAccount = false;
+  let deleteAccountError = '';
   let paymentMethods: string[] = ['gateway'];
   let selectedPaymentMethod = 'gateway';
+  let showPaymentMethods = false;
   const showHelloClever = true;
   const paymentMethodOptions = [
     { id: 'payto', label: 'PayTo (Auto Debit)' },
@@ -123,7 +128,7 @@
   const zeptoCreditorIdType = 'bban';
   const zeptoCreditorIdValue = '067873-21919407';
   let zeptoDescription = 'Kickback PayTo agreement';
-  const zeptoPaymentType = 'variable';
+  let zeptoPaymentType: 'variable' | 'fixed' | 'balloon' = 'variable';
   const zeptoPaymentFrequency = 'weekly';
   let zeptoPaymentAmount = '';
   let zeptoPaymentMaxAmount = '200';
@@ -527,7 +532,8 @@
       billing_state: billingState.trim() || null,
       billing_postal_code: billingPostalCode.trim() || null,
       billing_city: billingCity.trim() || null,
-      billing_address: billingAddress.trim() || null
+      billing_address: billingAddress.trim() || null,
+      billing_abn: abn.trim() || null
     };
     const { error } = await supabase.from('venues').update(payload).eq('id', venue.id);
     if (error) {
@@ -544,41 +550,21 @@
     gatewayError = '';
     gatewaySuccess = '';
     try {
-      const descriptionValue = 'Weekly Kickback invoice';
       const saved = await saveBillingDetails();
       if (!saved) {
         return;
       }
-      const response = await fetch('/api/helloclever/gateway/create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          venue_id: venue.id,
-          description: descriptionValue
-        })
-      });
-      const data = await response.json().catch(() => null);
-      if (!response.ok) {
-        const errorPayload = data?.error ?? 'Failed to create payment link.';
-        gatewayError = typeof errorPayload === 'string' ? errorPayload : JSON.stringify(errorPayload);
-        return;
-      }
-      latestPaymentRequest = data?.payment_request ?? null;
-      gatewaySuccess = 'Payment link created.';
+      gatewaySuccess = 'Billing details saved.';
     } catch (error) {
-      console.error('Error creating payment link:', error);
-      gatewayError = 'Failed to create payment link.';
+      console.error('Error saving billing details:', error);
+      gatewayError = 'Failed to save billing details.';
     } finally {
       gatewayCreating = false;
     }
   }
 
   $: billingDetailsReady = Boolean(
-    billingFirstName.trim() &&
-    billingLastName.trim() &&
-    billingPhone.trim() &&
     billingEmail.trim() &&
-    billingCountryCode.trim() &&
     billingPostalCode.trim() &&
     billingCity.trim() &&
     billingAddress.trim()
@@ -694,12 +680,30 @@
       const user = sessionData.session?.user;
       userEmail = user?.email ?? '';
       adminUserId = user?.id ?? '';
+      try {
+        const u: any = user;
+        const identities = Array.isArray(u?.identities) ? u.identities : [];
+        const identityProviders = identities
+          .map((i: any) => String(i?.provider || '').toLowerCase())
+          .filter(Boolean);
+        const metaProvider = String(u?.app_metadata?.provider || '').toLowerCase();
+        let provider = metaProvider || identityProviders.find((p) => p && p !== 'email') || identityProviders[0] || '';
+        if (provider === 'email') {
+          authProviderLabel = 'Signed in with Magic Link';
+        } else if (provider) {
+          authProviderLabel = 'Signed in with ' + (provider.charAt(0).toUpperCase() + provider.slice(1));
+        } else {
+          authProviderLabel = 'Signed in';
+        }
+      } catch {
+        authProviderLabel = 'Signed in';
+      }
       if (!user) return;
 
-    const { data: directVenues, error: directError } = await supabase
+      const { data: directVenues, error: directError } = await supabase
       .from('venues')
       .select(
-        'id, name, short_code, logo_url, kickback_guest, kickback_referrer, payment_methods, billing_email, billing_contact_first_name, billing_contact_last_name, billing_phone, billing_company, billing_country_code, billing_state, billing_postal_code, billing_city, billing_address, active, created_by'
+        'id, name, short_code, logo_url, kickback_guest, kickback_referrer, payment_methods, billing_email, billing_contact_first_name, billing_contact_last_name, billing_phone, billing_company, billing_country_code, billing_state, billing_postal_code, billing_city, billing_address, billing_abn, active, created_by'
       )
       .eq('created_by', user.id)
       .limit(1);
@@ -725,7 +729,7 @@
         const { data: linkedVenues, error: linkedError } = await supabase
           .from('venues')
         .select(
-          'id, name, short_code, logo_url, kickback_guest, kickback_referrer, payment_methods, billing_email, billing_contact_first_name, billing_contact_last_name, billing_phone, billing_company, billing_country_code, billing_state, billing_postal_code, billing_city, billing_address, active'
+          'id, name, short_code, logo_url, kickback_guest, kickback_referrer, payment_methods, billing_email, billing_contact_first_name, billing_contact_last_name, billing_phone, billing_company, billing_country_code, billing_state, billing_postal_code, billing_city, billing_address, billing_abn, active, created_by'
         )
         .in('id', venueIds)
         .limit(1);
@@ -753,6 +757,7 @@
       billingPostalCode = venue?.billing_postal_code ?? '3095';
       billingCity = venue?.billing_city ?? 'Eltham';
       billingAddress = venue?.billing_address ?? '';
+      abn = venue?.billing_abn ?? '';
     }
 
   async function createVenue() {
@@ -780,7 +785,8 @@
         billing_state: billingState.trim() || null,
         billing_postal_code: billingPostalCode.trim() || null,
         billing_city: billingCity.trim() || null,
-        billing_address: billingAddress.trim() || null
+        billing_address: billingAddress.trim() || null,
+        billing_abn: abn.trim() || null
       };
 
         const { data, error } = await supabase.from('venues').insert(payload).select().single();
@@ -821,7 +827,8 @@
         billing_state: billingState.trim() || null,
         billing_postal_code: billingPostalCode.trim() || null,
         billing_city: billingCity.trim() || null,
-        billing_address: billingAddress.trim() || null
+        billing_address: billingAddress.trim() || null,
+        billing_abn: abn.trim() || null
       };
         const { error } = await supabase.from('venues').update(payload).eq('id', venue.id);
         if (error) throw error;
@@ -899,7 +906,15 @@
     }
   }
 
-  function triggerLogoUpload() {
+  async function triggerLogoUpload() {
+    if (!venue) {
+      const name = venueName.trim();
+      if (!name) {
+        logoError = 'Enter a venue name first.';
+        return;
+      }
+      await createVenue();
+    }
     if (logoInput) logoInput.click();
   }
 
@@ -1258,6 +1273,7 @@
 
   function getStatusBadgeClass(status: ClaimStatus): string {
     if (status === 'approved') return 'border-green-500/30 bg-green-500/10 text-green-400';
+    if (status === 'paid') return 'border-blue-500/30 bg-blue-500/10 text-blue-400';
     if (status === 'denied') return 'border-red-500/30 bg-red-500/10 text-red-400';
     return 'border-zinc-700 bg-zinc-800 text-zinc-300';
   }
@@ -1476,6 +1492,36 @@
         }
       }
       window.location.href = '/admin/login';
+    }
+  }
+
+  async function handleDeleteAccount() {
+    if (deletingAccount) return;
+    const confirmed = window.confirm('Delete your account? This cannot be undone.');
+    if (!confirmed) return;
+    deletingAccount = true;
+    deleteAccountError = '';
+    try {
+      const { data, error } = await supabase.auth.getSession();
+      if (error || !data.session?.access_token) {
+        deleteAccountError = 'Session expired. Please sign in again.';
+        deletingAccount = false;
+        return;
+      }
+      const response = await fetch('/api/account/delete', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${data.session.access_token}` }
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        deleteAccountError = payload?.error ?? 'Failed to delete account.';
+        deletingAccount = false;
+        return;
+      }
+      await handleSignOut();
+    } catch (error) {
+      deleteAccountError = error instanceof Error ? error.message : 'Failed to delete account.';
+      deletingAccount = false;
     }
   }
 
@@ -1857,7 +1903,7 @@
               on:click={triggerLogoUpload}
               class="w-20 h-20 rounded-2xl bg-zinc-800 border border-zinc-700 flex items-center justify-center text-zinc-400 text-xs font-black uppercase tracking-widest hover:text-white transition-colors text-center"
               class:overflow-hidden={Boolean(venue?.logo_url)}
-              disabled={!venue || logoDeleting}
+              disabled={logoDeleting}
             >
               {#if venue?.logo_url}
                 <img src={venue.logo_url} alt={venue.name} class="w-full h-full object-cover" />
@@ -1894,15 +1940,9 @@
               placeholder="Venue name"
               class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-lg font-bold text-white w-full md:w-72"
             />
-            <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
-              Billing Email
-              <input
-                type="email"
-                bind:value={billingEmail}
-                placeholder="billing@venue.com"
-                class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-white w-full md:w-72"
-              />
-            </label>
+            <p class="text-[10px] font-bold uppercase tracking-widest text-zinc-500">
+              {authProviderLabel}{userEmail ? ` — ${userEmail}` : ''}
+            </p>
           </div>
         </div>
         <div class="flex flex-col gap-3 w-full md:w-auto">
@@ -2032,7 +2072,7 @@
         bind:this={logoInput}
         type="file"
         accept="image/*"
-        class="hidden"
+        class="sr-only"
         on:change={(event) => {
           const target = event.currentTarget as HTMLInputElement;
           const file = target.files?.[0];
@@ -2041,16 +2081,26 @@
         }}
       />
   </section>
-    <section class="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-6 md:p-8">
-      <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+    <section
+      class="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-6 md:p-8"
+    >
+      <button
+        type="button"
+        class="flex items-center justify-between gap-4 cursor-pointer select-none w-full"
+        on:click|stopPropagation={() => (showPaymentMethods = !showPaymentMethods)}
+        aria-expanded={showPaymentMethods}
+      >
         <div>
           <p class="text-xs font-black uppercase tracking-widest text-zinc-500">Payment Methods</p>
-          <p class="text-sm font-bold text-white mt-2">
-            Select at least one to enable claims for this venue.
-          </p>
         </div>
-      </div>
+        <div class="inline-flex items-center rounded-xl px-2 py-2 text-zinc-300 hover:text-white transition-colors focus:outline-none shrink-0">
+          <svg viewBox="0 0 24 24" aria-hidden="true" class={`h-6 w-6 transition-transform ${showPaymentMethods ? '' : 'rotate-180'}`} fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M6 9l6 6 6-6" />
+          </svg>
+        </div>
+      </button>
 
+      {#if showPaymentMethods}
       <div class="mt-6">
         <div class="grid gap-2">
           {#each paymentMethodOptions as option}
@@ -2161,7 +2211,7 @@
             <div>
               <p class="text-xs font-black uppercase tracking-widest text-zinc-500">Invoice + Online Payment</p>
               <p class="text-sm font-bold text-white mt-2">
-                Creates last week&#39;s invoice (approved claims + platform fee).
+                Save billing details for future invoicing.
               </p>
             </div>
             {#if latestPaymentRequest}
@@ -2173,39 +2223,9 @@
 
           <div class="mt-6 space-y-4">
             <div class="border border-zinc-800 rounded-xl p-4 bg-zinc-950">
-              <p class="text-[10px] font-black uppercase tracking-widest text-zinc-500">
-                Gateway Billing Details
-              </p>
-              <div class="mt-3 grid gap-3 md:grid-cols-2">
+              <div class="grid gap-3 md:grid-cols-2">
                 <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
-                  First Name
-                  <input
-                    type="text"
-                    bind:value={billingFirstName}
-                    placeholder="Clever"
-                    class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-white"
-                  />
-                </label>
-                <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
-                  Last Name
-                  <input
-                    type="text"
-                    bind:value={billingLastName}
-                    placeholder="Hello"
-                    class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-white"
-                  />
-                </label>
-                <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
-                  Phone
-                  <input
-                    type="tel"
-                    bind:value={billingPhone}
-                    placeholder="+61412345678"
-                    class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-white"
-                  />
-                </label>
-                <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
-                  Company
+                  Business name
                   <input
                     type="text"
                     bind:value={billingCompany}
@@ -2214,29 +2234,29 @@
                   />
                 </label>
                 <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
-                  Country Code
+                  ABN
                   <input
                     type="text"
-                    bind:value={billingCountryCode}
-                    placeholder="AU"
+                    bind:value={abn}
+                    placeholder="12 345 678 901"
                     class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-white"
                   />
                 </label>
-                <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
-                  State
+                <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500 md:col-span-2">
+                  Billing Email
                   <input
-                    type="text"
-                    bind:value={billingState}
-                    placeholder="VIC"
+                    type="email"
+                    bind:value={billingEmail}
+                    placeholder="billing@venue.com"
                     class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-white"
                   />
                 </label>
-                <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
-                  Postal Code
+                <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500 md:col-span-2">
+                  Street Address
                   <input
                     type="text"
-                    bind:value={billingPostalCode}
-                    placeholder="3095"
+                    bind:value={billingAddress}
+                    placeholder="388 George Street"
                     class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-white"
                   />
                 </label>
@@ -2249,37 +2269,31 @@
                     class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-white"
                   />
                 </label>
+                <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
+                  Post Code
+                  <input
+                    type="text"
+                    bind:value={billingPostalCode}
+                    placeholder="3095"
+                    class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-white"
+                  />
+                </label>
               </div>
-              <label class="mt-3 flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
-                Address
-                <input
-                  type="text"
-                  bind:value={billingAddress}
-                  placeholder="388 George Street"
-                  class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-white"
-                />
-              </label>
+              
             </div>
 
-            <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500 md:col-span-2">
-              Description
-            </label>
+            <!-- Removed unused Description label to satisfy a11y -->
           </div>
 
           <div class="mt-5 flex flex-wrap items-center gap-3">
             <button
               type="button"
               on:click={handleCreatePaymentLink}
-              disabled={!venue || gatewayCreating || gatewayLoading || !billingDetailsReady}
+              disabled={!venue || gatewayCreating || gatewayLoading}
               class="bg-white text-black font-black px-6 py-3 rounded-xl uppercase tracking-tight disabled:opacity-50"
             >
-              {gatewayCreating ? 'Creating...' : 'Create Payment Link'}
+              {gatewayCreating ? 'Saving...' : 'Save Billing Details'}
             </button>
-            {#if !billingDetailsReady}
-              <span class="text-xs font-bold uppercase tracking-widest text-zinc-500">
-                Add billing details to enable payment links.
-              </span>
-            {/if}
             {#if gatewayLoading}
               <span class="text-xs font-bold uppercase tracking-widest text-zinc-500">Loading...</span>
             {/if}
@@ -2324,6 +2338,7 @@
             </div>
           {/if}
         </div>
+      {/if}
       {/if}
     </section>
 
@@ -2700,6 +2715,19 @@
     >
       {signingOut ? 'Signing out...' : `LOGOUT: ${userEmail || 'ADMIN'}`}
     </button>
+    <div class="mt-3">
+      <button
+        type="button"
+        on:click={handleDeleteAccount}
+        disabled={deletingAccount}
+        class="text-red-500 text-[10px] font-black uppercase tracking-[0.3em] hover:text-red-400 transition-colors disabled:opacity-50"
+      >
+        {deletingAccount ? 'Deleting account...' : 'Delete account'}
+      </button>
+      {#if deleteAccountError}
+        <p class="mt-2 text-[10px] font-bold uppercase tracking-widest text-red-400">{deleteAccountError}</p>
+      {/if}
+    </div>
   </div>
 </div>
 
@@ -2792,4 +2820,3 @@
     }
   }
 </style>
-

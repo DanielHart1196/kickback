@@ -728,7 +728,8 @@
           purchaseTime,
           last4,
           createdAt,
-          submitterId: session?.user?.id ?? null
+          submitterId: session?.user?.id ?? null,
+          submitterReferralCode: userRefCode || null
         })
       );
       let linkedSquare = false;
@@ -1222,7 +1223,6 @@
     </div>
   {/if}
 </main>
-
 
 
 

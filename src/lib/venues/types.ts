@@ -16,5 +16,6 @@ export type Venue = {
   billing_postal_code?: string | null;
   billing_city?: string | null;
   billing_address?: string | null;
+  billing_abn?: string | null;
   active?: boolean;
 };

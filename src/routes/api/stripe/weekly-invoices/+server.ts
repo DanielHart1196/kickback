@@ -1,12 +1,7 @@
 import { json } from '@sveltejs/kit';
 import { dev } from '$app/environment';
 import { supabaseAdmin } from '$lib/server/supabaseAdmin';
-import {
-  PRIVATE_CRON_SECRET,
-  CRON_SECRET,
-  PRIVATE_STRIPE_SECRET_KEY_PROD,
-  PRIVATE_STRIPE_SECRET_KEY_SANDBOX
-} from '$env/static/private';
+import { env } from '$env/dynamic/private';
 
 const timeZone = 'Australia/Sydney';
 const weekdayIndex: Record<string, number> = {
@@ -93,8 +88,8 @@ function getPreviousWeekRange() {
 }
 
 function getStripeKey(): string | null {
-  if (dev) return PRIVATE_STRIPE_SECRET_KEY_SANDBOX ?? null;
-  return PRIVATE_STRIPE_SECRET_KEY_PROD ?? null;
+  if (dev) return env.PRIVATE_STRIPE_SECRET_KEY_SANDBOX ?? null;
+  return env.PRIVATE_STRIPE_SECRET_KEY_PROD ?? null;
 }
 
 function appendStripeParams(params: URLSearchParams, prefix: string, value: unknown) {
@@ -165,7 +160,7 @@ export async function POST({ request }) {
     const authHeader = request.headers.get('authorization') ?? '';
     const cronHeader = request.headers.get('x-vercel-cron');
     const isCron = cronHeader === '1';
-    const secret = CRON_SECRET || PRIVATE_CRON_SECRET;
+    const secret = env.CRON_SECRET || env.PRIVATE_CRON_SECRET;
     const hasSecret = secret && authHeader === `Bearer ${secret}`;
     if (!isCron && !hasSecret) {
       return json({ ok: false, error: 'unauthorized' }, { status: 401 });

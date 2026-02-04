@@ -49,6 +49,12 @@
       Number.isFinite(amountValue) && amountValue > 0
         ? calculateKickbackWithRate(amountValue, rate).toFixed(2)
         : null;
+    
+    const { data } = await supabase.auth.getSession();
+    if (data?.session?.user) {
+      window.location.href = '/';
+      return;
+    }
   });
 
   async function handleOAuth(provider: 'google') {
@@ -58,7 +64,7 @@
     const params = new URLSearchParams(window.location.search);
     const draft = buildDraftFromParams(params);
     const draftQuery = draftToQuery(draft);
-    const redirectUrl = `${window.location.origin}${window.location.pathname}?${draftQuery}`;
+    const redirectUrl = `${window.location.origin}/auth/callback?redirect_to=/`;
     // Save draft if we have query params
     if (draftQuery) {
       saveDraftToStorage(localStorage, draft);

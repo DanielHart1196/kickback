@@ -25,7 +25,7 @@
   let pendingTotal = 0;
   let approvedTotal = 0;
   let availableTotal = 0;
-  let filterStatus: Set<'pending' | 'approved' | 'denied'> = new Set();
+  let filterStatus: Set<'pending' | 'approved' | 'paid' | 'denied'> = new Set();
   let filterReferred: Set<'referred' | 'direct'> = new Set();
   let showFilterMenu = false;
   let listContainer: HTMLDivElement | null = null;
@@ -42,6 +42,10 @@
   let payoutStatus: 'idle' | 'loading' | 'saving' | 'error' | 'success' = 'idle';
   let payoutError = '';
   let payoutMessage = '';
+  let payoutStripeAccountId = '';
+  let payoutStripeOnboarded = false;
+  let payoutStripeStatusLoaded = false;
+  let authProviderLabel = '';
 
   onMount(() => {
     const handleOutsideClick = (event: MouseEvent) => {
@@ -52,6 +56,40 @@
       showFilterMenu = false;
     };
     document.addEventListener('click', handleOutsideClick);
+    if (typeof window !== 'undefined') {
+      const hash = window.location.hash || '';
+      if (hash && /payouts/i.test(hash)) {
+        openSettings();
+        if (/connected/i.test(hash)) {
+          payoutMessage = 'Stripe connected';
+          try {
+            const localId = localStorage.getItem('stripe_account_id') || '';
+            if (localId) {
+              payoutStripeAccountId = localId;
+            }
+          } catch {}
+          setTimeout(() => {
+            if (payoutMessage) payoutMessage = '';
+          }, 4000);
+        }
+        const cleanUrl = window.location.pathname + window.location.search;
+        window.history.replaceState(window.history.state, '', cleanUrl);
+      }
+      supabase.auth.getSession().then(({ data }) => {
+        const session = data?.session;
+        let provider: string =
+          (session?.user as any)?.app_metadata?.provider ??
+          ((session?.user as any)?.identities?.[0]?.provider ?? '');
+        provider = String(provider || '').toLowerCase();
+        if (provider === 'email') {
+          authProviderLabel = 'Signed in with Magic Link';
+        } else if (provider) {
+          authProviderLabel = 'Signed in with ' + (provider.charAt(0).toUpperCase() + provider.slice(1));
+        } else {
+          authProviderLabel = 'Signed in';
+        }
+      });
+    }
     return () => {
       document.removeEventListener('click', handleOutsideClick);
     };
@@ -71,6 +109,7 @@
     payoutStatus = 'loading';
     payoutError = '';
     payoutMessage = '';
+    payoutStripeStatusLoaded = false;
     try {
       const { data, error } = await supabase
         .from('payout_profiles')
@@ -82,10 +121,39 @@
       payoutFullName = data?.full_name ?? '';
       payoutDob = data?.dob ?? '';
       payoutAddress = data?.address ?? '';
+      payoutStripeAccountId = '';
+      try {
+        const localId = typeof window !== 'undefined' ? localStorage.getItem('stripe_account_id') || '' : '';
+        if (!payoutStripeAccountId && localId) {
+          payoutStripeAccountId = localId;
+          await supabase
+            .from('payout_profiles')
+            .upsert(
+              { user_id: userId, stripe_account_id: payoutStripeAccountId, updated_at: new Date().toISOString() },
+              { onConflict: 'user_id' }
+            );
+        }
+      } catch {}
+      try {
+        const statusRes = await fetch('/api/stripe/connect/status', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_id: userId })
+        });
+        const statusPayload = await statusRes.json().catch(() => null);
+        if (statusRes.ok && statusPayload?.ok) {
+          if (!payoutStripeAccountId && statusPayload?.account_id) {
+            payoutStripeAccountId = statusPayload.account_id || '';
+          }
+          payoutStripeOnboarded = Boolean(statusPayload?.onboarded);
+        }
+        payoutStripeStatusLoaded = true;
+      } catch {
+        payoutStripeStatusLoaded = true;
+      }
       payoutStatus = 'idle';
     } catch (error) {
-      payoutStatus = 'error';
-      payoutError = error instanceof Error ? error.message : 'Failed to load payout details.';
+      payoutStatus = 'idle';
     }
   }
 
@@ -101,6 +169,7 @@
         full_name: payoutFullName.trim() || null,
         dob: payoutDob || null,
         address: payoutAddress.trim() || null,
+        stripe_account_id: payoutStripeAccountId || null,
         updated_at: new Date().toISOString()
       };
       const { error } = await supabase.from('payout_profiles').upsert(payload, { onConflict: 'user_id' });
@@ -113,6 +182,60 @@
     } catch (error) {
       payoutStatus = 'error';
       payoutError = error instanceof Error ? error.message : 'Failed to save payout details.';
+    }
+  }
+
+  async function connectStripe() {
+    if (!userId) return;
+    try {
+      payoutStatus = 'loading';
+      const response = await fetch('/api/stripe/connect/link', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: userId,
+          email: userEmail
+        })
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload?.ok || !payload?.url) {
+        payoutStatus = 'error';
+        payoutError = payload?.error ?? 'Failed to start Stripe Connect.';
+        return;
+      }
+      try {
+        if (typeof window !== 'undefined' && payload.account_id) {
+          localStorage.setItem('stripe_account_id', payload.account_id);
+        }
+      } catch {}
+      window.location.href = payload.url;
+    } catch (error) {
+      payoutStatus = 'error';
+      payoutError = error instanceof Error ? error.message : 'Failed to start Stripe Connect.';
+    }
+  }
+
+  async function openStripeDashboard() {
+    if (!payoutStripeAccountId) return;
+    try {
+      payoutStatus = 'loading';
+      const response = await fetch('/api/stripe/connect/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: userId
+        })
+      });
+      const payload = await response.json().catch(() => null);
+      payoutStatus = 'idle';
+      if (!response.ok || !payload?.ok || !payload?.url) {
+        payoutError = payload?.error ?? 'Failed to open Stripe dashboard.';
+        return;
+      }
+      window.open(payload.url, '_blank');
+    } catch (error) {
+      payoutStatus = 'error';
+      payoutError = error instanceof Error ? error.message : 'Failed to open Stripe dashboard.';
     }
   }
 
@@ -209,11 +332,11 @@
     }, 0);
   }
 
-  function getClaimStatus(claim: Claim): 'pending' | 'approved' | 'denied' {
+  function getClaimStatus(claim: Claim): 'pending' | 'approved' | 'paid' | 'denied' {
     return claim.status ?? 'approved';
   }
 
-  function getStatusTotal(status: 'pending' | 'approved'): number {
+  function getStatusTotal(status: 'pending' | 'approved' | 'paid'): number {
     return claims.reduce((sum, claim) => {
       if (getClaimStatus(claim) !== status) return sum;
       return sum + getKickbackForClaim(claim);
@@ -225,7 +348,7 @@
     venues;
     pendingTotal = getStatusTotal('pending');
     approvedTotal = getStatusTotal('approved');
-    availableTotal = 0;
+    availableTotal = getStatusTotal('paid');
   }
   $: filteredClaims = claims.filter((claim) => {
     const status = getClaimStatus(claim);
@@ -239,8 +362,9 @@
   });
 
 
-  function getStatusBadgeClass(status: 'pending' | 'approved' | 'denied'): string {
+  function getStatusBadgeClass(status: 'pending' | 'approved' | 'paid' | 'denied'): string {
     if (status === 'approved') return 'border-green-500/30 bg-green-500/10 text-green-400';
+    if (status === 'paid') return 'border-blue-500/30 bg-blue-500/10 text-blue-400';
     if (status === 'denied') return 'border-red-500/30 bg-red-500/10 text-red-400';
     return 'border-zinc-700 bg-zinc-800 text-zinc-300';
   }
@@ -287,6 +411,7 @@
           <span class="block">Pending - ${pendingTotal.toFixed(2)}</span>
           <span class="block mt-1">Approved - ${approvedTotal.toFixed(2)}</span>
           <span class="block mt-1">Available - ${availableTotal.toFixed(2)}</span>
+          <span class="block mt-2">{availableTotal >= 20 ? 'Payout expected on Thursday' : 'Minimum payout $20'}</span>
         </span>
       </span>
     </p>
@@ -428,13 +553,13 @@
         <summary class="list-none p-5 flex items-center justify-between gap-4 cursor-pointer active:bg-zinc-900/50">
             <div class="flex items-center justify-between flex-1 gap-4">
               <div class="flex flex-col justify-center">
-              <p class={`text-xl font-black ${isClaimDenied(claim) ? 'text-zinc-500' : 'text-green-500'}`}>
+              <p class={`text-xl font-black uppercase tracking-widest ${isClaimDenied(claim) ? 'text-zinc-500' : 'text-green-500'}`}>
                 +${calculateKickbackWithRate(claim.amount, getClaimRate(claim)).toFixed(2)}
               </p>
               {#if claim.referrer_id && claim.referrer_id === userId}
                 <p class="text-zinc-300 uppercase tracking-tight text-sm font-bold">
                   {claimantCodes[claim.submitter_id ?? ''] || claim.referrer || 'Referral'}
-                  <span class="ml-1 text-orange-400">
+                  <span class="ml-1 text-orange-400 font-black uppercase tracking-widest">
                     +${calculateKickbackWithRate(claim.amount, getClaimRate(claim)).toFixed(2)}
                   </span>
                 </p>
@@ -465,11 +590,11 @@
         <div class="px-5 pb-6 pt-2 space-y-6">
           
           <div class="space-y-3">
-            <div class="flex flex-col gap-1 text-sm font-black uppercase text-zinc-400 tracking-widest md:flex-row md:items-center md:justify-between">
+            <div class="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
               {#if claim.referrer_id && claim.referrer_id === userId}
-                <p>Total kickback at {claim.venue} from {claimantCodes[claim.submitter_id ?? ''] || claim.referrer || 'Referral'}</p>
+                <p class="text-sm font-black uppercase tracking-widest text-zinc-400">Total kickback at {claim.venue} from {claimantCodes[claim.submitter_id ?? ''] || claim.referrer || 'Referral'}</p>
               {:else}
-                <p>Total kickback at {claim.venue}</p>
+                <p class="text-sm font-black uppercase tracking-widest text-zinc-400">Total kickback at {claim.venue}</p>
               {/if}
               <p class="text-base font-black text-orange-500">
                 ${getTotalKickbackAtVenue(claim.venue).toFixed(2)}
@@ -503,7 +628,7 @@
                   <span class="text-white">{claim.referrer || claimantCodes[claim.submitter_id ?? ''] || 'Code'}</span>
                 {:else}
                   <span class="text-white">{claim.referrer || 'Direct'}</span>
-                  <span class={isClaimDenied(claim) ? 'text-zinc-500' : 'text-green-500'}>
+                  <span class={`${isClaimDenied(claim) ? 'text-zinc-500' : 'text-green-500'} font-black uppercase tracking-widest`}>
                     +${calculateKickbackWithRate(claim.amount, getClaimRate(claim)).toFixed(2)}
                   </span>
                 {/if}
@@ -575,43 +700,41 @@
           <p class="text-[10px] font-black uppercase tracking-[0.25em] text-zinc-500">Account</p>
           <p class="mt-3 text-white truncate">{userEmail || 'Signed in'}</p>
           <p class="mt-2 text-[10px] font-bold uppercase tracking-widest text-zinc-500">
-            Signed in with Google
+            {authProviderLabel || 'Signed in'}
           </p>
         </div>
         <div class="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
           <p class="text-[10px] font-black uppercase tracking-[0.25em] text-zinc-500">Payouts</p>
           <div class="mt-4 space-y-3">
-            <input
-              type="text"
-              bind:value={payoutPayId}
-              placeholder="PayID (email or mobile)"
-              class="w-full bg-black border border-zinc-800 text-white h-10 px-3 rounded-xl text-sm font-semibold outline-none focus:ring-2 focus:ring-orange-500"
-            />
-            <input
-              type="text"
-              bind:value={payoutFullName}
-              placeholder="Full name"
-              class="w-full bg-black border border-zinc-800 text-white h-10 px-3 rounded-xl text-sm font-semibold outline-none focus:ring-2 focus:ring-orange-500"
-            />
-            <input
-              type="date"
-              bind:value={payoutDob}
-              class="w-full bg-black border border-zinc-800 text-white h-10 px-3 rounded-xl text-sm font-semibold outline-none focus:ring-2 focus:ring-orange-500"
-            />
-            <textarea
-              bind:value={payoutAddress}
-              rows="3"
-              placeholder="Address"
-              class="w-full bg-black border border-zinc-800 text-white px-3 py-2 rounded-xl text-sm font-semibold outline-none focus:ring-2 focus:ring-orange-500 resize-none"
-            ></textarea>
-            <button
-              type="button"
-              on:click={savePayoutProfile}
-              disabled={payoutStatus === 'saving' || payoutStatus === 'loading'}
-              class="w-full rounded-xl bg-white px-4 py-3 text-xs font-black uppercase tracking-[0.2em] text-black hover:bg-zinc-200 transition-colors disabled:opacity-60"
-            >
-              {payoutStatus === 'saving' ? 'Saving...' : 'Save payout details'}
-            </button>
+            {#if payoutStripeAccountId}
+              {#if payoutStripeStatusLoaded}
+                <p class="text-[11px] font-bold uppercase tracking-widest text-zinc-400">
+                  {payoutStripeOnboarded ? 'Connected via Stripe' : 'Verification required in Stripe'}
+                </p>
+              {:else}
+                <p class="text-[11px] font-bold uppercase tracking-widest text-zinc-400">Checking Stripe status…</p>
+              {/if}
+              <button
+                type="button"
+                on:click={openStripeDashboard}
+                class="w-full rounded-xl bg-white px-4 py-3 text-xs font-black uppercase tracking-[0.2em] text-black hover:bg-zinc-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={payoutStatus === 'loading'}
+              >
+                {payoutStatus === 'loading' ? 'Opening...' : 'Manage Stripe Account'}
+              </button>
+            {:else}
+              <p class="text-[11px] font-bold uppercase tracking-widest text-zinc-400">
+                Connect your Stripe account to receive payouts
+              </p>
+              <button
+                type="button"
+                on:click={connectStripe}
+                class="w-full rounded-xl bg-white px-4 py-3 text-xs font-black uppercase tracking-[0.2em] text-black hover:bg-zinc-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={payoutStatus === 'loading'}
+              >
+                {payoutStatus === 'loading' ? 'Connecting...' : 'Connect with Stripe'}
+              </button>
+            {/if}
             {#if payoutError}
               <p class="text-[10px] font-bold uppercase tracking-widest text-red-400">{payoutError}</p>
             {/if}
@@ -688,4 +811,3 @@
 >
   Refer a Friend
 </button>
-

@@ -437,7 +437,7 @@
         </div>
 
         {#if amount && amount > 0}
-          <div transition:slide={{ duration: 300 }} class="flex justify-between items-center px-2 mb-4 text-sm font-bold">
+          <div transition:slide={{ duration: 300 }} class="flex justify-between items-center px-2 mb-4 text-sm font-black uppercase tracking-widest">
             <span class="text-zinc-500">REWARD ({kickbackRatePercent}%)</span>
             <span class="text-green-500">+ ${kickback}</span>
           </div>
@@ -516,5 +516,4 @@
     -moz-appearance: auto;
   }
 </style>
-
 

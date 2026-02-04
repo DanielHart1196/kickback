@@ -1,4 +1,4 @@
-export type ClaimStatus = 'pending' | 'approved' | 'denied';
+export type ClaimStatus = 'pending' | 'approved' | 'paid' | 'denied';
 
 export type Claim = {
   id?: string;
@@ -17,6 +17,7 @@ export type Claim = {
   square_card_fingerprint?: string | null;
   square_location_id?: string | null;
   submitter_id: string | null;
+  submitter_referral_code?: string | null;
 };
 
 export type ClaimInsert = Omit<Claim, 'id'>;
