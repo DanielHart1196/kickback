@@ -42,7 +42,7 @@
     </div>
     <a
       href="/login"
-      class="inline-flex items-center justify-center rounded-full bg-white px-5 py-2 text-xs font-black uppercase tracking-[0.2em] text-black shadow-lg shadow-black/20 transition-transform transition-colors active:scale-95 hover:bg-zinc-200"
+    class="inline-flex items-center justify-center rounded-full bg-white px-5 py-2 text-xs font-black uppercase text-black shadow-lg shadow-black/20 transition-transform transition-colors active:scale-95 hover:bg-zinc-200"
     >
       Sign In
     </a>
@@ -57,7 +57,7 @@
         <div class="flex justify-center">
           <a
             href="/login"
-            class="inline-flex items-center justify-center rounded-full bg-orange-500 px-8 py-3 text-lg font-black uppercase tracking-tight text-black transition-transform active:scale-95 hover-lift"
+            class="inline-flex items-center justify-center rounded-full bg-orange-500 px-8 py-3 text-lg font-black uppercase text-black transition-transform active:scale-95 hover-lift"
           >
             Join
           </a>
@@ -70,7 +70,7 @@
             <div class="flex items-start gap-4">
               <div class="text-3xl font-extrabold text-orange-500">01</div>
               <div>
-                <p class="text-base font-extrabold uppercase tracking-[0.2em] text-white">
+                <p class="text-base font-extrabold uppercase text-white">
                   Share
                 </p>
                 <p class="text-sm text-zinc-400">
@@ -81,7 +81,7 @@
             <div class="flex items-start gap-4">
               <div class="text-3xl font-extrabold text-orange-500">02</div>
               <div>
-                <p class="text-base font-extrabold uppercase tracking-[0.2em] text-white">
+                <p class="text-base font-extrabold uppercase text-white">
                   Earn
                 </p>
                 <p class="text-sm text-zinc-400">
@@ -92,11 +92,11 @@
             <div class="flex items-start gap-4">
               <div class="text-3xl font-extrabold text-orange-500">03</div>
               <div>
-                <p class="text-base font-extrabold uppercase tracking-[0.2em] text-white">
+                <p class="text-base font-extrabold uppercase text-white">
                   Cash
                 </p>
                 <p class="text-sm text-zinc-400">
-                  No points. No credits.<br />Just cash.
+                  No points. No credits. <br class="sm:hidden" />Just cash.
                 </p>
               </div>
             </div>
@@ -129,18 +129,15 @@
           <p class="text-[10px] font-semibold uppercase tracking-[0.3em] text-zinc-500">
             For venues
           </p>
-          <p class="mt-3 text-lg font-black uppercase tracking-[0.2em] text-white">
-            TURN YOUR<br />
-            <span class="text-orange-500 font-black">REGULARS</span><br />
-            INTO YOUR<br />
-            <span class="text-orange-500 font-black">MARKETING TEAM</span>
+          <p class="mt-3 text-lg font-black uppercase text-white">
+            TURN YOUR<span class="sm:hidden"><br /></span> <span class="text-orange-500 font-black">REGULARS</span><span class="sm:hidden"><br /></span> INTO YOUR<span class="sm:hidden"><br /></span> <span class="text-orange-500 font-black">MARKETING TEAM</span>
           </p>
           <form
             class="mt-5 space-y-4"
             on:submit={handleContactSubmit}
           >
             <div>
-              <label for="contact-email" class="mb-1 block text-xs font-bold uppercase tracking-[0.2em] text-zinc-400">
+              <label for="contact-email" class="mb-1 block text-xs font-bold uppercase text-zinc-400">
                 Email
               </label>
               <input
@@ -154,7 +151,7 @@
               />
             </div>
             <div>
-              <label for="contact-venue" class="mb-1 block text-xs font-bold uppercase tracking-[0.2em] text-zinc-400">
+              <label for="contact-venue" class="mb-1 block text-xs font-bold uppercase text-zinc-400">
                 Venue name
               </label>
               <input
@@ -168,7 +165,7 @@
               />
             </div>
             <div>
-              <label for="contact-message" class="mb-1 block text-xs font-bold uppercase tracking-[0.2em] text-zinc-400">
+              <label for="contact-message" class="mb-1 block text-xs font-bold uppercase text-zinc-400">
                 Message <span class="text-zinc-600">(optional)</span>
               </label>
               <textarea
@@ -188,7 +185,7 @@
             <button
               type="submit"
               disabled={contactSubmitting}
-              class="w-full inline-flex items-center justify-center rounded-full bg-orange-500 px-8 py-3 text-lg font-black uppercase tracking-tight text-black transition-transform active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed hover-lift"
+              class="w-full inline-flex items-center justify-center rounded-full bg-orange-500 px-8 py-3 text-lg font-black uppercase text-black transition-transform active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed hover-lift"
             >
               {contactSubmitting ? 'Sending…' : 'Send'}
             </button>

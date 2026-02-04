@@ -3,115 +3,26 @@
 @tailwind utilities;
 
 @font-face {
-  font-family: 'Fact Bold';
-  src: url('/fonts/fact/Fact_Bold.otf') format('opentype');
-  font-weight: 700;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'Fact Bold';
-  src: url('/fonts/fact/Fact_Bold-Italic.otf') format('opentype');
-  font-weight: 700;
-  font-style: italic;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'Fact Bold';
-  src: url('/fonts/fact/Fact_Black.otf') format('opentype');
-  font-weight: 800;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'Fact Bold';
-  src: url('/fonts/fact/Fact_Black-Italic.otf') format('opentype');
-  font-weight: 800;
-  font-style: italic;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'Dizhitl';
-  src: url('/fonts/dizhitl/dizhitl-extrabold.ttf') format('truetype');
-  font-weight: 800;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'Acorde';
-  src: url('/fonts/acorde/acorde-medium.otf') format('opentype');
-  font-weight: 500;
-  font-style: normal;
-  font-display: swap;
-  ascent-override: 90%;
-  descent-override: 10%;
-  line-gap-override: 0%;
-}
-
-@font-face {
-  font-family: 'Acorde';
-  src: url('/fonts/acorde/acorde-black.otf') format('opentype');
-  font-weight: 900;
-  font-style: normal;
-  font-display: swap;
-  ascent-override: 90%;
-  descent-override: 10%;
-  line-gap-override: 0%;
-}
-
-@font-face {
-  font-family: 'Acorde';
-  src: url('/fonts/acorde/acorde-extra-black-italic.otf') format('opentype');
-  font-weight: 900;
-  font-style: italic;
-  font-display: swap;
-  ascent-override: 90%;
-  descent-override: 10%;
-  line-gap-override: 0%;
-}
-
-@font-face {
-  font-family: 'TheSans';
-  src: url('/fonts/thesans/TheSans Black.ttf') format('truetype');
-  font-weight: 900;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'Supra';
-  src: url('/fonts/supra/Supra-BlackMezzo.ttf') format('truetype');
-  font-weight: 900;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'Mundo Sans Std';
-  src: url('/fonts/mundo/Mundo Sans Std Black.otf') format('opentype');
-  font-weight: 900;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'Dizhitl';
-  src: url('/fonts/dizhitl/dizhitl-extrabolditalic.ttf') format('truetype');
-  font-weight: 800;
-  font-style: italic;
-  font-display: swap;
-}
-
-@font-face {
   font-family: 'Roboto';
   src: url('/fonts/roboto/Roboto-Medium.ttf') format('truetype');
   font-weight: 500;
   font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Montserrat';
+  src: url('/fonts/montserrat/Montserrat-VariableFont_wght.ttf') format('truetype');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Redonda';
+  src: url('/fonts/redonda/RedondaCondensedTest-BlackItalic.otf') format('opentype');
+  font-weight: 900;
+  font-style: italic;
   font-display: swap;
 }
 
@@ -121,60 +32,35 @@
   h3,
   h4,
   h5,
-  button,
-  a,
-  input,
-  textarea {
-    font-family: ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
-  }
-
-  h1,
-  h2,
-  h3,
-  h4,
-  h5,
   h6,
-  .font-black,
-  .font-extrabold,
-  .font-bold {
-    font-family: 'Acorde', ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
-    font-weight: 900;
+  button,
+  .uppercase {
+    font-family: 'Montserrat', ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+    font-weight: 800;
+    letter-spacing: -0.025em;
   }
 
   body,
   p,
-  span,
   textarea,
-  .font-normal,
-  .font-medium,
   input::placeholder {
-    font-family: 'Acorde', ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
-    font-weight: 500;
+    font-family: ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+    font-weight: 400;
   }
 
   .kickback-wordmark {
-    font-family: 'Acorde', ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+    font-family: 'Redonda', ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
     font-style: italic;
     font-weight: 900;
     letter-spacing: 0.01em;
   }
 }
 
-@layer utilities {
-  .fact-extrabold {
-    font-family: 'Fact Bold', ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
-    font-weight: 800;
-  }
-
-  .dizhitl-extrabold {
-    font-family: 'Dizhitl', ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
-    font-weight: 800;
-  }
-
-  .dizhitl-extrabolditalic {
-    font-family: 'Dizhitl', ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
-    font-weight: 800;
-    font-style: italic;
+@layer components {
+  .google-sso {
+    font-family: 'Roboto', sans-serif;
+    font-weight: 500;
+    letter-spacing: normal;
   }
 }
 

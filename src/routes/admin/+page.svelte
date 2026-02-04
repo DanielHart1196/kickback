@@ -88,6 +88,7 @@
   let squareConnected = false;
   let squareMerchantId = '';
   let squareSyncing = false;
+  let squareConnecting = false;
   let squareLocations: { id: string; name: string; status?: string }[] = [];
   let squareLocationIds = new Set<string>();
   let squareLocationsLoading = false;
@@ -213,6 +214,7 @@
     if (typeof window === 'undefined') return;
     if (!venue?.id) return;
     if (!squareAppId) return;
+    squareConnecting = true;
     const state =
       typeof crypto !== 'undefined' && 'randomUUID' in crypto
         ? crypto.randomUUID()
@@ -1994,9 +1996,10 @@
                   <button
                     type="button"
                     on:click={connectSquare}
-                    class="bg-orange-500 text-black font-black px-6 py-3 rounded-xl uppercase tracking-tight shadow-xl shadow-orange-500/10"
+                    disabled={squareConnecting}
+                    class="bg-orange-500 text-black font-black px-6 py-3 rounded-xl uppercase tracking-tight shadow-xl shadow-orange-500/10 disabled:opacity-50"
                   >
-                    Connect Square
+                    {squareConnecting ? 'Connecting...' : 'Connect Square'}
                   </button>
                 {/if}
               </div>

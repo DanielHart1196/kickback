@@ -33,7 +33,7 @@
 
       <button
         on:click={onDismiss}
-        class="w-full bg-transparent text-zinc-600 font-bold py-2 text-xs uppercase tracking-widest"
+        class="w-full bg-transparent text-zinc-600 font-bold py-2 text-xs uppercase"
       >
         Go Back
       </button>

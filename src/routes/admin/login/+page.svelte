@@ -1,5 +1,6 @@
 <script lang="ts">
   import { supabase } from '$lib/supabase';
+  import { onMount } from 'svelte';
 
   let loading = false;
   let message = '';
@@ -56,6 +57,23 @@
       magicLinkLoading = false;
     }
   }
+
+  onMount(async () => {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const session = sessionData.session;
+    if (!session?.user) return;
+
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', session.user.id)
+      .maybeSingle();
+
+    const role = profile?.role ?? 'member';
+    if (role === 'owner' || role === 'admin') {
+      window.location.href = '/admin';
+    }
+  });
 </script>
 
 <main class="min-h-screen bg-black text-white flex flex-col items-center justify-center p-6">
@@ -72,8 +90,7 @@
         type="button"
         on:click={handleGoogleOAuth}
         disabled={loading}
-        class="w-fit rounded-full border border-[#747775] bg-white text-[#1F1F1F] text-[14px] leading-[20px] font-medium h-10 px-3 inline-flex items-center justify-start gap-[10px] active:scale-95 transition-all disabled:opacity-50"
-        style="font-family: 'Roboto', sans-serif;"
+        class="google-sso w-fit rounded-full border border-[#747775] bg-white text-[#1F1F1F] text-[14px] leading-[20px] h-10 px-3 inline-flex items-center justify-start gap-[10px] active:scale-95 transition-all disabled:opacity-50"
       >
         <svg aria-hidden="true" viewBox="0 0 48 48" class="h-5 w-5">
           <path fill="#EA4335" d="M24 9.5c3.6 0 6.6 1.4 9 3.8l6.7-6.7C35.8 2.7 30.3.5 24 .5 14.7.5 6.6 5.8 2.7 13.5l7.8 6.1C12.4 13 17.8 9.5 24 9.5z"/>
@@ -119,7 +136,7 @@
       <a href="/privacy" class="text-zinc-300 hover:text-white transition-colors">privacy policy</a>.
     </p>
 
-    <button on:click={() => window.location.href = '/login'} class="w-full text-zinc-600 text-xs font-bold uppercase tracking-widest">
+    <button on:click={() => window.location.href = '/login'} class="w-full text-zinc-600 text-xs font-bold uppercase">
       Back to member login
     </button>
   </div>

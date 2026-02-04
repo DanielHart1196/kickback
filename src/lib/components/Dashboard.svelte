@@ -336,6 +336,11 @@
     return claim.status ?? 'approved';
   }
 
+  function getDisplayStatus(claim: Claim): 'pending' | 'approved' | 'denied' {
+    const status = getClaimStatus(claim);
+    return status === 'paid' ? 'approved' : status;
+  }
+
   function getStatusTotal(status: 'pending' | 'approved' | 'paid'): number {
     return claims.reduce((sum, claim) => {
       if (getClaimStatus(claim) !== status) return sum;
@@ -351,7 +356,7 @@
     availableTotal = getStatusTotal('paid');
   }
   $: filteredClaims = claims.filter((claim) => {
-    const status = getClaimStatus(claim);
+    const status = getDisplayStatus(claim);
     const isReferred = Boolean(claim.referrer_id && claim.referrer_id === userId);
     const statusOk = filterStatus.size === 0 || filterStatus.has(status);
     const referredOk =
@@ -362,9 +367,8 @@
   });
 
 
-  function getStatusBadgeClass(status: 'pending' | 'approved' | 'paid' | 'denied'): string {
+  function getStatusBadgeClass(status: 'pending' | 'approved' | 'denied'): string {
     if (status === 'approved') return 'border-green-500/30 bg-green-500/10 text-green-400';
-    if (status === 'paid') return 'border-blue-500/30 bg-blue-500/10 text-blue-400';
     if (status === 'denied') return 'border-red-500/30 bg-red-500/10 text-red-400';
     return 'border-zinc-700 bg-zinc-800 text-zinc-300';
   }
@@ -574,8 +578,8 @@
               </p>
             </div>
             <div class="flex items-center gap-2">
-              <span class={`border rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-widest ${getStatusBadgeClass(getClaimStatus(claim))}`}>
-                {getClaimStatus(claim).toUpperCase()}
+              <span class={`border rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-widest ${getStatusBadgeClass(getDisplayStatus(claim))}`}>
+                {getDisplayStatus(claim).toUpperCase()}
               </span>
             </div>
             </div>

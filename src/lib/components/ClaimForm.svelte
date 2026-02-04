@@ -216,7 +216,7 @@
       </h1>
       <p class="text-zinc-500 text-sm mt-2">
         {selectedVenue?.square_public
-          ? 'this venue supports auto claims after the initial handshake'
+          ? `${selectedVenue?.name ?? 'This venue'} supports auto claims after the initial handshake`
           : 'Claim Portal'}
       </p>
     </div>
@@ -245,7 +245,7 @@
 
     {#if isReferrerLocked && referrer}
       <div class="text-center text-lg font-black uppercase tracking-[0.3em] text-white">
-        CODE: <span class="text-orange-500">{referrer}</span>
+        CODE: <span class="text-orange-500 font-black">{referrer}</span>
       </div>
     {/if}
 
@@ -441,7 +441,7 @@
         </div>
 
         {#if amount && amount > 0}
-          <div transition:slide={{ duration: 300 }} class="flex justify-between items-center px-2 mb-4 text-sm font-black uppercase tracking-widest">
+          <div transition:slide={{ duration: 300 }} class="flex justify-between items-center px-2 mb-4 text-sm font-bold uppercase">
             <span class="text-zinc-500">REWARD ({kickbackRatePercent}%)</span>
             <span class="text-green-500">+ ${kickback}</span>
           </div>

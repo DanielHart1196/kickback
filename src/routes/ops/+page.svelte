@@ -557,6 +557,39 @@
     }
   }
 
+  async function markSelectedPaid() {
+    if (selectedClaimIds.size === 0) return;
+    bulkApplying = true;
+    try {
+      const { data, error } = await supabase.auth.getSession();
+      if (error || !data.session?.access_token) {
+        alert('Session expired. Please sign in again.');
+        return;
+      }
+      const token = data.session.access_token;
+      const ids = Array.from(selectedClaimIds).map((id) => String(id));
+      const response = await fetch('/api/ops/claims/status', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ claim_ids: ids, status: 'paid' })
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        alert(payload?.error ?? 'Failed to mark selected claims as paid');
+        return;
+      }
+      claims = claims.map((claim) => (claim.id && ids.includes(claim.id) ? { ...claim, status: 'paid' } : claim));
+      selectedClaimIds = new Set();
+    } catch (error) {
+      alert('Failed to mark selected claims as paid');
+    } finally {
+      bulkApplying = false;
+    }
+  }
+
   async function deleteSelectedClaims() {
     if (selectedClaimIds.size === 0) return;
     bulkApplying = true;
@@ -864,6 +897,15 @@
                           disabled={bulkApplying}
                         >
                           Deny
+                        </button>
+                        <button
+                          type="button"
+                          class="px-3 py-1 rounded-lg bg-blue-600 text-black text-xs font-black uppercase tracking-widest disabled:opacity-50"
+                          on:click={markSelectedPaid}
+                          disabled={bulkApplying}
+                          title="Mark selected claims as paid (admin)"
+                        >
+                          Mark Paid
                         </button>
                         {#if getSelectedWeekRange()}
                           <button
