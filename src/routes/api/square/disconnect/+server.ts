@@ -69,5 +69,14 @@ export async function POST({ request }) {
     return json({ ok: false, error: error.message }, { status: 500 });
   }
 
+  const { error: venueFlagError } = await supabaseAdmin
+    .from('venues')
+    .update({ square_public: false })
+    .eq('id', venueId);
+  if (venueFlagError) {
+    // Do not block disconnect success on flag failure; report a warning
+    return json({ ok: true, warning: 'flag_update_failed', error: venueFlagError.message });
+  }
+
   return json({ ok: true });
 }

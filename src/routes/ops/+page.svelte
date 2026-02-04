@@ -110,7 +110,7 @@
   async function fetchVenues() {
     const { data, error } = await supabase
       .from('venues')
-      .select('id,name,logo_url,kickback_guest,kickback_referrer,payment_methods,active,created_by')
+      .select('id,name,logo_url,kickback_guest,kickback_referrer,payment_methods,square_public,active,created_by')
       .order('name', { ascending: true });
     if (error) throw error;
     venues = data ?? [];
@@ -386,6 +386,66 @@
   $: selectedVenue = selectedVenueId ? venueById.get(selectedVenueId) ?? null : null;
 
   onMount(loadAll);
+
+  async function deleteSelectedUser() {
+    if (!selectedUserId) return;
+    const confirmed = window.confirm('Delete this user? This cannot be undone.');
+    if (!confirmed) return;
+    try {
+      const { data, error } = await supabase.auth.getSession();
+      if (error || !data.session?.access_token) {
+        alert('Session expired. Please sign in again.');
+        return;
+      }
+      const response = await fetch('/api/ops/delete/user', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${data.session.access_token}`
+        },
+        body: JSON.stringify({ user_id: selectedUserId })
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        alert(payload?.error ?? 'Failed to delete user');
+        return;
+      }
+      selectedUserId = null;
+      await loadAll();
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Failed to delete user');
+    }
+  }
+
+  async function deleteSelectedVenue() {
+    if (!selectedVenueId) return;
+    const confirmed = window.confirm('Delete this venue? This cannot be undone.');
+    if (!confirmed) return;
+    try {
+      const { data, error } = await supabase.auth.getSession();
+      if (error || !data.session?.access_token) {
+        alert('Session expired. Please sign in again.');
+        return;
+      }
+      const response = await fetch('/api/ops/delete/venue', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${data.session.access_token}`
+        },
+        body: JSON.stringify({ venue_id: selectedVenueId })
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        alert(payload?.error ?? 'Failed to delete venue');
+        return;
+      }
+      selectedVenueId = null;
+      await loadAll();
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Failed to delete venue');
+    }
+  }
 
   function getWeekStart(date: Date): Date {
     const start = new Date(date);
@@ -913,6 +973,15 @@
               <div>User ID: <span class="text-white">{selectedUserStats.id}</span></div>
             </div>
             <div class="mt-4">
+              <button
+                type="button"
+                class="px-3 py-1 rounded-lg bg-red-500 text-black text-xs font-black uppercase tracking-widest"
+                on:click={deleteSelectedUser}
+              >
+                Delete User
+              </button>
+            </div>
+            <div class="mt-4">
               <p class="text-[10px] font-black uppercase tracking-widest text-zinc-500">Claims by Venue</p>
               <div class="mt-2 space-y-1 text-xs text-zinc-300">
                 {#each selectedUserVenues as item}
@@ -1029,6 +1098,15 @@
                   {selectedVenueClaims.length} (${selectedVenueClaims.reduce((sum, claim) => sum + Number(claim.amount ?? 0), 0).toFixed(2)})
                 </span>
               </div>
+            </div>
+            <div class="mt-4">
+              <button
+                type="button"
+                class="px-3 py-1 rounded-lg bg-red-500 text-black text-xs font-black uppercase tracking-widest"
+                on:click={deleteSelectedVenue}
+              >
+                Delete Venue
+              </button>
             </div>
           {:else}
             <p class="text-sm text-zinc-500 mt-3">Select a venue to see details.</p>

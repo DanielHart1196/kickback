@@ -6,6 +6,7 @@ export type Venue = {
   kickback_guest?: number | null;
   kickback_referrer?: number | null;
   payment_methods?: string[] | null;
+  square_public?: boolean | null;
   billing_email?: string | null;
   billing_contact_first_name?: string | null;
   billing_contact_last_name?: string | null;

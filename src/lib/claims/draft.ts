@@ -16,6 +16,11 @@ export function buildDraftFromParams(params: URLSearchParams): ClaimDraft {
 export function getDraftFromUrl(search: string): ClaimDraft | null {
   const params = new URLSearchParams(search);
   if (![...params.keys()].length) return null;
+  const hasRelevant =
+    Boolean((params.get('venue') ?? '').trim()) ||
+    Boolean((params.get('venue_id') ?? '').trim()) ||
+    Boolean((params.get('ref') ?? '').trim());
+  if (!hasRelevant) return null;
 
   return buildDraftFromParams(params);
 }

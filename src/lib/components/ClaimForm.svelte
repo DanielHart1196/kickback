@@ -214,7 +214,11 @@
       <h1 class="kickback-wordmark text-4xl font-black tracking-tighter uppercase">
         <span class="text-white">Kick</span><span class="text-orange-500">back</span>
       </h1>
-      <p class="text-zinc-500 text-sm mt-2">Claim Portal</p>
+      <p class="text-zinc-500 text-sm mt-2">
+        {selectedVenue?.square_public
+          ? 'this venue supports auto claims after the initial handshake'
+          : 'Claim Portal'}
+      </p>
     </div>
 
     {#if selectedVenue?.logo_url}
@@ -516,4 +520,3 @@
     -moz-appearance: auto;
   }
 </style>
-

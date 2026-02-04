@@ -105,6 +105,15 @@ export async function GET({ url, cookies }) {
       throw redirect(302, `/admin?square=error&reason=${reason}`);
     }
 
+    const { error: venueFlagError } = await supabaseAdmin
+      .from('venues')
+      .update({ square_public: true })
+      .eq('id', venueId);
+    if (venueFlagError) {
+      const reason = encodeURIComponent(venueFlagError.message || 'venue_flag_update_failed');
+      throw redirect(302, `/admin?square=error&reason=${reason}`);
+    }
+
     throw redirect(302, `/admin?square=connected&merchant=${encodeURIComponent(payload.merchant_id ?? '')}`);
   } catch (error) {
     if (
