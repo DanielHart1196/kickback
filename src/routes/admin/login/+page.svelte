@@ -95,6 +95,7 @@
         bind:value={magicLinkEmail}
         placeholder="Enter your email"
         disabled={magicLinkLoading}
+        on:keydown={(e) => e.key === 'Enter' && handleMagicLink()}
         class="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-xl text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-white focus:border-transparent"
       />
       <button
