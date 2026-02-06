@@ -19,6 +19,10 @@
   let loading = true;
   let venue: Venue | null = null;
   let venueName = '';
+  let venueCode = '';
+  let venueCodeDirty = false;
+  let venueCodeChecking = false;
+  let venueCodeAvailable: boolean | null = null;
   let guestRate = '5';
   let referrerRate = '5';
   let billingEmail = '';
@@ -46,6 +50,7 @@
   $: paymentMethods = ['gateway'];
   let savingVenue = false;
   let savingError = '';
+  let savingSuccess = '';
   let logoUploading = false;
   let logoError = '';
   let logoInput: HTMLInputElement | null = null;
@@ -55,6 +60,7 @@
   let updatingClaimId: string | null = null;
   let showRatesTip = false;
   let ratesTipTimer: ReturnType<typeof setTimeout> | null = null;
+  let showVenueCodeTip = false;
   let csvFileName = '';
   let csvSourceText = '';
   let csvParsedCount = 0;
@@ -78,6 +84,24 @@
   let squareDeniedClaimIds: string[] = [];
   let squarePendingMatchCount = 0;
   let squarePendingDenyCount = 0;
+
+  function normalizeVenueCode(value: string): string {
+    return value.replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 12);
+  }
+
+  async function checkVenueCode() {
+    const code = normalizeVenueCode(venueCode);
+    if (code.length < 4) {
+      venueCodeAvailable = null;
+      return;
+    }
+    venueCodeChecking = true;
+    try {
+      venueCodeAvailable = await isVenueCodeAvailable(code, venue?.id ?? undefined);
+    } finally {
+      venueCodeChecking = false;
+    }
+  }
   let squareCheckedRange = '';
   let selectedClaimIds = new Set<string>();
   let bulkApplying = false;
@@ -745,6 +769,7 @@
 
     venue = venueRecord;
       venueName = venue?.name ?? '';
+      venueCode = venue?.short_code ?? '';
       guestRate = venue?.kickback_guest != null ? String(venue.kickback_guest) : '5';
     referrerRate = venue?.kickback_referrer != null ? String(venue.kickback_referrer) : '5';
     paymentMethods = ['gateway'];
@@ -770,7 +795,13 @@
       const user = sessionData.session?.user;
       if (!user) return;
 
-      const shortCode = await generateUniqueVenueCode(venueName.trim());
+      const desiredCode = normalizeVenueCode(venueCode);
+      let shortCode: string;
+      if (desiredCode.length >= 4 && (await isVenueCodeAvailable(desiredCode))) {
+        shortCode = desiredCode;
+      } else {
+        shortCode = await generateUniqueVenueCode(venueName.trim());
+      }
       const payload = {
         name: venueName.trim(),
         created_by: user.id,
@@ -795,6 +826,7 @@
         if (error) throw error;
 
         venue = data;
+        venueCode = venue.short_code ?? '';
       } catch (error) {
         console.error('Error creating venue:', error);
         savingError = 'Failed to create venue.';
@@ -807,13 +839,26 @@
     if (!venue) return;
     savingVenue = true;
     savingError = '';
+    savingSuccess = '';
     try {
       const trimmedName = venueName.trim();
       const nameChanged = trimmedName !== venue.name;
-      const shortCode =
-        nameChanged || !venue.short_code
-          ? await generateUniqueVenueCode(trimmedName)
-          : venue.short_code;
+      const desiredCode = normalizeVenueCode(venueCode);
+      let shortCode: string;
+      if (desiredCode.length >= 4) {
+        const available = await isVenueCodeAvailable(desiredCode, venue.id);
+        if (!available) {
+          savingVenue = false;
+          savingError = 'Venue code is already taken.';
+          return;
+        }
+        shortCode = desiredCode;
+      } else {
+        shortCode =
+          nameChanged || !venue.short_code
+            ? await generateUniqueVenueCode(trimmedName)
+            : venue.short_code;
+      }
       const payload = {
         name: trimmedName,
         kickback_guest: Number(guestRate),
@@ -835,6 +880,8 @@
         const { error } = await supabase.from('venues').update(payload).eq('id', venue.id);
         if (error) throw error;
         venue = { ...venue, ...payload };
+        venueCode = venue.short_code ?? '';
+        savingSuccess = 'Venue details saved.';
       } catch (error) {
         console.error('Error saving venue:', error);
         savingError = 'Failed to save venue.';
@@ -1903,7 +1950,7 @@
             <button
               type="button"
               on:click={triggerLogoUpload}
-              class="w-20 h-20 rounded-2xl bg-zinc-800 border border-zinc-700 flex items-center justify-center text-zinc-400 text-xs font-black uppercase tracking-widest hover:text-white transition-colors text-center"
+              class="w-40 h-40 rounded-2xl bg-zinc-800 border border-zinc-700 flex items-center justify-center text-zinc-400 text-xs font-black uppercase tracking-widest hover:text-white transition-colors text-center"
               class:overflow-hidden={Boolean(venue?.logo_url)}
               disabled={logoDeleting}
             >
@@ -1942,6 +1989,48 @@
               placeholder="Venue name"
               class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-lg font-bold text-white w-full md:w-72"
             />
+            <label class="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-zinc-500 mt-2">
+              <span>Venue Code</span>
+              <span class="relative inline-flex items-center">
+                <button
+                  type="button"
+                  class="inline-flex h-4 w-4 items-center justify-center rounded-full border border-zinc-600 text-[10px] leading-none text-zinc-400"
+                  aria-label="Venue code info"
+                  on:mouseenter={() => (showVenueCodeTip = true)}
+                  on:mouseleave={() => (showVenueCodeTip = false)}
+                  on:focus={() => (showVenueCodeTip = true)}
+                  on:blur={() => (showVenueCodeTip = false)}
+                  class:text-white={showVenueCodeTip}
+                  class:border-zinc-400={showVenueCodeTip}
+                >
+                  i
+                </button>
+                <span class={`absolute left-1/2 top-full mt-2 -translate-x-1/2 whitespace-nowrap bg-zinc-900 border border-zinc-700 text-zinc-300 text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded-lg pointer-events-none z-10 ${showVenueCodeTip ? 'opacity-100' : 'opacity-0'}`}>
+                  We'll show your full venue name throughout the website, this code is just used in URLs
+                </span>
+              </span>
+            </label>
+            <input
+              type="text"
+              bind:value={venueCode}
+              autocapitalize="characters"
+              on:input={() => {
+                venueCode = normalizeVenueCode(venueCode);
+                venueCodeDirty = true;
+                checkVenueCode();
+              }}
+              placeholder="e.g. ELTHAMBAR"
+              class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-lg font-black text-white w-full md:w-72 uppercase tracking-widest"
+            />
+            {#if venueCodeChecking}
+              <p class="text-[10px] font-black uppercase tracking-widest text-zinc-500">Checking code…</p>
+            {:else if venueCodeDirty && venueCode.trim().length > 0 && venueCode.trim().length < 4}
+              <p class="text-[10px] font-black uppercase tracking-widest text-orange-500/70">Use 4–12 letters or numbers</p>
+            {:else if venueCodeDirty && venueCodeAvailable === false}
+              <p class="text-[10px] font-black uppercase tracking-widest text-red-400">Code is taken</p>
+            {:else if venueCodeDirty && venueCodeAvailable === true}
+              <p class="text-[10px] font-black uppercase tracking-widest text-green-400">Code is available</p>
+            {/if}
             <p class="text-[10px] font-bold uppercase tracking-widest text-zinc-500">
               {authProviderLabel}{userEmail ? ` — ${userEmail}` : ''}
             </p>
@@ -1950,7 +2039,7 @@
         <div class="flex flex-col gap-3 w-full md:w-auto">
           <div class="flex flex-col md:flex-row gap-3">
             <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
-              Guest Kickback %
+              Guest %
               <input
                 type="number"
                 min="0"
@@ -1961,7 +2050,7 @@
               />
             </label>
             <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
-              Referrer Kickback %
+              Referrer %
               <input
                 type="number"
                 min="0"
@@ -2015,6 +2104,9 @@
             {/if}
             {#if savingError}
               <span class="text-xs font-bold uppercase tracking-widest text-red-400">{savingError}</span>
+            {/if}
+            {#if savingSuccess}
+              <span class="text-xs font-bold uppercase tracking-widest text-green-400">{savingSuccess}</span>
             {/if}
             {#if logoError}
               <span class="text-xs font-bold uppercase tracking-widest text-red-400">{logoError}</span>

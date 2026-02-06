@@ -384,11 +384,11 @@
       <div class="space-y-4">
         <div>
           <div class="relative flex items-center justify-center gap-2 mb-4 w-full">
-            <p class="text-[10px] font-black text-zinc-500 uppercase tracking-widest px-1 text-center">Your Code</p>
+            <p class="text-[10px] font-black text-zinc-500 uppercase tracking-widest px-1 text-center leading-none">Your Code</p>
             <button
               type="button"
               on:click={() => (showCodeChangeInfo = !showCodeChangeInfo)}
-              class="text-zinc-500 hover:text-white transition-colors"
+              class="text-zinc-500 hover:text-white transition-colors -translate-y-[1px]"
               aria-label="Referral code change info"
               aria-expanded={showCodeChangeInfo}
               bind:this={codeChangeInfoButton}
@@ -411,13 +411,13 @@
                 </svg>
                 <div>
                   {#if referralEditLocked}
-                    <span>Code updates are limited to one change.</span>
+                    <span>You can only change your code once.</span>
                     <span class="block mt-1">Old links still work.</span>
                   {:else}
-                    <span>You can change your code once.</span>
+                    <span>You can only change your code once.</span>
                     <span class="block mt-1">Old links will still work.</span>
                   {/if}
-</div>  
+                </div>  
 </div>
 
             {/if}

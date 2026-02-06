@@ -51,6 +51,8 @@
   let last4TooltipStyle = '';
   let logoLoaded = false;
   let keyboardPad = false;
+  let referrerEditing = false;
+  let referrerBannerInput: HTMLInputElement | null = null;
 
   onMount(() => {
     isFirefox =
@@ -121,7 +123,7 @@
   function handleReferrerInput(event: Event & { currentTarget: HTMLInputElement }) {
     const raw = event.currentTarget.value;
     const alphanumeric = raw.replace(/[^a-z0-9]/gi, '');
-    const normalized = normalizeReferralCode(alphanumeric);
+    const normalized = normalizeReferralCode(alphanumeric).slice(0, 8);
     event.currentTarget.value = normalized;
     referrer = normalized;
     referrerDirty = true;
@@ -249,98 +251,118 @@
       </div>
     {/if}
 
-    {#if isReferrerLocked && referrer}
-      <div class="relative text-center text-lg font-black uppercase tracking-[0.3em] text-white">
-        CODE: <span class="text-orange-500 font-black">{referrer}</span>
-        <button
-          type="button"
-          on:click={clearReferrer}
-          class="absolute -top-2 -right-2 w-7 h-7 rounded-full bg-zinc-900 border border-zinc-700 text-zinc-300 text-xs font-black flex items-center justify-center hover:text-white transition-colors"
-          aria-label="Change code"
-        >
-          X
-        </button>
+    {#if !selectedVenue?.logo_url}
+      <div>
+        <label for="venue" class="block text-[10px] font-black uppercase text-zinc-500 tracking-widest mb-4 px-1 text-center">Which venue?</label>
+        <div class="relative" bind:this={venueWrap}>
+          <input 
+            id="venue"
+            type="text" 
+            bind:value={venue} 
+            readonly={isVenueLocked}
+            placeholder="Bar Name"
+            autocomplete="off"
+            spellcheck="false"
+            on:blur={() => (venueDirty = true)}
+            on:focus={handleVenueFocus}
+            on:input={handleVenueInput}
+            class="w-full bg-black border border-zinc-800 text-white p-4 rounded-2xl text-xl font-black uppercase tracking-widest outline-none ring-2 ring-orange-500 transition-all text-center {isVenueLocked ? 'opacity-50 cursor-not-allowed' : ''}"
+          />
+          {#if !isVenueLocked && venue.trim().length > 0}
+            <button
+              type="button"
+              on:click={() => {
+                venue = '';
+                venueDirty = true;
+                venueOpen = true;
+              }}
+              class="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white transition-colors"
+              aria-label="Clear venue"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M6 6l12 12" />
+                <path d="M18 6l-12 12" />
+              </svg>
+            </button>
+          {/if}
+          {#if !isVenueLocked && venueOpen}
+            <div class="absolute z-20 mt-2 w-full rounded-2xl border border-zinc-800 bg-zinc-900/95 backdrop-blur-xl shadow-xl max-h-56 overflow-auto">
+              {#if filteredVenues.length === 0}
+                <div class="px-4 py-3 text-xs font-bold uppercase tracking-widest text-zinc-500">No matches</div>
+              {:else}
+                {#each filteredVenues as venueOption}
+                  <button
+                    type="button"
+                    on:click={() => handleVenueSelect(venueOption.name)}
+                    class="w-full text-left px-4 py-3 text-sm font-bold uppercase tracking-wide text-zinc-200 hover:bg-zinc-800/60 transition-colors"
+                  >
+                    {venueOption.name}
+                  </button>
+                {/each}
+              {/if}
+            </div>
+          {/if}
+        </div>
+        {#if venueDirty && !venue.trim()}
+          <p class="mt-2 text-[11px] font-bold uppercase tracking-widest text-orange-500/70">Select a venue</p>
+        {/if}
       </div>
+    {/if}
+
+    <div class="relative flex items-center justify-center gap-2 text-lg font-black uppercase tracking-[0.6em] text-white">
+      <span>CODE:</span>
+      <span class="inline-block w-[14ch] text-center whitespace-nowrap">
+        {#if !isReferrerLocked && referrerEditing}
+          <input
+            id="ref-banner"
+            bind:this={referrerBannerInput}
+            type="text"
+            bind:value={referrer}
+            autocapitalize="characters"
+            spellcheck="false"
+            on:input={handleReferrerInput}
+            on:blur={() => (referrerDirty = true, referrerEditing = false)}
+            maxlength="8"
+            class="inline-block w-full bg-transparent border-b border-orange-500 text-orange-500 font-black uppercase outline-none px-0 text-lg tracking-[0.6em]"
+          />
+        {:else}
+          <button
+            type="button"
+            on:click={() => {
+              if (isReferrerLocked) {
+                clearReferrer();
+              }
+              referrerEditing = true;
+              setTimeout(() => referrerBannerInput?.focus(), 0);
+            }}
+            class="inline-block w-full min-h-[1.75rem] cursor-text text-orange-500 font-black text-lg tracking-[0.6em]"
+            class:border-b={!referrer || !referrer.trim().length}
+            class:border-orange-500={!referrer || !referrer.trim().length}
+            aria-label="Edit referral code"
+          >
+            {referrer}
+          </button>
+        {/if}
+      </span>
+    </div>
+
+    {#if referrerDirty && !referrer.trim()}
+      <p class="mt-2 text-[11px] font-bold uppercase tracking-widest text-orange-500/70 text-center">Referrer required</p>
+    {:else if referrerDirty && !referrerValid}
+      <p class="mt-2 text-[11px] font-bold uppercase tracking-widest text-orange-500/70 text-center">Use 4-8 letters or numbers</p>
+    {:else if referrerDirty && referrerValid && isSelfReferral}
+      <p class="mt-2 text-[11px] font-bold uppercase tracking-widest text-orange-500/70 text-center">You cannot use your own code</p>
+    {:else if referrerEditing && referrerDirty && referrerValid && !isSelfReferral && referrerLookupStatus === 'valid'}
+      <p class="mt-2 text-[11px] font-bold uppercase tracking-widest text-green-500 text-center">{normalizeReferralCode(referrer)} will receive {kickbackRatePercent}%</p>
+    {:else if referrerDirty && referrerValid && referrerLookupStatus === 'checking'}
+      <p class="mt-2 text-[11px] font-bold uppercase tracking-widest text-zinc-500 text-center">Checking code…</p>
+    {:else if referrerDirty && referrerValid && referrerLookupStatus === 'invalid'}
+      <p class="mt-2 text-[11px] font-bold uppercase tracking-widest text-orange-500/70 text-center">Unrecognized referral code</p>
     {/if}
 
     <div class="bg-zinc-900 border border-zinc-800 p-6 rounded-3xl shadow-2xl">
       <div class="space-y-5">
-        {#if !selectedVenue?.logo_url}
-          <div>
-            <label for="venue" class="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">Venue</label>
-            <div class="relative" bind:this={venueWrap}>
-              <input 
-                id="venue"
-                type="text" 
-                bind:value={venue} 
-                readonly={isVenueLocked}
-                placeholder="Bar Name"
-                autocomplete="off"
-                spellcheck="false"
-                on:blur={() => venueDirty = true}
-                on:focus={handleVenueFocus}
-                on:input={handleVenueInput}
-                class="venue-input w-full appearance-none bg-zinc-800 border-none p-4 pr-12 rounded-2xl text-lg focus:ring-2 focus:ring-white outline-none {isVenueLocked ? 'opacity-50 cursor-not-allowed' : ''}"
-              />
-              {#if !isVenueLocked}
-                <span class="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-zinc-500">
-                  <svg viewBox="0 0 24 24" aria-hidden="true" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M6 9l6 6 6-6" />
-                  </svg>
-                </span>
-              {/if}
-              {#if !isVenueLocked && venueOpen}
-                <div class="absolute z-20 mt-2 w-full rounded-2xl border border-zinc-800 bg-zinc-900/95 backdrop-blur-xl shadow-xl max-h-56 overflow-auto">
-                  {#if filteredVenues.length === 0}
-                    <div class="px-4 py-3 text-xs font-bold uppercase tracking-widest text-zinc-500">No matches</div>
-                  {:else}
-                    {#each filteredVenues as venueOption}
-                      <button
-                        type="button"
-                        on:click={() => handleVenueSelect(venueOption.name)}
-                        class="w-full text-left px-4 py-3 text-sm font-bold uppercase tracking-wide text-zinc-200 hover:bg-zinc-800/60 transition-colors"
-                      >
-                        {venueOption.name}
-                      </button>
-                    {/each}
-                  {/if}
-                </div>
-              {/if}
-            </div>
-            {#if venueDirty && !venue.trim()}
-              <p class="mt-2 text-[11px] font-bold uppercase tracking-widest text-orange-500/70">Select a venue</p>
-            {/if}
-          </div>
-        {/if}
-
-        {#if !isReferrerLocked}
-          <div>
-            <label for="referrer" class="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">Referrer Code</label>
-            <input 
-              id="referrer"
-              type="text" 
-              bind:value={referrer} 
-              readonly={isReferrerLocked}
-              placeholder="Who sent you?"
-              autocapitalize="characters"
-              spellcheck="false"
-              on:blur={() => referrerDirty = true}
-              on:input={handleReferrerInput}
-              class="w-full bg-zinc-800 border-none p-4 rounded-2xl text-lg focus:ring-2 focus:ring-white outline-none {isReferrerLocked ? 'opacity-50 cursor-not-allowed' : ''}"
-            />
-            {#if referrerDirty && !referrer.trim()}
-              <p class="mt-2 text-[11px] font-bold uppercase tracking-widest text-orange-500/70">Referrer required</p>
-            {:else if referrerDirty && !referrerValid}
-              <p class="mt-2 text-[11px] font-bold uppercase tracking-widest text-orange-500/70">Use 4-8 letters or numbers</p>
-            {:else if referrerDirty && referrerValid && isSelfReferral}
-              <p class="mt-2 text-[11px] font-bold uppercase tracking-widest text-orange-500/70">You cannot use your own code</p>
-            {:else if referrerDirty && referrerValid && referrerLookupStatus === 'checking'}
-              <p class="mt-2 text-[11px] font-bold uppercase tracking-widest text-zinc-500">Checking code…</p>
-            {:else if referrerDirty && referrerValid && referrerLookupStatus === 'invalid'}
-              <p class="mt-2 text-[11px] font-bold uppercase tracking-widest text-orange-500/70">Unrecognized referral code</p>
-            {/if}
-          </div>
-        {/if}
+        
 
         <div>
           <label for="amount" class="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">Amount</label>

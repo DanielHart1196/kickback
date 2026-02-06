@@ -760,7 +760,30 @@
         return false;
       }
 
-      const rates = getVenueRates(venueId);
+    const rates = getVenueRates(venueId);
+    if (session?.user?.id) {
+      try {
+        const precheckRes = await fetch('/api/square/precheck', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            venue_id: venueId,
+            amount: cleanAmount,
+            last_4: last4,
+            purchased_at: purchaseTime,
+            submitter_id: session.user.id
+          })
+        });
+        const precheck = await precheckRes.json().catch(() => null);
+        if (precheckRes.ok && precheck?.ok && precheck.duplicate && precheck.by_same_user) {
+          status = 'error';
+          errorMessage = 'This venue supports auto claims — you don’t need to submit manual claims. Just pay as normal and we handle the 5% kickback automatically.';
+          return false;
+        }
+      } catch (err) {
+        // proceed as pending on any precheck error
+      }
+    }
       const insertedClaim = await insertClaim(
         buildClaimInsert({
           venueName,
