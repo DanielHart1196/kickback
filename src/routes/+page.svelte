@@ -16,7 +16,8 @@
     clearDraftFromStorage,
     draftToQuery,
     getDraftFromStorage,
-    getDraftFromUrl
+    getDraftFromUrl,
+    saveDraftToStorage
   } from '$lib/claims/draft';
   import {
     deleteClaim,
@@ -25,6 +26,7 @@
     upsertProfileLast4
   } from '$lib/claims/repository';
   import type { Claim } from '$lib/claims/types';
+  import type { ClaimDraft } from '$lib/claims/types';
   import type { Venue } from '$lib/venues/types';
   import { fetchActiveVenues } from '$lib/venues/repository';
   import {
@@ -86,6 +88,7 @@
   let installedHandlerAdded = false;
   let autoClaimBanner: { venue: string; daysLeft: number } | null = null;
   let autoClaimBannerTimer: ReturnType<typeof setTimeout> | null = null;
+  let canAutosave = false;
 
   let amount: number | null = null;
   let amountInput = '';
@@ -112,6 +115,18 @@
       return (rawState as Record<string, any>)[svelteStateKey] ?? {};
     }
     return (rawState as Record<string, any>) ?? {};
+  }
+
+  function mergeDrafts(urlDraft: ClaimDraft | null, storedDraft: ClaimDraft | null): ClaimDraft | null {
+    if (!urlDraft && !storedDraft) return null;
+    return {
+      amount: (urlDraft?.amount || storedDraft?.amount || '').trim(),
+      venue: (urlDraft?.venue || storedDraft?.venue || '').trim(),
+      venueId: (urlDraft?.venueId || storedDraft?.venueId || '').trim(),
+      venueCode: (urlDraft?.venueCode || storedDraft?.venueCode || undefined),
+      ref: (urlDraft?.ref || storedDraft?.ref || '').trim(),
+      last4: (urlDraft?.last4 || storedDraft?.last4 || '').trim()
+    };
   }
 
   onMount(() => {
@@ -159,6 +174,30 @@
     normalizedReferrerInput.trim().length > 0 &&
     (referrerProfileId === session?.user?.id ||
       normalizeReferralCode(normalizedReferrerInput) === normalizeReferralCode(userRefCode));
+  $: if (!session && canAutosave) {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const meaningful = Boolean(
+          (amountInput || '').trim() ||
+          (venue || '').trim() ||
+          venueId ||
+          (normalizedReferrerInput || '').trim() ||
+          (last4 || '').trim()
+        );
+        if (meaningful) {
+          const code = getVenueCodeById(venueId);
+          saveDraftToStorage(window.localStorage, {
+            amount: amountInput || '',
+            venue,
+            venueId,
+            venueCode: code || undefined,
+            ref: normalizedReferrerInput,
+            last4
+          });
+        }
+      }
+    } catch {}
+  }
   $: canSubmit = Boolean(
     (amount ?? 0) > 0 &&
     venueId.length > 0 &&
@@ -590,35 +629,42 @@
     referralPresetVenueId = venueFromParams?.id ?? venueIdParam ?? '';
     referralPresetVenueName = venueFromParams?.name ?? venueParam ?? '';
 
-    if (hasVenueOnly) {
-      if (!session) {
+    if (!session) {
+      if (hasVenueOnly) {
         window.location.href = `/login?${urlParams?.toString() ?? ''}`;
         return;
       }
-      showForm = false;
-      showLanding = false;
-      shouldOpenReferFromUrl = true;
-    }
-
-    if (hasRefOnly) {
-      if (!session) {
-        window.location.href = `/login?${urlParams?.toString() ?? ''}`;
-        return;
+      if (hasRefOnly || hasRefAndVenue) {
+        showForm = true;
+        showLanding = false;
+      } else {
+        showForm = false;
+        showLanding = true;
       }
-      showForm = true;
-    }
-
-    if (hasRefAndVenue) {
-      showForm = true;
-      showLanding = false;
+    } else {
+      if (hasRefAndVenue) {
+        showForm = true;
+        showLanding = false;
+      }
     }
 
     const allowDraft = !hasVenueOnly;
     const urlDraft = allowDraft ? getDraftFromUrl(window.location.search) : null;
     const storedDraft = getDraftFromStorage(localStorage);
-    const draft = allowDraft ? urlDraft ?? storedDraft : null;
+    const draft = allowDraft ? mergeDrafts(urlDraft, storedDraft) : null;
+    const hasDraft = Boolean(
+      draft &&
+      (
+        (draft.amount || '').trim() ||
+        (draft.venue || '').trim() ||
+        (draft.venueId || '').trim() ||
+        (draft.venueCode || '').trim() ||
+        (draft.ref || '').trim() ||
+        (draft.last4 || '').trim()
+      )
+    );
 
-    if (draft) {
+    if (hasDraft) {
       amountInput = draft.amount ?? '';
       if (draft.venueCode) {
         const venueFromCode = getVenueByCode(draft.venueCode);
@@ -633,9 +679,6 @@
 
       isReferrerLocked = Boolean(referrer);
       isVenueLocked = Boolean(getVenueIdByName(venue));
-
-      clearDraftFromStorage(localStorage);
-
       if (session) {
         await tick();
         if (canSubmit) {
@@ -675,9 +718,10 @@
           replaceState('', { ...state, [historyViewKey]: showForm ? 'claim' : 'dashboard' });
         }
       }
-    } else if (!hasRefAndVenue && !hasVenueOnly && !hasRefOnly && !draft) {
+    } else if (!session && !hasRefAndVenue && !hasVenueOnly && !hasRefOnly) {
       showLanding = true;
     }
+    canAutosave = true;
   });
 
   async function submitClaim(): Promise<boolean> {
@@ -1151,6 +1195,14 @@
         onDismiss={dismissAutoClaimWarning}
       />
     {/if}
+    {#if showGuestWarning}
+      <GuestWarningModal
+        kickback={kickback}
+        kickbackRatePercent={kickbackRatePercent}
+        loginUrl={loginUrl}
+        onProceed={proceedAsGuest}
+      />
+    {/if}
     {#if showClaimWindowExpired}
       <ClaimWindowExpiredModal
         venue={claimWindowVenue || venue}
@@ -1223,6 +1275,3 @@
     </div>
   {/if}
 </main>
-
-
-

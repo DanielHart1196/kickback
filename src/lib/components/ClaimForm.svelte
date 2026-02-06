@@ -1,9 +1,12 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { goto } from '$app/navigation';
   import { fade, fly, slide } from 'svelte/transition';
   import type { Session } from '@supabase/supabase-js';
   import type { Venue } from '$lib/venues/types';
   import { isReferralCodeValid, normalizeReferralCode } from '$lib/referrals/code';
+  import type { ClaimDraft } from '$lib/claims/types';
+  import { saveDraftToStorage } from '$lib/claims/draft';
 
   export let session: Session | null = null;
   export let showBack = false;
@@ -123,6 +126,11 @@
     referrer = normalized;
     referrerDirty = true;
   }
+  function clearReferrer() {
+    isReferrerLocked = false;
+    referrer = '';
+    referrerDirty = false;
+  }
   $: selectedVenue =
     venue.trim().length > 0
       ? venues.find((venueOption) => venueOption.name.trim().toLowerCase() === venue.trim().toLowerCase())
@@ -147,7 +155,7 @@
   }
 
   function clearVenueSelection() {
-    if (isVenueLocked) return;
+    isVenueLocked = false;
     venue = '';
     venueDirty = false;
     venueOpen = true;
@@ -211,7 +219,7 @@
 
   <div class="w-full max-w-sm space-y-8">
     <div class="text-center">
-      <h1 class="kickback-wordmark text-4xl font-black tracking-tighter uppercase">
+      <h1 class="kickback-wordmark text-4xl font-black uppercase">
         <span class="text-white">Kick</span><span class="text-orange-500">back</span>
       </h1>
       <p class="text-zinc-500 text-sm mt-2">
@@ -230,22 +238,28 @@
           class="h-48 w-auto max-w-full object-contain rounded-2xl border-2 transition-opacity duration-200 {logoLoaded ? 'border-orange-500/80 opacity-100' : 'border-transparent opacity-0'}"
           loading="lazy"
         />
-        {#if !isVenueLocked}
-          <button
-            type="button"
-            on:click={clearVenueSelection}
-            class="absolute -top-2 -right-2 w-7 h-7 rounded-full bg-zinc-900 border border-zinc-700 text-zinc-300 text-xs font-black flex items-center justify-center hover:text-white transition-colors"
-            aria-label="Change venue"
-          >
-            X
-          </button>
-        {/if}
+        <button
+          type="button"
+          on:click={clearVenueSelection}
+          class="absolute -top-2 -right-2 w-7 h-7 rounded-full bg-zinc-900 border border-zinc-700 text-zinc-300 text-xs font-black flex items-center justify-center hover:text-white transition-colors"
+          aria-label="Change venue"
+        >
+          X
+        </button>
       </div>
     {/if}
 
     {#if isReferrerLocked && referrer}
-      <div class="text-center text-lg font-black uppercase tracking-[0.3em] text-white">
+      <div class="relative text-center text-lg font-black uppercase tracking-[0.3em] text-white">
         CODE: <span class="text-orange-500 font-black">{referrer}</span>
+        <button
+          type="button"
+          on:click={clearReferrer}
+          class="absolute -top-2 -right-2 w-7 h-7 rounded-full bg-zinc-900 border border-zinc-700 text-zinc-300 text-xs font-black flex items-center justify-center hover:text-white transition-colors"
+          aria-label="Change code"
+        >
+          X
+        </button>
       </div>
     {/if}
 
@@ -460,7 +474,20 @@
             </button>
           {:else}
             <button 
-              on:click={() => window.location.href = loginUrl}
+              on:click={async () => {
+                const draft: ClaimDraft = {
+                  amount: amountInput || '',
+                  venue: (selectedVenue?.name ?? venue) || '',
+                  venueId: selectedVenue?.id ?? '',
+                  venueCode: selectedVenue?.short_code ?? undefined,
+                  ref: typeof referrer === 'string' ? referrer : '',
+                  last4: typeof last4 === 'string' ? last4 : ''
+                };
+                try {
+                  saveDraftToStorage(localStorage, draft);
+                } catch {}
+                await goto(loginUrl);
+              }}
               disabled={status === 'loading' || !canSubmit}
               class="w-full bg-white text-black font-black py-4 rounded-2xl text-lg active:scale-95 transition-all shadow-xl shadow-white/5"
               class:opacity-50={!canSubmit || status === 'loading'}

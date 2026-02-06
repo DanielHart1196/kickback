@@ -1,8 +1,32 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-fonts="loading">
 	<head>
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      html[data-fonts="loading"] body { visibility: hidden }
+      html[data-fonts="loaded"] body { visibility: visible }
+    </style>
+    <link rel="preload" as="font" href="/fonts/montserrat/Montserrat-VariableFont_wght.ttf" type="font/ttf" crossorigin />
+    <link rel="preload" as="font" href="/fonts/kickback/kickback-black-italic.ttf" type="font/otf" crossorigin />
+    <link rel="preload" as="font" href="/fonts/roboto/Roboto-Medium.ttf" type="font/ttf" crossorigin />
+    <script>
+      (function() {
+        try {
+          var doc = document;
+          var root = doc.documentElement;
+          if (!('fonts' in doc)) {
+            root.setAttribute('data-fonts', 'loaded');
+            return;
+          }
+          doc.fonts.ready.then(function() {
+            root.setAttribute('data-fonts', 'loaded');
+          });
+        } catch (e) {
+          document.documentElement.setAttribute('data-fonts', 'loaded');
+        }
+      })();
+    </script>
 		%sveltekit.head%
 	</head>
 	<body data-sveltekit-preload-data="hover" style="background-color: #09090b; color: #f4f4f5;">

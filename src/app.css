@@ -7,7 +7,7 @@
   src: url('/fonts/roboto/Roboto-Medium.ttf') format('truetype');
   font-weight: 500;
   font-style: normal;
-  font-display: swap;
+  font-display: block;
 }
 
 @font-face {
@@ -15,15 +15,15 @@
   src: url('/fonts/montserrat/Montserrat-VariableFont_wght.ttf') format('truetype');
   font-weight: 100 900;
   font-style: normal;
-  font-display: swap;
+  font-display: block;
 }
 
 @font-face {
   font-family: 'Redonda';
-  src: url('/fonts/redonda/RedondaCondensedTest-BlackItalic.otf') format('opentype');
+  src: url('/fonts/kickback/kickback-black-italic.ttf') format('opentype');
   font-weight: 900;
   font-style: italic;
-  font-display: swap;
+  font-display: block;
 }
 
 @layer base {
@@ -52,7 +52,7 @@
     font-family: 'Redonda', ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
     font-style: italic;
     font-weight: 900;
-    letter-spacing: 0.01em;
+    letter-spacing: -0.05em;
   }
 }
 

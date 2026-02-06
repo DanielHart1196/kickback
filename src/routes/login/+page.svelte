@@ -13,6 +13,7 @@
     getDraftFromUrl,
     saveDraftToStorage
   } from '$lib/claims/draft';
+  export let data: { pendingKickback: string | null };
 
   let loading = false;
   let message = '';
@@ -20,6 +21,8 @@
   let venueRates: { id: string; name: string; short_code?: string | null; kickback_guest?: number | null }[] = [];
   let email = '';
   let magicLinkLoading = false;
+
+  pendingKickback = data?.pendingKickback ?? null;
 
   onMount(async () => {
     try {
@@ -29,26 +32,30 @@
       venueRates = [];
     }
 
-    const draft = getDraftFromUrl(window.location.search) ?? getDraftFromStorage(localStorage);
-    const amountValue = Number(draft?.amount ?? '');
-    const venueCode = draft?.venueCode ?? '';
-    const venueId =
-      draft?.venueId ??
-      venueRates.find((venue) => (venue.short_code ?? '').toUpperCase() === venueCode.toUpperCase())?.id ??
-      '';
-    const venueName = draft?.venue ?? '';
-    const rateFromVenue =
-      venueRates.find((venue) => venue.id === venueId)?.kickback_guest ??
-      venueRates.find(
-        (venue) => venue.name.trim().toLowerCase() === venueName.trim().toLowerCase()
-      )?.kickback_guest ??
-      KICKBACK_RATE * 100;
-    const rate = Number(rateFromVenue) / 100;
+    const urlDraft = getDraftFromUrl(window.location.search);
+    if (urlDraft) {
+      const amountValue = Number(urlDraft.amount ?? '');
+      const venueCode = urlDraft.venueCode ?? '';
+      const venueId =
+        urlDraft.venueId ??
+        venueRates.find((venue) => (venue.short_code ?? '').toUpperCase() === venueCode.toUpperCase())?.id ??
+        '';
+      const venueName = urlDraft.venue ?? '';
+      const rateFromVenue =
+        venueRates.find((venue) => venue.id === venueId)?.kickback_guest ??
+        venueRates.find(
+          (venue) => venue.name.trim().toLowerCase() === venueName.trim().toLowerCase()
+        )?.kickback_guest ??
+        KICKBACK_RATE * 100;
+      const rate = Number(rateFromVenue) / 100;
 
-    pendingKickback =
-      Number.isFinite(amountValue) && amountValue > 0
-        ? calculateKickbackWithRate(amountValue, rate).toFixed(2)
-        : null;
+      pendingKickback =
+        Number.isFinite(amountValue) && amountValue > 0
+          ? calculateKickbackWithRate(amountValue, rate).toFixed(2)
+          : null;
+    } else {
+      pendingKickback = null;
+    }
     
     const { data } = await supabase.auth.getSession();
     if (data?.session?.user) {
@@ -123,13 +130,13 @@
   <div class="w-full max-w-sm space-y-8">
     <div class="text-center">
       <div class="min-h-[44px] flex items-center justify-center">
-        <h1 class="text-3xl font-black uppercase tracking-tighter leading-none">
-          Welcome to <span class="kickback-wordmark"><span class="text-white">Kick</span><span class="text-orange-500">back</span></span>
+        <h1 class="text-3xl font-black uppercase tracking-tighter leading-none whitespace-normal md:whitespace-nowrap">
+          Welcome to <span class="sm:hidden"><br /></span><span class="kickback-wordmark"><span class="text-white">Kick</span><span class="text-orange-500">back</span></span>
         </h1>
       </div>
       <div class="mt-2 min-h-[20px]">
         {#if pendingKickback}
-          <p class="text-orange-500 font-bold">Sign in to claim your ${pendingKickback} kickback</p>
+          <p class="text-orange-500 text-xs font-black uppercase">Sign in to claim your ${pendingKickback} kickback</p>
         {/if}
       </div>
     </div>
@@ -190,3 +197,8 @@
     </button>
   </div>
 </main>
+
+<style>
+  html[data-fonts="loading"] .kickback-wordmark { visibility: hidden }
+  html[data-fonts="loaded"] .kickback-wordmark { visibility: visible }
+</style>

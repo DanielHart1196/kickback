@@ -36,13 +36,13 @@
 </script>
 
 <main class="relative min-h-screen overflow-hidden bg-black text-white">
-    <header class="mx-auto flex w-full max-w-6xl items-center justify-between px-6 pt-5">
-    <div class="kickback-wordmark text-4xl tracking-tighter uppercase select-none">
+  <header class="mx-auto flex w-full max-w-6xl items-center justify-between px-6 pt-5">
+    <div class="kickback-wordmark text-4xl uppercase leading-none select-none transform -translate-y-[1px]">
       <span class="text-white">Kick</span><span class="text-orange-500">back</span>
     </div>
     <a
       href="/login"
-    class="inline-flex items-center justify-center rounded-full bg-white px-5 py-2 text-xs font-black uppercase text-black shadow-lg shadow-black/20 transition-transform transition-colors active:scale-95 hover:bg-zinc-200"
+    class="inline-flex items-center justify-center rounded-full bg-white px-5 h-10 text-xs font-black uppercase text-black shadow-lg shadow-black/20 transition-transform transition-colors active:scale-95 hover:bg-zinc-200"
     >
       Sign In
     </a>
