@@ -47,6 +47,7 @@
   let payoutStripeStatusLoaded = false;
   let authProviderLabel = '';
   let isPwaInstalled = false;
+  let hasPwaEverInstalled = false;
   let notificationsEnabled = false;
   let notificationMessage = '';
   let notificationError = false;
@@ -94,11 +95,18 @@
         isPwaInstalled =
           (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
           ((window.navigator as any)?.standalone === true);
+        try {
+          hasPwaEverInstalled = Boolean(localStorage.getItem('kickback:pwa_installed') === '1');
+        } catch {}
         notificationsEnabled = typeof Notification !== 'undefined' && Notification.permission === 'granted';
         window.addEventListener('appinstalled', () => {
           isPwaInstalled =
             (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
             ((window.navigator as any)?.standalone === true);
+          try {
+            localStorage.setItem('kickback:pwa_installed', '1');
+            hasPwaEverInstalled = true;
+          } catch {}
         });
       } catch {}
       const hash = window.location.hash || '';
@@ -174,6 +182,17 @@
         notificationError = true;
       }
     }
+  }
+
+  function openKickbackApp() {
+    try {
+      notificationMessage = 'Open the Kickback app from your home screen';
+      notificationError = true;
+      setTimeout(() => {
+        notificationMessage = '';
+        notificationError = false;
+      }, 2500);
+    } catch {}
   }
 
   function openSettings() {
@@ -830,16 +849,7 @@
         </div>
         <div class="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
           <p class="text-[10px] font-black uppercase tracking-[0.25em] text-zinc-500">Notifications</p>
-          {#if !isPwaInstalled}
-            <p class="mt-3 text-[11px] font-bold uppercase tracking-widest text-zinc-400">Install Kickback to enable notifications</p>
-            <button
-              type="button"
-              on:click={onRequestInstall}
-              class="mt-3 w-full rounded-xl bg-white px-4 py-3 text-xs font-black uppercase tracking-[0.2em] text-black hover:bg-zinc-200 transition-colors"
-            >
-              Install
-            </button>
-          {:else}
+          {#if isPwaInstalled}
             <div class="mt-3 flex items-center justify-between">
               <span class="text-[11px] font-bold uppercase tracking-widest text-zinc-400">Enable Notifications</span>
               <button
@@ -854,6 +864,27 @@
             {#if notificationError}
               <p class="mt-2 text-[10px] font-bold uppercase tracking-widest text-zinc-400">{notificationMessage}</p>
             {/if}
+          {:else if hasPwaEverInstalled}
+            <p class="mt-3 text-[11px] font-bold uppercase tracking-widest text-zinc-400">Enable notifications in the Kickback app</p>
+            <button
+              type="button"
+              on:click={openKickbackApp}
+              class="mt-3 w-full rounded-xl bg-white px-4 py-3 text-xs font-black uppercase tracking-[0.2em] text-black hover:bg-zinc-200 transition-colors"
+            >
+              Open
+            </button>
+            {#if notificationError}
+              <p class="mt-2 text-[10px] font-bold uppercase tracking-widest text-zinc-400">{notificationMessage}</p>
+            {/if}
+          {:else}
+            <p class="mt-3 text-[11px] font-bold uppercase tracking-widest text-zinc-400">Install Kickback to enable notifications</p>
+            <button
+              type="button"
+              on:click={onRequestInstall}
+              class="mt-3 w-full rounded-xl bg-white px-4 py-3 text-xs font-black uppercase tracking-[0.2em] text-black hover:bg-zinc-200 transition-colors"
+            >
+              Install
+            </button>
           {/if}
         </div>
         <div class="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
