@@ -894,7 +894,7 @@
           console.error('Error clearing auth storage:', error);
         }
       }
-      window.location.href = '/login';
+      window.location.replace('/login');
     }
   }
 

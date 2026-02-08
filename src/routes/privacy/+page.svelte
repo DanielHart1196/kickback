@@ -94,4 +94,23 @@
       </div>
     </section>
   </div>
+  <div class="mt-6 text-center">
+    <button
+      type="button"
+      on:click={() => {
+        const url = typeof window !== 'undefined' ? window.location.href : '';
+        if (typeof window !== 'undefined') {
+          window.history.back();
+          setTimeout(() => {
+            if (window.location.href === url) {
+              window.location.href = '/';
+            }
+          }, 100);
+        }
+      }}
+      class="text-zinc-600 text-xs font-bold uppercase tracking-widest hover:text-white transition-colors"
+    >
+      Go Back
+    </button>
+  </div>
 </main>

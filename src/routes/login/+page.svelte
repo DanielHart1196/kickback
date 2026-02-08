@@ -18,9 +18,12 @@
   let loading = false;
   let message = '';
   let pendingKickback: string | null = null;
-  let venueRates: { id: string; name: string; short_code?: string | null; kickback_guest?: number | null }[] = [];
+  let venueRates: { id: string; name: string; short_code?: string | null; kickback_guest?: number | null; logo_url?: string | null }[] = [];
   let email = '';
   let magicLinkLoading = false;
+  let venuePromo: { name: string; logo_url: string | null; rate_pct: number } | null = null;
+  let promoLogoLoaded = false;
+  $: hasPromoOrKickback = !!venuePromo || !!pendingKickback;
 
   pendingKickback = data?.pendingKickback ?? null;
 
@@ -55,6 +58,28 @@
           : null;
     } else {
       pendingKickback = null;
+    }
+
+    const params = new URLSearchParams(window.location.search);
+    const hasVenueParam = params.has('venue') || params.has('venue_id');
+    const hasOnlyVenue =
+      hasVenueParam &&
+      !params.has('ref') &&
+      !params.has('amount') &&
+      !params.has('last4');
+    if (hasOnlyVenue) {
+      const venueParam = params.get('venue_id') || params.get('venue') || '';
+      let match =
+        venueRates.find((v) => v.id === venueParam) ??
+        venueRates.find((v) => (v.short_code ?? '').toUpperCase() === venueParam?.toUpperCase()) ??
+        venueRates.find((v) => v.name.trim().toLowerCase() === (venueParam ?? '').trim().toLowerCase()) ??
+        null;
+      if (match) {
+        const ratePct = Number(match.kickback_guest ?? KICKBACK_RATE * 100);
+        venuePromo = { name: match.name, logo_url: (match as any).logo_url ?? null, rate_pct: ratePct };
+      }
+    } else {
+      venuePromo = null;
     }
     
     const { data } = await supabase.auth.getSession();
@@ -124,21 +149,50 @@
       magicLinkLoading = false;
     }
   }
+  
+  function handleGoBack() {
+    const before = window.location.href;
+    if (window.history.length > 1) {
+      window.history.back();
+      setTimeout(() => {
+        if (window.location.href === before) {
+          window.location.href = '/';
+        }
+      }, 600);
+    } else {
+      window.location.href = '/';
+    }
+  }
 </script>
 
 <main class="min-h-screen bg-black text-white flex flex-col items-center p-6 pt-16">
-  <div class="w-full max-w-sm space-y-8">
-    <div class="text-center">
+  <div class={`w-full max-w-sm ${hasPromoOrKickback ? 'space-y-5 pb-16' : 'space-y-5'}`}>
+    <div class={`text-center ${hasPromoOrKickback ? '' : 'pb-16'}`}>
       <div class="min-h-[44px] flex items-center justify-center">
         <h1 class="text-3xl font-black uppercase tracking-tighter leading-none whitespace-normal md:whitespace-nowrap">
           Welcome to <span class="sm:hidden"><br /></span><span class="kickback-wordmark"><span class="text-white">Kick</span><span class="text-orange-500">back</span></span>
         </h1>
       </div>
-      <div class="mt-2 min-h-[20px]">
-        {#if pendingKickback}
+      {#if venuePromo}
+        <div class="mt-5 flex flex-col items-center justify-center gap-5">
+          {#if venuePromo.logo_url}
+            <img
+              src={venuePromo.logo_url}
+              alt={venuePromo.name}
+              on:load={() => (promoLogoLoaded = true)}
+              class="h-48 w-auto max-w-full object-contain rounded-2xl border-2 transition-opacity duration-200 {promoLogoLoaded ? 'border-orange-500/80 opacity-100' : 'border-transparent opacity-0'}"
+            />
+          {/if}
+          <p class="text-xs text-zinc-300 font-semibold text-center">
+            Bring a mate to {venuePromo.name} and you'll both get {venuePromo.rate_pct}% cash back on their spend for 30 days
+          </p>
+        </div>
+      {/if}
+      {#if pendingKickback}
+        <div class="mt-0">
           <p class="text-orange-500 text-xs font-black uppercase">Sign in to claim your ${pendingKickback} kickback</p>
-        {/if}
-      </div>
+        </div>
+      {/if}
     </div>
 
     <div class="bg-zinc-900 border border-zinc-800 p-6 rounded-3xl space-y-4 flex flex-col items-center">
@@ -192,7 +246,7 @@
       <a href="/privacy" class="text-zinc-300 hover:text-white transition-colors">privacy policy</a>.
     </p>
 
-    <button on:click={() => window.history.back()} class="w-full text-zinc-600 text-xs font-bold uppercase">
+    <button on:click={handleGoBack} class="w-full text-zinc-600 text-xs font-bold uppercase">
       Go Back
     </button>
   </div>
