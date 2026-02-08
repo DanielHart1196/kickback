@@ -91,23 +91,14 @@
     document.addEventListener('click', handleOutsideClick);
     if (typeof window !== 'undefined') {
       try {
-        const isStandalone =
+        isPwaInstalled =
           (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
           ((window.navigator as any)?.standalone === true);
-        const storedInstall = (() => {
-          try {
-            return typeof localStorage !== 'undefined' ? localStorage.getItem('kickback:pwa_installed') : null;
-          } catch {
-            return null;
-          }
-        })();
-        isPwaInstalled = isStandalone || storedInstall === '1';
         notificationsEnabled = typeof Notification !== 'undefined' && Notification.permission === 'granted';
         window.addEventListener('appinstalled', () => {
-          isPwaInstalled = true;
-          try {
-            localStorage.setItem('kickback:pwa_installed', '1');
-          } catch {}
+          isPwaInstalled =
+            (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
+            ((window.navigator as any)?.standalone === true);
         });
       } catch {}
       const hash = window.location.hash || '';
