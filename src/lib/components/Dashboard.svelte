@@ -61,12 +61,23 @@
     document.addEventListener('click', handleOutsideClick);
     if (typeof window !== 'undefined') {
       try {
-        isPwaInstalled =
+        const isStandalone =
           (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
           ((window.navigator as any)?.standalone === true);
+        const storedInstall = (() => {
+          try {
+            return typeof localStorage !== 'undefined' ? localStorage.getItem('kickback:pwa_installed') : null;
+          } catch {
+            return null;
+          }
+        })();
+        isPwaInstalled = isStandalone || storedInstall === '1';
         notificationsEnabled = typeof Notification !== 'undefined' && Notification.permission === 'granted';
         window.addEventListener('appinstalled', () => {
           isPwaInstalled = true;
+          try {
+            localStorage.setItem('kickback:pwa_installed', '1');
+          } catch {}
         });
       } catch {}
       const hash = window.location.hash || '';
@@ -110,6 +121,10 @@
   async function toggleNotifications() {
     if (typeof Notification === 'undefined') {
       notificationMessage = 'Notifications not supported';
+      return;
+    }
+    if (typeof window !== 'undefined' && !window.isSecureContext) {
+      notificationMessage = 'Requires HTTPS to enable';
       return;
     }
     if (Notification.permission === 'granted') {

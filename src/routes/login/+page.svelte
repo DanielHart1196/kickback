@@ -165,9 +165,9 @@
   }
 </script>
 
-<main class="min-h-screen bg-black text-white flex flex-col items-center p-6 pt-16">
-  <div class={`w-full max-w-sm ${hasPromoOrKickback ? 'space-y-5 pb-16' : 'space-y-5'}`}>
-    <div class={`text-center ${hasPromoOrKickback ? '' : 'pb-16'}`}>
+<main class="min-h-screen bg-black text-white flex flex-col items-center p-6">
+  <div class={`w-full max-w-sm space-y-5`}>
+    <div class="text-center pt-16 pb-16">
       <div class="min-h-[44px] flex items-center justify-center">
         <h1 class="text-3xl font-black uppercase tracking-tighter leading-none whitespace-normal md:whitespace-nowrap">
           Welcome to <span class="sm:hidden"><br /></span><span class="kickback-wordmark"><span class="text-white">Kick</span><span class="text-orange-500">back</span></span>
