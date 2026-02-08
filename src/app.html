@@ -27,6 +27,19 @@
         }
       })();
     </script>
+    <script>
+      (function() {
+        try {
+          var hash = window.location.hash || '';
+          if (hash && hash.indexOf('access_token') !== -1 && hash.indexOf('refresh_token') !== -1) {
+            var clean = window.location.pathname + window.location.search;
+            try { window.history.replaceState(window.history.state, '', clean); } catch(e) {}
+            var target = '/auth/callback' + (window.location.search || '') + hash;
+            window.location.replace(target);
+          }
+        } catch (e) {}
+      })();
+    </script>
 		%sveltekit.head%
 	</head>
 	<body data-sveltekit-preload-data="hover" style="background-color: #09090b; color: #f4f4f5;">

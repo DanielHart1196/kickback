@@ -35,20 +35,45 @@
     }
 
     if (session) {
-      // Check if this is an admin login (redirected from /admin)
       const redirectTo = $page.url.searchParams.get('redirect_to') || '/';
+      const isAbsolute = /^https?:\/\//.test(redirectTo);
+      if (isAbsolute) {
+        try {
+          const target = new URL(redirectTo);
+          const isAdmin = target.pathname.includes('/admin');
+          if (isAdmin) {
+            await supabase.from('profiles').upsert({
+              id: session.user.id,
+              role: 'owner',
+              updated_at: new Date().toISOString()
+            });
+          }
+          if (target.origin !== window.location.origin) {
+            const access_token = session?.access_token ?? '';
+            const refresh_token = session?.refresh_token ?? '';
+            if (access_token && refresh_token) {
+              const url = new URL('/auth/callback', target.origin);
+              const path = target.pathname + (target.search || '');
+              url.searchParams.set('redirect_to', path || '/');
+              const hash = `access_token=${encodeURIComponent(access_token)}&refresh_token=${encodeURIComponent(refresh_token)}`;
+              window.location.replace(url.toString() + '#' + hash);
+              return;
+            }
+          }
+          window.location.replace(redirectTo);
+          return;
+        } catch {
+          await goto('/');
+          return;
+        }
+      }
       const isAdmin = redirectTo.includes('/admin');
-      
       if (isAdmin) {
-        // Set admin role in profiles table for new users
-        const { error: profileError } = await supabase.from('profiles').upsert({
+        await supabase.from('profiles').upsert({
           id: session.user.id,
           role: 'owner',
           updated_at: new Date().toISOString()
         });
-        
-        if (profileError) {}
-        
         await goto('/admin');
       } else {
         await goto(redirectTo);

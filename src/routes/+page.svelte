@@ -148,6 +148,24 @@
       window.addEventListener('beforeinstallprompt', handleBeforeInstall as EventListener);
       window.addEventListener('appinstalled', handleInstalled);
       installedHandlerAdded = true;
+      try {
+        const hash = window.location.hash || '';
+        if (hash && hash.includes('access_token') && hash.includes('refresh_token')) {
+          const params = new URLSearchParams(hash.replace(/^#/, ''));
+          const access_token = params.get('access_token') || '';
+          const refresh_token = params.get('refresh_token') || '';
+          if (access_token && refresh_token) {
+            (async () => {
+              try {
+                await supabase.auth.setSession({ access_token, refresh_token });
+              } catch {}
+              const clean = window.location.pathname + window.location.search;
+              window.history.replaceState(window.history.state, '', clean);
+              window.location.replace('/auth/callback?redirect_to=/');
+            })();
+          }
+        }
+      } catch {}
     }
     return () => {
       if (typeof window !== 'undefined') {
@@ -1174,7 +1192,7 @@
         onDeleteClaim={handleDeleteClaim}
         onLogout={handleSignOut}
         onOpenRefer={openReferModal}
-        onRequestInstall={triggerInstallBanner}
+        onRequestInstall={handleInstall}
       />
     </div>
   {:else}

@@ -96,7 +96,8 @@
     const params = new URLSearchParams(window.location.search);
     const draft = buildDraftFromParams(params);
     const draftQuery = draftToQuery(draft);
-    const redirectUrl = `${window.location.origin}/auth/callback?redirect_to=/`;
+    const origin = window.location.origin;
+    const redirectUrl = `${origin}/auth/callback?redirect_to=${encodeURIComponent(origin + '/')}`;
     // Save draft if we have query params
     if (draftQuery) {
       saveDraftToStorage(localStorage, draft);
@@ -134,13 +135,12 @@
       const { error } = await supabase.auth.signInWithOtp({
         email,
         options: {
-          emailRedirectTo: `${window.location.origin}/auth/callback`
+          emailRedirectTo: `${window.location.origin}/auth/callback?redirect_to=${encodeURIComponent(window.location.origin + '/')}`
         }
       });
 
       if (error) {
         message = error.message;
-      } else {
         message = 'Check your email for the magic link!';
       }
     } catch (error) {
