@@ -1,0 +1,114 @@
+import { writable } from 'svelte/store';
+
+const initial = {
+  isStandalone: false,
+  installStatus: 'idle',
+  deferredPrompt: null,
+  installed: false,
+  manualInstall: false
+};
+
+const store = writable(initial);
+
+let media = null;
+
+function detectStandalone() {
+  try {
+    return (
+      (typeof window !== 'undefined' &&
+        window.matchMedia &&
+        window.matchMedia('(display-mode: standalone)').matches) ||
+      ((typeof navigator !== 'undefined' && navigator) && (navigator).standalone === true)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function detectIOS() {
+  try {
+    const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
+    return /iPhone|iPad|iPod/i.test(ua);
+  } catch {
+    return false;
+  }
+}
+
+export function init() {
+  if (typeof window === 'undefined') return;
+  const installedFlag = (() => {
+    try {
+      return localStorage.getItem('kickback:pwa_installed') === '1';
+    } catch {
+      return false;
+    }
+  })();
+  store.update((s) => ({
+    ...s,
+    isStandalone: detectStandalone(),
+    installed: installedFlag,
+    manualInstall: detectIOS()
+  }));
+
+  const handleBeforeInstall = (e) => {
+    e.preventDefault();
+    store.update((s) => ({
+      ...s,
+      deferredPrompt: e,
+      installStatus: 'prompted'
+    }));
+  };
+  const handleInstalled = () => {
+    try {
+      localStorage.setItem('kickback:pwa_installed', '1');
+    } catch {}
+    store.update((s) => ({
+      ...s,
+      installStatus: 'installed',
+      installed: true,
+      deferredPrompt: null
+    }));
+  };
+  window.addEventListener('beforeinstallprompt', handleBeforeInstall);
+  window.addEventListener('appinstalled', handleInstalled);
+
+  media = window.matchMedia('(display-mode: standalone)');
+  const updateStandalone = () => {
+    const standalone = detectStandalone();
+    store.update((s) => ({
+      ...s,
+      isStandalone: standalone,
+      installStatus: standalone ? 'installed' : s.installStatus
+    }));
+  };
+  if (media && media.addEventListener) {
+    media.addEventListener('change', updateStandalone);
+  } else if (media && media.addListener) {
+    media.addListener(updateStandalone);
+  }
+}
+
+export async function promptInstall() {
+  let dp = null;
+  let status = 'idle';
+  store.update((s) => {
+    dp = s.deferredPrompt;
+    status = s.installStatus;
+    return s;
+  });
+  if (!dp) return;
+  store.update((s) => ({ ...s, installStatus: 'installing' }));
+  try {
+    dp.prompt();
+    const choice = await dp.userChoice;
+    if (!choice || choice.outcome !== 'accepted') {
+      store.update((s) => ({ ...s, installStatus: 'idle', deferredPrompt: null }));
+    }
+  } catch {
+    store.update((s) => ({ ...s, installStatus: 'idle', deferredPrompt: null }));
+  }
+}
+
+export const pwaStore = {
+  subscribe: store.subscribe
+};

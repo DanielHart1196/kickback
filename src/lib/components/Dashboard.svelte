@@ -7,6 +7,7 @@
   import { supabase } from '$lib/supabase';
   import type { Claim } from '$lib/claims/types';
   import type { Venue } from '$lib/venues/types';
+  import PwaManager from '$lib/components/PwaManager.svelte';
 
   export let claims: Claim[] = [];
   export let totalPending = 0;
@@ -835,34 +836,7 @@
         </div>
         <div class="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
           <p class="text-[10px] font-black uppercase tracking-[0.25em] text-zinc-500">Notifications</p>
-          {#if isPwaInstalled}
-            <div class="mt-3 flex items-center justify-between">
-              <span class="text-[11px] font-bold uppercase tracking-widest text-zinc-400">Enable Notifications</span>
-              <button
-                type="button"
-                on:click={toggleNotifications}
-                class={`relative w-12 h-6 rounded-full ${notificationsEnabled ? 'bg-green-500' : 'bg-zinc-700'} transition-colors`}
-                aria-pressed={notificationsEnabled}
-              >
-                <span class={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${notificationsEnabled ? 'translate-x-6' : ''}`}></span>
-              </button>
-            </div>
-            {#if notificationError}
-              <p class="mt-2 text-[10px] font-bold uppercase tracking-widest text-zinc-400">{notificationMessage}</p>
-            {/if}
-          {:else}
-            <p class="mt-3 text-[11px] font-bold uppercase tracking-widest text-zinc-400">Install Kickback to enable notifications</p>
-            <button
-              type="button"
-              on:click={onRequestInstall}
-              class="mt-3 w-full rounded-xl bg-white px-4 py-3 text-xs font-black uppercase tracking-[0.2em] text-black hover:bg-zinc-200 transition-colors"
-            >
-              Install
-            </button>
-            {#if notificationError}
-              <p class="mt-2 text-[10px] font-bold uppercase tracking-widest text-zinc-400">{notificationMessage}</p>
-            {/if}
-          {/if}
+          <PwaManager />
         </div>
         <div class="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
           <p class="text-[10px] font-black uppercase tracking-[0.25em] text-zinc-500">Actions</p>

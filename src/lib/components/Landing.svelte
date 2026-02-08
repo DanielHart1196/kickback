@@ -65,10 +65,12 @@
       </div>
 
       <div class="space-y-4">
-        <div class="rounded-3xl border border-zinc-800 bg-zinc-900/60 p-6 backdrop-blur">
-          <div class="mt-4 space-y-10 pb-4">
-            <div class="flex items-start gap-4">
-              <div class="text-3xl font-extrabold text-orange-500">01</div>
+        <div class="rounded-3xl border border-zinc-800 bg-zinc-900/60 p-6 md:px-6 lg:px-6 xl:px-6 backdrop-blur -mx-6 md:mx-auto md:max-w-xl lg:max-w-2xl xl:max-w-3xl">
+          <div class="mt-4 space-y-10 pb-4 mx-auto max-w-[36rem]">
+            <div class="flex items-center gap-4">
+              <div class="w-16 md:w-20 shrink-0 flex items-center justify-center">
+                <img src="/icons/screenshot.svg" alt="screenshot" class="w-14 h-14 md:w-16 md:h-16" />
+              </div>
               <div>
                 <p class="text-base font-extrabold uppercase text-white">
                   Share
@@ -78,8 +80,10 @@
                 </p>
               </div>
             </div>
-            <div class="flex items-start gap-4">
-              <div class="text-3xl font-extrabold text-orange-500">02</div>
+            <div class="flex items-center gap-4">
+              <div class="w-16 md:w-20 shrink-0 flex items-center justify-center">
+                <img src="/icons/beers.svg" alt="beers" class="w-14 h-14 md:w-16 md:h-16" />
+              </div>
               <div>
                 <p class="text-base font-extrabold uppercase text-white">
                   Earn
@@ -89,8 +93,10 @@
                 </p>
               </div>
             </div>
-            <div class="flex items-start gap-4">
-              <div class="text-3xl font-extrabold text-orange-500">03</div>
+            <div class="flex items-center gap-4">
+              <div class="w-16 md:w-20 shrink-0 flex items-center justify-center">
+                <img src="/icons/cash-note.svg" alt="cash note" class="w-14 h-14 md:w-16 md:h-16" />
+              </div>
               <div>
                 <p class="text-base font-extrabold uppercase text-white">
                   Cash
@@ -125,7 +131,7 @@
           </div>
         </div>
 
-        <div class="rounded-3xl border border-zinc-800 bg-black/60 p-6">
+        <div class="rounded-3xl border border-zinc-800 bg-black/60 p-6 -mx-6 md:mx-0">
           <p class="text-[10px] font-semibold uppercase tracking-[0.3em] text-zinc-500">
             For venues
           </p>
