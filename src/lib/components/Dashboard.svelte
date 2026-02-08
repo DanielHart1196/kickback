@@ -47,7 +47,6 @@
   let payoutStripeStatusLoaded = false;
   let authProviderLabel = '';
   let isPwaInstalled = false;
-  let hasPwaEverInstalled = false;
   let notificationsEnabled = false;
   let notificationMessage = '';
   let notificationError = false;
@@ -98,18 +97,11 @@
         isPwaInstalled =
           (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
           ((window.navigator as any)?.standalone === true);
-        try {
-          hasPwaEverInstalled = Boolean(localStorage.getItem('kickback:pwa_installed') === '1');
-        } catch {}
         notificationsEnabled = typeof Notification !== 'undefined' && Notification.permission === 'granted';
         window.addEventListener('appinstalled', () => {
           isPwaInstalled =
             (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
             ((window.navigator as any)?.standalone === true);
-          try {
-            localStorage.setItem('kickback:pwa_installed', '1');
-            hasPwaEverInstalled = true;
-          } catch {}
         });
       } catch {}
       const hash = window.location.hash || '';
@@ -187,16 +179,7 @@
     }
   }
 
-  function openKickbackApp() {
-    try {
-      notificationMessage = 'Open the Kickback app from your home screen';
-      notificationError = true;
-      setTimeout(() => {
-        notificationMessage = '';
-        notificationError = false;
-      }, 2500);
-    } catch {}
-  }
+  
 
   function openSettings() {
     showSettings = true;
@@ -867,11 +850,6 @@
             {#if notificationError}
               <p class="mt-2 text-[10px] font-bold uppercase tracking-widest text-zinc-400">{notificationMessage}</p>
             {/if}
-          {:else if hasPwaEverInstalled}
-            <p class="mt-3 text-[11px] font-bold uppercase tracking-widest text-zinc-400">Manage notifications in the Kickback app</p>
-            {#if notificationError}
-              <p class="mt-2 text-[10px] font-bold uppercase tracking-widest text-zinc-400">{notificationMessage}</p>
-            {/if}
           {:else}
             <p class="mt-3 text-[11px] font-bold uppercase tracking-widest text-zinc-400">Install Kickback to enable notifications</p>
             <button
@@ -881,6 +859,9 @@
             >
               Install
             </button>
+            {#if notificationError}
+              <p class="mt-2 text-[10px] font-bold uppercase tracking-widest text-zinc-400">{notificationMessage}</p>
+            {/if}
           {/if}
         </div>
         <div class="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
