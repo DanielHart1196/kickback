@@ -46,6 +46,9 @@
   let payoutStripeOnboarded = false;
   let payoutStripeStatusLoaded = false;
   let authProviderLabel = '';
+  let isPwaInstalled = false;
+  let notificationsEnabled = false;
+  let notificationMessage = '';
 
   onMount(() => {
     const handleOutsideClick = (event: MouseEvent) => {
@@ -57,6 +60,15 @@
     };
     document.addEventListener('click', handleOutsideClick);
     if (typeof window !== 'undefined') {
+      try {
+        isPwaInstalled =
+          (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
+          ((window.navigator as any)?.standalone === true);
+        notificationsEnabled = typeof Notification !== 'undefined' && Notification.permission === 'granted';
+        window.addEventListener('appinstalled', () => {
+          isPwaInstalled = true;
+        });
+      } catch {}
       const hash = window.location.hash || '';
       if (hash && /payouts/i.test(hash)) {
         openSettings();
@@ -94,6 +106,21 @@
       document.removeEventListener('click', handleOutsideClick);
     };
   });
+
+  async function toggleNotifications() {
+    if (typeof Notification === 'undefined') {
+      notificationMessage = 'Notifications not supported';
+      return;
+    }
+    if (Notification.permission === 'granted') {
+      notificationsEnabled = !notificationsEnabled;
+      notificationMessage = notificationsEnabled ? 'Notifications enabled' : 'Notifications off';
+      return;
+    }
+    const result = await Notification.requestPermission();
+    notificationsEnabled = result === 'granted';
+    notificationMessage = notificationsEnabled ? 'Notifications enabled' : 'Notifications blocked';
+  }
 
   function openSettings() {
     showSettings = true;
@@ -746,6 +773,34 @@
               <p class="text-[10px] font-bold uppercase tracking-widest text-zinc-400">{payoutMessage}</p>
             {/if}
           </div>
+        </div>
+        <div class="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
+          <p class="text-[10px] font-black uppercase tracking-[0.25em] text-zinc-500">Notifications</p>
+          {#if !isPwaInstalled}
+            <p class="mt-3 text-[11px] font-bold uppercase tracking-widest text-zinc-400">Install Kickback to enable notifications</p>
+            <button
+              type="button"
+              on:click={onRequestInstall}
+              class="mt-3 w-full rounded-xl bg-white px-4 py-3 text-xs font-black uppercase tracking-[0.2em] text-black hover:bg-zinc-200 transition-colors"
+            >
+              Install
+            </button>
+          {:else}
+            <div class="mt-3 flex items-center justify-between">
+              <span class="text-[11px] font-bold uppercase tracking-widest text-zinc-400">Enable Notifications</span>
+              <button
+                type="button"
+                on:click={toggleNotifications}
+                class={`relative w-12 h-6 rounded-full ${notificationsEnabled ? 'bg-green-500' : 'bg-zinc-700'} transition-colors`}
+                aria-pressed={notificationsEnabled}
+              >
+                <span class={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${notificationsEnabled ? 'translate-x-6' : ''}`}></span>
+              </button>
+            </div>
+            {#if notificationMessage}
+              <p class="mt-2 text-[10px] font-bold uppercase tracking-widest text-zinc-400">{notificationMessage}</p>
+            {/if}
+          {/if}
         </div>
         <div class="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
           <p class="text-[10px] font-black uppercase tracking-[0.25em] text-zinc-500">Actions</p>

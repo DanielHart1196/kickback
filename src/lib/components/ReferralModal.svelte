@@ -508,3 +508,8 @@
     </div>
   </div>  
 </div>
+<style>
+  #ref-venue::placeholder {
+    font-family: 'Montserrat', ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  }
+</style>
