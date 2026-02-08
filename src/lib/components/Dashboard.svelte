@@ -49,6 +49,36 @@
   let isPwaInstalled = false;
   let notificationsEnabled = false;
   let notificationMessage = '';
+  let notificationError = false;
+  async function ensurePushSubscription() {
+    try {
+      if (typeof window === 'undefined') return false;
+      if (!('serviceWorker' in navigator)) return false;
+      const reg = await navigator.serviceWorker.getRegistration();
+      if (!reg) return false;
+      const keyRes = await fetch('/api/notifications/vapid-key');
+      const keyPayload = await keyRes.json().catch(() => null);
+      const publicKey = keyPayload?.publicKey ?? '';
+      if (!publicKey) return false;
+      const existing = await reg.pushManager.getSubscription();
+      const subscription =
+        existing ??
+        (await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: Uint8Array.from(atob(publicKey.replace(/-/g, '+').replace(/_/g, '/')), (c) =>
+            c.charCodeAt(0)
+          )
+        }));
+      const resp = await fetch('/api/notifications/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subscription })
+      });
+      return resp.ok;
+    } catch {
+      return false;
+    }
+  }
 
   onMount(() => {
     const handleOutsideClick = (event: MouseEvent) => {
@@ -121,20 +151,38 @@
   async function toggleNotifications() {
     if (typeof Notification === 'undefined') {
       notificationMessage = 'Notifications not supported';
+      notificationError = true;
       return;
     }
     if (typeof window !== 'undefined' && !window.isSecureContext) {
       notificationMessage = 'Requires HTTPS to enable';
+      notificationError = true;
       return;
     }
     if (Notification.permission === 'granted') {
       notificationsEnabled = !notificationsEnabled;
-      notificationMessage = notificationsEnabled ? 'Notifications enabled' : 'Notifications off';
+      notificationMessage = '';
+      notificationError = false;
+      if (notificationsEnabled) {
+        const ok = await ensurePushSubscription();
+        if (!ok) {
+          notificationMessage = 'Failed to register push';
+          notificationError = true;
+        }
+      }
       return;
     }
     const result = await Notification.requestPermission();
     notificationsEnabled = result === 'granted';
-    notificationMessage = notificationsEnabled ? 'Notifications enabled' : 'Notifications blocked';
+    notificationMessage = notificationsEnabled ? '' : 'Notifications blocked';
+    notificationError = !notificationsEnabled;
+    if (notificationsEnabled) {
+      const ok = await ensurePushSubscription();
+      if (!ok) {
+        notificationMessage = 'Failed to register push';
+        notificationError = true;
+      }
+    }
   }
 
   function openSettings() {
@@ -812,7 +860,7 @@
                 <span class={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${notificationsEnabled ? 'translate-x-6' : ''}`}></span>
               </button>
             </div>
-            {#if notificationMessage}
+            {#if notificationError}
               <p class="mt-2 text-[10px] font-bold uppercase tracking-widest text-zinc-400">{notificationMessage}</p>
             {/if}
           {/if}

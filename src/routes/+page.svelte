@@ -89,6 +89,7 @@
   let autoClaimBanner: { venue: string; daysLeft: number } | null = null;
   let autoClaimBannerTimer: ReturnType<typeof setTimeout> | null = null;
   let canAutosave = false;
+  let claimsChannel: any = null;
 
   let amount: number | null = null;
   let amountInput = '';
@@ -459,6 +460,12 @@
       clearTimeout(autoClaimBannerTimer);
       autoClaimBannerTimer = null;
     }
+    try {
+      if (claimsChannel) {
+        supabase.removeChannel(claimsChannel);
+        claimsChannel = null;
+      }
+    } catch {}
   });
 
   async function handleInstall() {
@@ -517,6 +524,63 @@
       console.error('Error loading claimant codes:', error);
       claimantCodes = {};
     }
+  }
+
+  function showLocalNotification(title: string, body: string) {
+    try {
+      if (typeof window === 'undefined') return;
+      if (Notification.permission !== 'granted') return;
+      if (!('serviceWorker' in navigator)) return;
+      navigator.serviceWorker.getRegistration().then((reg) => {
+        if (reg) {
+          reg.showNotification(title, {
+            body,
+            icon: '/favicon.png',
+            badge: '/favicon.png'
+          });
+        } else {
+          new Notification(title, { body });
+        }
+      });
+    } catch {}
+  }
+
+  function setupClaimsRealtime(currentUserId: string) {
+    try {
+      if (claimsChannel) {
+        supabase.removeChannel(claimsChannel);
+        claimsChannel = null;
+      }
+      claimsChannel = supabase
+        .channel('claims-for-user')
+        .on(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'claims' },
+          (payload: any) => {
+            try {
+              const row = payload?.new ?? null;
+              if (!row) return;
+              const uid = currentUserId;
+              const isSubmitter = String(row.submitter_id || '') === String(uid || '');
+              const isReferrer = String(row.referrer_id || '') === String(uid || '');
+              if (!isSubmitter && !isReferrer) return;
+              const amount = Number(row.amount || 0);
+              const venueName = String(row.venue || '');
+              const guestRate = Number(row.kickback_guest_rate || 0) / 100;
+              const refRate = Number(row.kickback_referrer_rate || 0) / 100;
+              if (isSubmitter) {
+                const earned = calculateKickbackWithRate(amount, guestRate);
+                showLocalNotification(`+${earned.toFixed(2)} earned`, `from ${venueName}`);
+              } else if (isReferrer) {
+                const earned = calculateKickbackWithRate(amount, refRate);
+                const codeUsed = String(row.submitter_referral_code || 'member');
+                showLocalNotification(`+${earned.toFixed(2)} ${codeUsed} used your code`, `at ${venueName}`);
+              }
+            } catch {}
+          }
+        )
+        .subscribe();
+    } catch {}
   }
 
   function handleInput(e: Event & { currentTarget: HTMLInputElement }) {
@@ -642,6 +706,9 @@
     const { data } = await supabase.auth.getSession();
     session = data.session;
     userId = session?.user?.id ?? null;
+    if (userId) {
+      setupClaimsRealtime(userId);
+    }
 
     const venueFromParams = urlParams ? getVenueFromParams(urlParams) : null;
     referralPresetVenueId = venueFromParams?.id ?? venueIdParam ?? '';
@@ -833,6 +900,15 @@
           console.error('Error linking Square payment:', error);
         }
       }
+      try {
+        if (insertedClaim?.id) {
+          await fetch('/api/notifications/claim-created', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ claim_id: insertedClaim.id })
+          });
+        }
+      } catch {}
 
       successMessage = `Submitted ${venue} claim for $${cleanAmount.toFixed(2)}.`;
       status = 'success';
