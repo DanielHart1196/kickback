@@ -55,6 +55,9 @@
     try {
       if (typeof window === 'undefined') return false;
       if (!('serviceWorker' in navigator)) return false;
+      const { data } = await supabase.auth.getSession();
+      const token = data?.session?.access_token || '';
+      if (!token) return false;
       const reg = await navigator.serviceWorker.getRegistration();
       if (!reg) return false;
       const keyRes = await fetch('/api/notifications/vapid-key');
@@ -72,7 +75,7 @@
         }));
       const resp = await fetch('/api/notifications/subscribe', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ subscription })
       });
       return resp.ok;
@@ -865,14 +868,7 @@
               <p class="mt-2 text-[10px] font-bold uppercase tracking-widest text-zinc-400">{notificationMessage}</p>
             {/if}
           {:else if hasPwaEverInstalled}
-            <p class="mt-3 text-[11px] font-bold uppercase tracking-widest text-zinc-400">Enable notifications in the Kickback app</p>
-            <button
-              type="button"
-              on:click={openKickbackApp}
-              class="mt-3 w-full rounded-xl bg-white px-4 py-3 text-xs font-black uppercase tracking-[0.2em] text-black hover:bg-zinc-200 transition-colors"
-            >
-              Open
-            </button>
+            <p class="mt-3 text-[11px] font-bold uppercase tracking-widest text-zinc-400">Manage notifications in the Kickback app</p>
             {#if notificationError}
               <p class="mt-2 text-[10px] font-bold uppercase tracking-widest text-zinc-400">{notificationMessage}</p>
             {/if}
