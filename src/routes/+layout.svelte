@@ -2,8 +2,10 @@
   import "../app.css";
   import favicon from '$lib/assets/favicon.png';
   import { onMount } from 'svelte';
+  import { PUBLIC_FB_APP_ID } from '$env/static/public';
 
   let { children } = $props();
+  const fbAppId = PUBLIC_FB_APP_ID;
 
   onMount(() => {
     if ('serviceWorker' in navigator) {
@@ -17,12 +19,13 @@
 <svelte:head>
   <link rel="icon" href="{favicon}" />
   <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="canonical" href="https://kkbk.app/" />
   <meta name="theme-color" content="#0b0b0b" />
   <title>Kickback</title>
   <meta property="og:title" content="Kickback" />
   <meta property="og:description" content="EAT. DRINK. GET PAID." />
-  <meta property="og:image" content="https://kkbk.app/opengraph.png" />
-  <meta property="og:image:secure_url" content="https://kkbk.app/opengraph.png" />
+  <meta property="og:image" content="https://kkbk.app/opengraph.png?v=2" />
+  <meta property="og:image:secure_url" content="https://kkbk.app/opengraph.png?v=2" />
   <meta property="og:image:type" content="image/png" />
   <meta property="og:image:width" content="1200" />
   <meta property="og:image:height" content="630" />
@@ -30,10 +33,13 @@
   <meta property="og:url" content="https://kkbk.app/" />
   <meta property="og:site_name" content="Kickback" />
   <meta property="og:type" content="website" />
+  {#if fbAppId}
+    <meta property="fb:app_id" content="{fbAppId}" />
+  {/if}
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="Kickback" />
   <meta name="twitter:description" content="EAT. DRINK. GET PAID." />
-  <meta name="twitter:image" content="https://kkbk.app/opengraph.png" />
+  <meta name="twitter:image" content="https://kkbk.app/opengraph.png?v=2" />
   <meta name="twitter:image:alt" content="Kickback — EAT. DRINK. GET PAID." />
 </svelte:head>
 
