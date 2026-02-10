@@ -95,6 +95,15 @@
 
   onMount(() => {
     init();
+    if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistration().then((reg) => {
+        if (!reg) {
+          navigator.serviceWorker
+            .register('/service-worker.js')
+            .catch(() => {});
+        }
+      });
+    }
     notificationsEnabled = typeof Notification !== 'undefined' && Notification.permission === 'granted';
     if (notificationsEnabled) {
       void ensurePushSubscription();
@@ -117,7 +126,7 @@
   {#if notificationError}
     <p class="mt-2 text-[10px] font-bold uppercase tracking-widest text-zinc-400">{notificationMessage}</p>
   {/if}
-{:else if $pwaStore.installStatus === 'prompted' && $pwaStore.deferredPrompt}
+{:else if !$pwaStore.isStandalone && $pwaStore.deferredPrompt}
   <button
     type="button"
     on:click={onInstall}
