@@ -30,6 +30,7 @@
   export let isVenueLocked = false;
   export let isReferrerLocked = false;
   export let loginUrl = '/login';
+  export let autoClaimsActive = false;
   export let onBack: () => void = () => {};
   export let onSubmit: () => void = () => {};
   export let onConfirmGuest: () => void = () => {};
@@ -225,7 +226,9 @@
       </h1>
       <p class="text-zinc-500 text-sm mt-2">
         {selectedVenue?.square_public
-          ? `${selectedVenue?.name ?? 'This venue'} supports auto claims after the initial handshake`
+          ? autoClaimsActive
+            ? `Auto claims active at ${selectedVenue?.name ?? 'this venue'}`
+            : `${selectedVenue?.name ?? 'this venue'} supports auto claims after the initial handshake`
           : 'Claim Portal'}
       </p>
     </div>
@@ -308,10 +311,10 @@
       </div>
     {/if}
 
-    <div class="relative flex items-center justify-center gap-2 text-lg font-black uppercase tracking-[0.6em] text-white">
-      <span>CODE:</span>
-      <span class="inline-block w-[14ch] text-center whitespace-nowrap">
-        {#if !isReferrerLocked && referrerEditing}
+    <div class="relative flex items-center justify-center text-lg font-black uppercase tracking-[0.6em]">
+      {#if !isReferrerLocked && referrerEditing}
+        <span class="text-white">CODE:</span>
+        <span class="inline-block w-[14ch] text-center whitespace-nowrap">
           <input
             id="ref-banner"
             bind:this={referrerBannerInput}
@@ -324,25 +327,24 @@
             maxlength="8"
             class="inline-block w-full bg-transparent border-b border-orange-500 text-orange-500 font-black uppercase outline-none px-0 text-lg tracking-[0.6em]"
           />
-        {:else}
-          <button
-            type="button"
-            on:click={() => {
-              if (isReferrerLocked) {
-                clearReferrer();
-              }
-              referrerEditing = true;
-              setTimeout(() => referrerBannerInput?.focus(), 0);
-            }}
-            class="inline-block w-full min-h-[1.75rem] cursor-text text-orange-500 font-black text-lg tracking-[0.6em]"
-            class:border-b={!referrer || !referrer.trim().length}
-            class:border-orange-500={!referrer || !referrer.trim().length}
-            aria-label="Edit referral code"
-          >
-            {referrer}
-          </button>
-        {/if}
-      </span>
+        </span>
+      {:else}
+        <button
+          type="button"
+          on:click={() => {
+            if (isReferrerLocked) return;
+            referrerEditing = true;
+            setTimeout(() => referrerBannerInput?.focus(), 0);
+          }}
+          class="inline-flex items-center justify-center gap-2 min-h-[1.75rem] cursor-text font-black uppercase text-lg tracking-[0.6em] text-center"
+          class:border-b={!referrer || !referrer.trim().length}
+          class:border-orange-500={!referrer || !referrer.trim().length}
+          aria-label="Edit referral code"
+        >
+          <span class="text-white">CODE:</span>
+          <span class="inline-block text-orange-500 text-center whitespace-nowrap">{referrer}</span>
+        </button>
+      {/if}
     </div>
 
     {#if referrerDirty && !referrer.trim()}
@@ -382,6 +384,11 @@
           />
           </div>
         </div>
+<style>
+  #venue::placeholder {
+    font-family: 'Montserrat', ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  }
+</style>
 
         {#if (amount ?? 0) >= maxBill}
           <p transition:fade class="text-orange-500 text-[10px] font-bold mt-2 px-2">
@@ -485,6 +492,7 @@
         <div class="space-y-4">
           {#if session}
             <button 
+              on:mousedown={() => { if (status !== 'loading' && canSubmit) onSubmit(); }}
               on:click={onSubmit}
               disabled={status === 'loading' || !canSubmit}
               class="w-full bg-orange-500 text-black font-black py-4 rounded-2xl text-lg active:scale-95 transition-all disabled:opacity-50"
@@ -495,6 +503,21 @@
             </button>
           {:else}
             <button 
+              on:mousedown={async () => {
+                if (status === 'loading' || !canSubmit) return;
+                const draft: ClaimDraft = {
+                  amount: amountInput || '',
+                  venue: (selectedVenue?.name ?? venue) || '',
+                  venueId: selectedVenue?.id ?? '',
+                  venueCode: selectedVenue?.short_code ?? undefined,
+                  ref: typeof referrer === 'string' ? referrer : '',
+                  last4: typeof last4 === 'string' ? last4 : ''
+                };
+                try {
+                  saveDraftToStorage(localStorage, draft);
+                } catch {}
+                await goto(loginUrl);
+              }}
               on:click={async () => {
                 const draft: ClaimDraft = {
                   amount: amountInput || '',
@@ -517,7 +540,7 @@
               SIGN UP & CLAIM ${kickback}
             </button>
 
-            <button on:click={onConfirmGuest} type="button" class="w-full py-3 text-zinc-500 font-bold text-sm uppercase tracking-[0.2em]">
+            <button on:mousedown={onConfirmGuest} on:click={onConfirmGuest} type="button" class="w-full py-3 text-zinc-500 font-bold text-sm uppercase tracking-[0.2em]">
               Submit as Guest
             </button>
           {/if}

@@ -7,7 +7,7 @@
   import { supabase } from '$lib/supabase';
   import type { Claim } from '$lib/claims/types';
   import type { Venue } from '$lib/venues/types';
-  import PwaManager from '$lib/components/PwaManager.svelte';
+  
 
   export let claims: Claim[] = [];
   export let totalPending = 0;
@@ -670,8 +670,8 @@
               {/if}
               </div>
             <div class="flex flex-col items-end gap-1">
-            <div class="flex items-center gap-2">
-              <p class="text-zinc-500 text-sm font-bold">
+            <div class="flex items-center gap-2 shrink-0">
+              <p class="text-zinc-500 text-sm font-bold whitespace-nowrap">
                 {new Date(claim.purchased_at).toLocaleDateString()} {new Date(claim.purchased_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
               </p>
             </div>
@@ -705,7 +705,7 @@
             <div class="flex items-center justify-between">
               <p class="text-sm font-black uppercase text-zinc-400 tracking-widest">30-day progress</p>
               <p class="text-sm font-black text-white">
-                {Math.max(GOAL_DAYS - getDaysAtVenue(claims, claim.venue) + 1, 0)} DAYS LEFT
+                {Math.max(GOAL_DAYS - getDaysAtVenue(claims, claim.venue), 0)} DAYS LEFT
               </p>
             </div>
             <div class="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden">
@@ -809,14 +809,25 @@
               {:else}
                 <p class="text-[11px] font-bold uppercase tracking-widest text-zinc-400">Checking Stripe status…</p>
               {/if}
-              <button
-                type="button"
-                on:click={openStripeDashboard}
-                class="w-full rounded-xl bg-white px-4 py-3 text-xs font-black uppercase tracking-[0.2em] text-black hover:bg-zinc-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                disabled={payoutStatus === 'loading'}
-              >
-                {payoutStatus === 'loading' ? 'Opening...' : 'Manage Stripe Account'}
-              </button>
+              {#if payoutStripeOnboarded}
+                <button
+                  type="button"
+                  on:click={openStripeDashboard}
+                  class="w-full rounded-xl bg-white px-4 py-3 text-xs font-black uppercase tracking-[0.2em] text-black hover:bg-zinc-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  disabled={payoutStatus === 'loading'}
+                >
+                  {payoutStatus === 'loading' ? 'Opening...' : 'Manage Stripe Account'}
+                </button>
+              {:else}
+                <button
+                  type="button"
+                  on:click={connectStripe}
+                  class="w-full rounded-xl bg-white px-4 py-3 text-xs font-black uppercase tracking-[0.2em] text-black hover:bg-zinc-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  disabled={payoutStatus === 'loading'}
+                >
+                  {payoutStatus === 'loading' ? 'Opening...' : 'Continue Stripe Onboarding'}
+                </button>
+              {/if}
             {:else}
               <p class="text-[11px] font-bold uppercase tracking-widest text-zinc-400">
                 Connect your Stripe account to receive payouts
@@ -840,7 +851,7 @@
         </div>
         <div class="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
           <p class="text-[10px] font-black uppercase tracking-[0.25em] text-zinc-500">Notifications</p>
-          <PwaManager />
+          <p class="mt-3 text-[11px] font-bold uppercase tracking-widest text-zinc-400">iOS and Android app coming soon</p>
         </div>
         <div class="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
           <p class="text-[10px] font-black uppercase tracking-[0.25em] text-zinc-500">Actions</p>

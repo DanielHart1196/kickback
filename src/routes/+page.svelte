@@ -607,7 +607,20 @@
   function getAutoClaimDaysLeft(venueIdValue: string, venueName: string): number | null {
     const normalizedName = venueName.trim().toLowerCase();
     if (!normalizedName && !venueIdValue) return null;
-    const computedDaysLeft = Math.max(GOAL_DAYS - getDaysAtVenue(claims, venueName) + 1, 0);
+    const uid = session?.user?.id ?? null;
+    if (!uid) return null;
+    const hasActive = claims.some((claim) => {
+      if (claim.status === 'denied') return false;
+      if (claim.submitter_id !== uid) return false;
+      if (venueIdValue) {
+        if (claim.venue_id !== venueIdValue) return false;
+      } else {
+        if (claim.venue.trim().toLowerCase() !== normalizedName) return false;
+      }
+      return Boolean(claim.square_payment_id);
+    });
+    if (!hasActive) return null;
+    const computedDaysLeft = Math.max(GOAL_DAYS - getDaysAtVenue(claims, venueName), 0);
     return computedDaysLeft > 0 ? computedDaysLeft : null;
   }
 
@@ -918,7 +931,7 @@
         highlightClaimKey = newClaim?.id ?? newClaim?.created_at ?? null;
         if (linkedSquare) {
           const daysAtVenue = getDaysAtVenue(claims, venueName);
-          const daysLeft = Math.max(GOAL_DAYS - daysAtVenue + 1, 0);
+          const daysLeft = Math.max(GOAL_DAYS - daysAtVenue, 0);
           if (daysLeft > 0) {
             showAutoClaimNotice(venueName, daysLeft);
           }
@@ -1013,6 +1026,9 @@
   }
 
   $: loginUrl = buildLoginUrl(amount, venue, venueId, referrer, last4);
+  $: autoClaimsActive = Boolean(
+    getAutoClaimDaysLeft(venueId, getVenueNameById(venueId) || venue)
+  );
 
   function openReferModal() {
     showReferModal = true;
@@ -1253,6 +1269,7 @@
         onDeleteClaim={handleDeleteClaim}
         onOpenRefer={openReferModal}
         onRequestInstall={handleInstall}
+        onLogout={handleSignOut}
       />
     </div>
   {:else}
@@ -1279,6 +1296,7 @@
         {maxPurchaseTime}
         {isVenueLocked}
         {isReferrerLocked}
+        autoClaimsActive={autoClaimsActive}
         loginUrl={loginUrl}
         onBack={handleFormBack}
         onSubmit={handleSubmitClaim}
