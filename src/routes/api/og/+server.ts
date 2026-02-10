@@ -6,6 +6,8 @@ export const GET: RequestHandler = async ({ url }) => {
   const venue = url.searchParams.get('venue') ?? 'a Great Venue';
   const ref = url.searchParams.get('ref') ?? 'a Friend';
 
+  const line = `${ref} wants to give you 5% back on your tab at ${venue}`;
+
   const element = {
     type: 'div',
     props: {
@@ -22,53 +24,24 @@ export const GET: RequestHandler = async ({ url }) => {
       },
       children: [
         {
-          type: 'div',
+          type: 'h1',
+          props: {
+            style: { fontSize: 88, fontWeight: 800, color: '#f97316', letterSpacing: -1 },
+            children: 'Kickback'
+          }
+        },
+        {
+          type: 'p',
           props: {
             style: {
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              border: '8px solid #22c55e',
-              padding: '48px',
-              borderRadius: '24px'
+              marginTop: 24,
+              fontSize: 40,
+              color: '#d4d4d8',
+              textAlign: 'center',
+              lineHeight: 1.3,
+              maxWidth: 900
             },
-            children: [
-              {
-                type: 'h1',
-                props: {
-                  style: { fontSize: 72, fontWeight: 800, marginBottom: 16 },
-                  children: 'Kickback'
-                }
-              },
-              {
-                type: 'p',
-                props: {
-                  style: { fontSize: 36, color: '#a1a1aa' },
-                  children: `Referral from ${ref}`
-                }
-              },
-              {
-                type: 'div',
-                props: {
-                  style: {
-                    display: 'flex',
-                    marginTop: 40,
-                    background: '#f97316',
-                    padding: '16px 32px',
-                    borderRadius: '9999px'
-                  },
-                  children: [
-                    {
-                      type: 'span',
-                      props: {
-                        style: { fontSize: 36, fontWeight: 800 },
-                        children: `5% OFF @ ${venue}`
-                      }
-                    }
-                  ]
-                }
-              }
-            ]
+            children: line
           }
         },
         {
