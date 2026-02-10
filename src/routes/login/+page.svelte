@@ -252,7 +252,4 @@
   </div>
 </main>
 
-<style>
-  html[data-fonts="loading"] .kickback-wordmark { visibility: hidden }
-  html[data-fonts="loaded"] .kickback-wordmark { visibility: visible }
-</style>
+ 

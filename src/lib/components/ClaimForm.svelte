@@ -31,7 +31,6 @@
   export let isReferrerLocked = false;
   export let loginUrl = '/login';
   export let onBack: () => void = () => {};
-  export let onLogout: () => void = () => {};
   export let onSubmit: () => void = () => {};
   export let onConfirmGuest: () => void = () => {};
   export let onAmountInput: (e: Event & { currentTarget: HTMLInputElement }) => void = () => {};
@@ -527,23 +526,10 @@
     </div>
   </div>
 
-  {#if session}
-    <div class="mt-12 text-center">
-      <button 
-        on:click={onLogout}
-        class="text-zinc-600 text-[10px] font-black uppercase tracking-[0.3em] hover:text-white transition-colors"
-      >
-        LOGOUT: {session.user.email}
-      </button>
-    </div>
-  {/if}
+  
 </div>
 
 <style>
-  .venue-input::-webkit-calendar-picker-indicator {
-    display: none;
-  }
-
   .time-input::-webkit-calendar-picker-indicator {
     opacity: 0;
     width: 0;

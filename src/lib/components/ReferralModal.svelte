@@ -6,7 +6,6 @@
 
   export let userRefCode = 'member';
   export let referralEditLocked = false;
-  export let referralOriginalCode: string | null = null;
   export let venues: { id: string; name: string; short_code?: string | null; logo_url?: string | null }[] = [];
   export let initialVenueId: string | null = null;
   export let initialVenueName: string | null = null;

@@ -826,7 +826,7 @@
         if (error) throw error;
 
         venue = data;
-        venueCode = venue.short_code ?? '';
+        venueCode = venue?.short_code ?? '';
       } catch (error) {
         console.error('Error creating venue:', error);
         savingError = 'Failed to create venue.';

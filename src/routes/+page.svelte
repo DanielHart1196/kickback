@@ -607,26 +607,8 @@
   function getAutoClaimDaysLeft(venueIdValue: string, venueName: string): number | null {
     const normalizedName = venueName.trim().toLowerCase();
     if (!normalizedName && !venueIdValue) return null;
-
-    const matchingClaims = claims.filter((claim) => {
-      if (claim.status === 'denied') return false;
-      if (!claim.square_payment_id) return false;
-      if (venueIdValue) {
-        return claim.venue_id === venueIdValue;
-      }
-      return claim.venue.trim().toLowerCase() === normalizedName;
-    });
-
-    if (matchingClaims.length === 0) return null;
-
-    const earliestTime = Math.min(
-      ...matchingClaims.map((claim) => new Date(claim.purchased_at).getTime()).filter((time) => !Number.isNaN(time))
-    );
-    if (!Number.isFinite(earliestTime)) return null;
-
-    const diffInDays = Math.floor((Date.now() - earliestTime) / (1000 * 60 * 60 * 24));
-    const daysLeft = Math.max(GOAL_DAYS - diffInDays, 0);
-    return daysLeft > 0 ? daysLeft : null;
+    const computedDaysLeft = Math.max(GOAL_DAYS - getDaysAtVenue(claims, venueName) + 1, 0);
+    return computedDaysLeft > 0 ? computedDaysLeft : null;
   }
 
   function isClaimWindowExpired(venueIdValue: string, venueName: string): boolean {
@@ -861,8 +843,11 @@
         });
         const precheck = await precheckRes.json().catch(() => null);
         if (precheckRes.ok && precheck?.ok && precheck.duplicate && precheck.by_same_user) {
-          status = 'error';
-          errorMessage = 'This venue supports auto claims — you don’t need to submit manual claims. Just pay as normal and we handle the 5% kickback automatically.';
+          const venueName = selectedVenue?.name ?? venueId;
+          const daysLeft = getAutoClaimDaysLeft(venueId, venueName) ?? 0;
+          autoClaimWarningVenue = venueName;
+          autoClaimWarningDaysLeft = daysLeft;
+          showAutoClaimWarning = true;
           return false;
         }
       } catch (err) {
@@ -1266,7 +1251,6 @@
         claimantCodes={claimantCodes}
         onNewClaim={startNewClaim}
         onDeleteClaim={handleDeleteClaim}
-        onLogout={handleSignOut}
         onOpenRefer={openReferModal}
         onRequestInstall={handleInstall}
       />
@@ -1301,7 +1285,6 @@
         onConfirmGuest={confirmGuestSubmit}
         onAmountInput={handleInput}
         onAmountHydrate={hydrateAmountInput}
-        onLogout={handleSignOut}
       />
     </div>
     {#if showAutoClaimWarning}
@@ -1333,7 +1316,6 @@
       {venues}
       userRefCode={userRefCode}
       referralEditLocked={referralEditLocked}
-      referralOriginalCode={referralOriginalCode}
       initialVenueId={referralPresetVenueId}
       initialVenueName={referralPresetVenueName}
       onUpdateReferralCode={updateReferralCode}

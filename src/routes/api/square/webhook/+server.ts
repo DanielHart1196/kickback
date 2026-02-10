@@ -71,10 +71,10 @@ export async function POST({ request }) {
       paymentId,
       baseUrl: paymentResult.baseUrl,
       status: paymentResult.status,
-      error: paymentResult.payload?.message ?? paymentResult.payload ?? null
+      error: paymentResult.payload ?? null
     });
     return json(
-      { ok: false, error: paymentResult.payload?.message ?? 'square_payment_failed' },
+      { ok: false, error: 'square_payment_failed' },
       { status: 502 }
     );
   }
@@ -177,7 +177,7 @@ export async function POST({ request }) {
 
   const referrer = userClaims?.[0] ?? { referrer_id: null, referrer: null };
 
-  const { error: insertError } = await supabaseAdmin.from('claims').insert({
+  const { data: created, error: insertError } = await supabaseAdmin.from('claims').insert({
     venue: venue.name,
     venue_id: venueId,
     submitter_id: submitterId,
@@ -193,11 +193,20 @@ export async function POST({ request }) {
     square_payment_id: payment.id,
     square_card_fingerprint: fingerprint,
     square_location_id: payment.location_id ?? null
-  });
+  }).select('id').single();
 
   if (insertError) {
     return json({ ok: false, error: insertError.message }, { status: 500 });
   }
+
+  try {
+    const origin = new URL(request.url).origin;
+    await fetch(`${origin}/api/notifications/claim-created`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ claim_id: created?.id })
+    });
+  } catch {}
 
   return json({ ok: true });
 }

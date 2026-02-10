@@ -42,19 +42,24 @@ export function matchClaimsToSquarePayments(
     if (Number.isNaN(transactionTime.getTime())) continue;
 
     const amountDollars = amount / 100;
-    let bestClaim: Claim | null = null;
-    let bestDiff = Number.POSITIVE_INFINITY;
-
+    const candidateClaims: Claim[] = [];
     for (const claim of pendingClaims) {
       if (!claim.id || !unmatchedClaims.has(claim.id)) continue;
       if (String(claim.last_4 || '').trim() !== last4) continue;
       if (Number(claim.amount || 0).toFixed(2) !== amountDollars.toFixed(2)) continue;
       const claimTime = new Date(claim.purchased_at);
       const diffMs = Math.abs(claimTime.getTime() - transactionTime.getTime());
-      if (diffMs <= windowMinutes * 60 * 1000 && diffMs < bestDiff) {
-        bestDiff = diffMs;
-        bestClaim = claim;
+      if (diffMs <= windowMinutes * 60 * 1000) {
+        candidateClaims.push(claim);
       }
+    }
+
+    let bestClaim: Claim | null = null;
+    if (candidateClaims.length > 0) {
+      bestClaim =
+        candidateClaims
+          .slice()
+          .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())[0] ?? null;
     }
 
     if (bestClaim?.id) {

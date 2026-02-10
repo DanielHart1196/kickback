@@ -228,10 +228,25 @@ export async function POST({ request }) {
     .filter(Boolean) as Record<string, unknown>[];
 
   if (claimsToInsert.length > 0) {
-    const { error: insertError } = await supabaseAdmin.from('claims').insert(claimsToInsert);
+    const { data: inserted, error: insertError } = await supabaseAdmin
+      .from('claims')
+      .insert(claimsToInsert)
+      .select('id');
     if (insertError) {
       return json({ ok: false, error: insertError.message }, { status: 500 });
     }
+    try {
+      const origin = new URL(request.url).origin;
+      for (const row of inserted ?? []) {
+        const id = (row as { id?: string })?.id;
+        if (!id) continue;
+        await fetch(`${origin}/api/notifications/claim-created`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ claim_id: id })
+        });
+      }
+    } catch {}
   }
 
   await supabaseAdmin

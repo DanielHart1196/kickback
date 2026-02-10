@@ -77,19 +77,36 @@ export async function listSquarePayments(
     cursor?: string | null;
   }
 ) {
-  const baseUrl = getSquareApiBase(accessToken);
-  const url = new URL(`${baseUrl}/v2/payments`);
-  url.searchParams.set('begin_time', params.begin_time);
-  url.searchParams.set('end_time', params.end_time);
-  url.searchParams.set('sort_order', params.sort_order ?? 'ASC');
-  url.searchParams.set('limit', String(params.limit ?? 200));
-  if (params.cursor) {
-    url.searchParams.set('cursor', params.cursor);
+  const primaryBase = getSquareApiBase(accessToken);
+  const buildUrl = (base: string) => {
+    const url = new URL(`${base}/v2/payments`);
+    url.searchParams.set('begin_time', params.begin_time);
+    url.searchParams.set('end_time', params.end_time);
+    url.searchParams.set('sort_order', params.sort_order ?? 'ASC');
+    url.searchParams.set('limit', String(params.limit ?? 200));
+    if (params.cursor) {
+      url.searchParams.set('cursor', params.cursor);
+    }
+    return url.toString();
+  };
+
+  let result = await fetchSquareJson<{ payments?: SquarePayment[]; cursor?: string }>(
+    buildUrl(primaryBase),
+    accessToken,
+    primaryBase
+  );
+
+  if (!result.ok) {
+    const fallbackBase =
+      primaryBase === 'https://connect.squareup.com'
+        ? 'https://connect.squareupsandbox.com'
+        : 'https://connect.squareup.com';
+    result = await fetchSquareJson<{ payments?: SquarePayment[]; cursor?: string }>(
+      buildUrl(fallbackBase),
+      accessToken,
+      fallbackBase
+    );
   }
 
-  return fetchSquareJson<{ payments?: SquarePayment[]; cursor?: string }>(
-    url.toString(),
-    accessToken,
-    baseUrl
-  );
+  return result;
 }

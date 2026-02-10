@@ -1,9 +1,17 @@
 import { json } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
 import { supabaseAdmin } from '$lib/server/supabaseAdmin';
-import webpush from 'web-push';
 
-function initWebPush() {
+async function getWebPush() {
+  try {
+    const mod = await import('web-push');
+    return (mod as any)?.default ?? mod;
+  } catch {
+    return null;
+  }
+}
+
+function initWebPush(webpush: any) {
   const publicKey = env.PRIVATE_VAPID_PUBLIC_KEY || '';
   const privateKey = env.PRIVATE_VAPID_PRIVATE_KEY || '';
   const subject = env.PRIVATE_VAPID_SUBJECT || 'mailto:support@kkbk.app';
@@ -16,7 +24,11 @@ function initWebPush() {
 
 export async function POST({ request }) {
   try {
-    const ok = initWebPush();
+    const webpush = await getWebPush();
+    if (!webpush) {
+      return json({ ok: false, error: 'web_push_unavailable' }, { status: 500 });
+    }
+    const ok = initWebPush(webpush);
     if (!ok) {
       return json({ ok: false, error: 'missing_vapid_keys' }, { status: 500 });
     }

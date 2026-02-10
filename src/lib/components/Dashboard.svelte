@@ -58,7 +58,15 @@
       const { data } = await supabase.auth.getSession();
       const token = data?.session?.access_token || '';
       if (!token) return false;
-      const reg = await navigator.serviceWorker.getRegistration();
+      let reg = await navigator.serviceWorker.getRegistration();
+      if (!reg) {
+        try {
+          await navigator.serviceWorker.register('/service-worker.js');
+          reg = await navigator.serviceWorker.getRegistration();
+        } catch {
+          return false;
+        }
+      }
       if (!reg) return false;
       const keyRes = await fetch('/api/notifications/vapid-key');
       const keyPayload = await keyRes.json().catch(() => null);
@@ -99,6 +107,9 @@
           (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
           ((window.navigator as any)?.standalone === true);
         notificationsEnabled = typeof Notification !== 'undefined' && Notification.permission === 'granted';
+        if (notificationsEnabled) {
+          void ensurePushSubscription();
+        }
         window.addEventListener('appinstalled', () => {
           isPwaInstalled =
             (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
@@ -748,14 +759,7 @@
       </div>
     {/each}
     
-    <div class="mt-12 text-center">
-      <button 
-        on:click={onLogout}
-        class="text-zinc-600 text-[10px] font-black uppercase tracking-[0.3em] hover:text-white transition-colors"
-      >
-        LOGOUT: {userEmail}
-      </button>
-    </div>
+    
 
     {#if showFilterMenu}
       <div class="h-16 w-full"></div>

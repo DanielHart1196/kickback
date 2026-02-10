@@ -15,7 +15,15 @@
       const { data } = await supabase.auth.getSession();
       const token = data?.session?.access_token || '';
       if (!token) return false;
-      const reg = await navigator.serviceWorker.getRegistration();
+      let reg = await navigator.serviceWorker.getRegistration();
+      if (!reg) {
+        try {
+          await navigator.serviceWorker.register('/service-worker.js');
+          reg = await navigator.serviceWorker.getRegistration();
+        } catch {
+          return false;
+        }
+      }
       if (!reg) return false;
       const keyRes = await fetch('/api/notifications/vapid-key');
       const keyPayload = await keyRes.json().catch(() => null);
@@ -88,6 +96,9 @@
   onMount(() => {
     init();
     notificationsEnabled = typeof Notification !== 'undefined' && Notification.permission === 'granted';
+    if (notificationsEnabled) {
+      void ensurePushSubscription();
+    }
   });
 </script>
 
