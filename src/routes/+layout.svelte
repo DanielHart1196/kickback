@@ -2,10 +2,10 @@
   import "../app.css";
   import favicon from '$lib/assets/favicon.png';
   import { onMount } from 'svelte';
-  import { PUBLIC_FB_APP_ID } from '$env/static/public';
+  import { env as publicEnv } from '$env/dynamic/public';
 
   let { children } = $props();
-  const fbAppId = PUBLIC_FB_APP_ID;
+  const fbAppId = publicEnv.PUBLIC_FB_APP_ID;
 
   onMount(() => {
     if ('serviceWorker' in navigator) {
