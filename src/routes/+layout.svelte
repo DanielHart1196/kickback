@@ -4,8 +4,13 @@
   import { onMount } from 'svelte';
   import { env as publicEnv } from '$env/dynamic/public';
 
-  let { children } = $props();
+  let { children, data } = $props();
   const fbAppId = publicEnv.PUBLIC_FB_APP_ID;
+  const shareVenue = data?.ogVenue ?? null;
+  const shareRef = data?.ogRef ?? null;
+  const ogImage = (shareVenue || shareRef)
+    ? `https://kkbk.app/api/og?venue=${encodeURIComponent(shareVenue ?? '')}&ref=${encodeURIComponent(shareRef ?? '')}`
+    : 'https://kkbk.app/opengraph.png?v=2';
 
   onMount(() => {
     if ('serviceWorker' in navigator) {
@@ -24,8 +29,8 @@
   <title>Kickback</title>
   <meta property="og:title" content="Kickback" />
   <meta property="og:description" content="EAT. DRINK. GET PAID." />
-  <meta property="og:image" content="https://kkbk.app/opengraph.png?v=2" />
-  <meta property="og:image:secure_url" content="https://kkbk.app/opengraph.png?v=2" />
+  <meta property="og:image" content="{ogImage}" />
+  <meta property="og:image:secure_url" content="{ogImage}" />
   <meta property="og:image:type" content="image/png" />
   <meta property="og:image:width" content="1200" />
   <meta property="og:image:height" content="630" />
@@ -39,7 +44,7 @@
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="Kickback" />
   <meta name="twitter:description" content="EAT. DRINK. GET PAID." />
-  <meta name="twitter:image" content="https://kkbk.app/opengraph.png?v=2" />
+  <meta name="twitter:image" content="{ogImage}" />
   <meta name="twitter:image:alt" content="Kickback — EAT. DRINK. GET PAID." />
 </svelte:head>
 
