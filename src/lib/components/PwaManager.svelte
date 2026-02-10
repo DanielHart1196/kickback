@@ -7,6 +7,7 @@
   let notificationMessage = '';
   let notificationError = false;
   let installing = false;
+  let installMessage = '';
 
   async function ensurePushSubscription() {
     try {
@@ -91,6 +92,11 @@
     installing = true;
     await promptInstall();
     installing = false;
+    if (!$pwaStore.isStandalone && !$pwaStore.deferredPrompt) {
+      installMessage = 'Use browser menu → Install app';
+    } else {
+      installMessage = '';
+    }
   }
 
   onMount(() => {
@@ -126,7 +132,7 @@
   {#if notificationError}
     <p class="mt-2 text-[10px] font-bold uppercase tracking-widest text-zinc-400">{notificationMessage}</p>
   {/if}
-{:else if !$pwaStore.isStandalone && $pwaStore.deferredPrompt}
+{:else if !$pwaStore.isStandalone && !$pwaStore.installed}
   <button
     type="button"
     on:click={onInstall}
@@ -134,6 +140,9 @@
   >
     {installing ? 'Installing...' : 'Install Kickback'}
   </button>
+  {#if installMessage}
+    <p class="mt-2 text-[10px] font-bold uppercase tracking-widest text-zinc-400">{installMessage}</p>
+  {/if}
 {:else if !$pwaStore.isStandalone && $pwaStore.installed}
   <p class="mt-3 text-[11px] font-bold uppercase tracking-widest text-zinc-400">Manage notifications from the Kickback app</p>
 {:else if $pwaStore.manualInstall}
