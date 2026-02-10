@@ -370,3 +370,7 @@ export async function POST({ request }) {
     results
   });
 }
+
+export async function GET({ request }) {
+  return POST({ request } as any);
+}

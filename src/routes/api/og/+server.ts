@@ -1,9 +1,6 @@
 import { ImageResponse } from '@vercel/og';
 import type { RequestHandler } from './$types';
-
-export const config = {
-  runtime: 'edge'
-};
+export const config = { runtime: 'nodejs20.x' };
 
 export const GET: RequestHandler = async ({ url }) => {
   const venue = url.searchParams.get('venue') ?? 'a Great Venue';
