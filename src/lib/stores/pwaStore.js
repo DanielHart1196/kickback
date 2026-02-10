@@ -36,17 +36,11 @@ function detectIOS() {
 
 export function init() {
   if (typeof window === 'undefined') return;
-  const installedFlag = (() => {
-    try {
-      return localStorage.getItem('kickback:pwa_installed') === '1';
-    } catch {
-      return false;
-    }
-  })();
+  const standalone = detectStandalone();
   store.update((s) => ({
     ...s,
-    isStandalone: detectStandalone(),
-    installed: installedFlag,
+    isStandalone: standalone,
+    installed: standalone,
     manualInstall: detectIOS()
   }));
 
@@ -59,9 +53,6 @@ export function init() {
     }));
   };
   const handleInstalled = () => {
-    try {
-      localStorage.setItem('kickback:pwa_installed', '1');
-    } catch {}
     store.update((s) => ({
       ...s,
       installStatus: 'installed',
@@ -78,8 +69,14 @@ export function init() {
     store.update((s) => ({
       ...s,
       isStandalone: standalone,
-      installStatus: standalone ? 'installed' : s.installStatus
+      installStatus: standalone ? 'installed' : s.installStatus,
+      installed: standalone
     }));
+    if (!standalone) {
+      try {
+        localStorage.removeItem('kickback:pwa_installed');
+      } catch {}
+    }
   };
   if (media && media.addEventListener) {
     media.addEventListener('change', updateStandalone);
