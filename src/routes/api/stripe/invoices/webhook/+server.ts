@@ -4,9 +4,13 @@ import { env } from '$env/dynamic/private';
 import { supabaseAdmin } from '$lib/server/supabaseAdmin';
 import crypto from 'node:crypto';
 
-function getWebhookSecret(): string | null {
-  if (dev) return env.PRIVATE_STRIPE_WEBHOOK_SECRET_SANDBOX ?? null;
-  return env.PRIVATE_STRIPE_WEBHOOK_SECRET_PROD ?? null;
+function getWebhookSecrets(): string[] {
+  const secrets: string[] = [];
+  const prod = env.PRIVATE_STRIPE_WEBHOOK_SECRET_PROD ?? null;
+  const test = env.PRIVATE_STRIPE_WEBHOOK_SECRET_SANDBOX ?? null;
+  if (prod) secrets.push(prod);
+  if (test) secrets.push(test);
+  return secrets;
 }
 
 function getStripeKey(): string | null {
@@ -130,14 +134,15 @@ function verifySignature(secret: string, timestamp: string, rawBody: string, exp
 
 export async function POST({ request }) {
   try {
-    const secret = getWebhookSecret();
-    if (!secret) {
+    const secrets = getWebhookSecrets();
+    if (!secrets || secrets.length === 0) {
       return json({ ok: false, error: 'missing_webhook_secret' }, { status: 500 });
     }
     const raw = await request.text();
     const sigHeader = request.headers.get('stripe-signature');
     const parsed = parseStripeSignature(sigHeader);
-    if (!parsed || !verifySignature(secret, parsed.t, raw, parsed.v1)) {
+    const valid = parsed ? secrets.some((s) => verifySignature(s, parsed.t, raw, parsed.v1)) : false;
+    if (!parsed || !valid) {
       return json({ ok: false, error: 'invalid_signature' }, { status: 401 });
     }
     const event = JSON.parse(raw);
