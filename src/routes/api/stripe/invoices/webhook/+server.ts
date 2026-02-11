@@ -13,9 +13,9 @@ function getWebhookSecrets(): string[] {
   return secrets;
 }
 
-function getStripeKey(): string | null {
-  if (dev) return env.PRIVATE_STRIPE_SECRET_KEY_SANDBOX ?? null;
-  return env.PRIVATE_STRIPE_SECRET_KEY_PROD ?? null;
+function getStripeKeyForMode(live: boolean): string | null {
+  if (live) return env.PRIVATE_STRIPE_SECRET_KEY_PROD ?? null;
+  return env.PRIVATE_STRIPE_SECRET_KEY_SANDBOX ?? null;
 }
 
 function appendStripeParams(params: URLSearchParams, key: string, value: unknown) {
@@ -39,9 +39,7 @@ function appendStripeParams(params: URLSearchParams, key: string, value: unknown
   params.append(key, String(value));
 }
 
-async function stripeRequest(path: string, payload: Record<string, unknown>) {
-  const key = getStripeKey();
-  if (!key) throw new Error('missing_stripe_key');
+async function stripeRequest(path: string, payload: Record<string, unknown>, key: string) {
   const body = new URLSearchParams();
   Object.entries(payload).forEach(([k, v]) => appendStripeParams(body, k, v));
   const response = await fetch(`https://api.stripe.com/v1/${path}`, {
@@ -60,7 +58,14 @@ async function stripeRequest(path: string, payload: Record<string, unknown>) {
   return data;
 }
 
-async function settleClaimsForRange(venueId: string, startIso: string, endIso: string) {
+async function settleClaimsForRange(
+  venueId: string,
+  startIso: string,
+  endIso: string,
+  stripeKey: string,
+  sourceCharge: string | null,
+  currency: string
+) {
   const { data: claims, error } = await supabaseAdmin
     .from('claims')
     .select('id, amount, kickback_guest_rate, kickback_referrer_rate, status, submitter_id, referrer_id, purchased_at')
@@ -71,6 +76,11 @@ async function settleClaimsForRange(venueId: string, startIso: string, endIso: s
   if (error) throw error;
 
   const items = (claims ?? []).filter((c) => (c?.status ?? 'approved') !== 'denied');
+  let transfersAttempted = 0;
+  let transfersCreated = 0;
+  let transfersFailed = 0;
+  let transfersSkippedNoDestination = 0;
+  let claimsPaid = 0;
   for (const claim of items) {
     const amount = Number(claim.amount ?? 0);
     const guestRate = Number(claim.kickback_guest_rate ?? 5);
@@ -93,26 +103,40 @@ async function settleClaimsForRange(venueId: string, startIso: string, endIso: s
         .eq('user_id', t.userId)
         .maybeSingle();
       const destination = profile?.stripe_account_id ?? null;
-      if (!destination) continue;
+      if (!destination) {
+        transfersSkippedNoDestination += 1;
+        continue;
+      }
       try {
-        await stripeRequest('transfers', {
-          amount: t.cents,
-          currency: 'aud',
-          destination,
-          description: `Kickback ${t.type} settlement`,
-          metadata: {
-            venue_id: venueId,
-            claim_id: claim.id ?? null,
-            type: t.type
-          }
-        });
-      } catch {}
+        transfersAttempted += 1;
+        await stripeRequest(
+          'transfers',
+          {
+            amount: t.cents,
+            currency,
+            destination,
+            description: `Kickback ${t.type} settlement`,
+            metadata: {
+              venue_id: venueId,
+              claim_id: claim.id ?? null,
+              type: t.type
+            },
+            source_transaction: sourceCharge ?? undefined
+          },
+          stripeKey
+        );
+        transfersCreated += 1;
+      } catch {
+        transfersFailed += 1;
+      }
     }
 
     if (claim.id) {
       await supabaseAdmin.from('claims').update({ status: 'paid' }).eq('id', claim.id);
+      claimsPaid += 1;
     }
   }
+  return { transfersAttempted, transfersCreated, transfersFailed, transfersSkippedNoDestination, claimsPaid };
 }
 
 function parseStripeSignature(header: string | null) {
@@ -148,11 +172,18 @@ export async function POST({ request }) {
     const event = JSON.parse(raw);
     const type = event?.type ?? '';
     const obj = event?.data?.object ?? null;
+    const livemode = Boolean(event?.livemode);
+    const stripeKey = getStripeKeyForMode(livemode);
+    if (!stripeKey) {
+      return json({ ok: false, error: 'missing_stripe_key' }, { status: 500 });
+    }
     const paidTypes = new Set(['invoice.payment_succeeded', 'invoice.paid']);
     if (!paidTypes.has(type) || !obj) {
       return json({ ok: true });
     }
     const invoiceId: string | null = obj?.id ?? null;
+    const sourceCharge: string | null = obj?.charge ?? null;
+    const currency: string = String(obj?.currency ?? 'aud').toLowerCase();
     let venueId: string | null = obj?.metadata?.venue_id ?? null;
     let startIso: string | null = obj?.metadata?.week_start ?? null;
     let endIso: string | null = obj?.metadata?.week_end ?? null;
@@ -169,8 +200,17 @@ export async function POST({ request }) {
     if (!venueId || !startIso || !endIso) {
       return json({ ok: false, error: 'missing_invoice_metadata' }, { status: 400 });
     }
-    await settleClaimsForRange(venueId, startIso, endIso);
-    return json({ ok: true });
+    if (invoiceId) {
+      await supabaseAdmin
+        .from('venue_invoices')
+        .update({
+          status: obj?.status ?? 'paid',
+          stripe_invoice_url: obj?.hosted_invoice_url ?? null
+        })
+        .eq('stripe_invoice_id', invoiceId);
+    }
+    const stats = await settleClaimsForRange(venueId, startIso, endIso, stripeKey, sourceCharge, currency);
+    return json({ ok: true, stats });
   } catch (error) {
     return json({ ok: false, error: error instanceof Error ? error.message : 'stripe_webhook_failed' }, { status: 500 });
   }
