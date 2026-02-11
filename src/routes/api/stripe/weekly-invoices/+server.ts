@@ -347,15 +347,6 @@ export async function POST({ request }) {
           },
           { onConflict: 'stripe_invoice_id' }
         );
-        venue_id: venue.id,
-        week_start: weekStart,
-        week_end: weekEnd,
-        subtotal,
-        total: totalWithGst,
-        stripe_invoice_id: invoice.id,
-        stripe_invoice_url: finalized?.hosted_invoice_url ?? invoice?.hosted_invoice_url ?? null,
-        status: finalized?.status ?? invoice?.status ?? null
-      });
 
       results.push({
         venue_id: venue.id,
