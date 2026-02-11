@@ -83,16 +83,35 @@ async function settleClaimsForRange(
   endIso: string,
   stripeKey: string,
   sourceCharge: string | null,
-  currency: string
+  currency: string,
+  sourceInvoiceId: string | null
 ) {
-  const { data: claims, error } = await supabaseAdmin
+  const endNext = new Date(endIso);
+  endNext.setDate(endNext.getDate() + 1);
+  const endNextIso = endNext.toISOString();
+  const { data: claimsById, error: errById } = await supabaseAdmin
     .from('claims')
-    .select('id, amount, kickback_guest_rate, kickback_referrer_rate, status, submitter_id, referrer_id, purchased_at')
+    .select('id, amount, kickback_guest_rate, kickback_referrer_rate, status, submitter_id, referrer_id, purchased_at, venue')
     .eq('venue_id', venueId)
     .or('status.is.null,status.eq.approved')
     .gte('purchased_at', startIso)
-    .lt('purchased_at', endIso);
-  if (error) throw error;
+    .lt('purchased_at', endNextIso);
+  if (errById) throw errById;
+  let claims = claimsById ?? [];
+  if ((claimsById ?? []).length === 0) {
+    const { data: venue } = await supabaseAdmin.from('venues').select('name').eq('id', venueId).maybeSingle();
+    const venueName = venue?.name ?? null;
+    if (venueName) {
+      const { data: claimsByName } = await supabaseAdmin
+        .from('claims')
+        .select('id, amount, kickback_guest_rate, kickback_referrer_rate, status, submitter_id, referrer_id, purchased_at, venue')
+        .eq('venue', venueName)
+        .or('status.is.null,status.eq.approved')
+        .gte('purchased_at', startIso)
+        .lt('purchased_at', endNextIso);
+      claims = claimsByName ?? [];
+    }
+  }
 
   const items = (claims ?? []).filter((c) => (c?.status ?? 'approved') !== 'denied');
   let transfersAttempted = 0;
@@ -116,35 +135,56 @@ async function settleClaimsForRange(
     }
 
     for (const t of transfers) {
-      const { data: profile } = await supabaseAdmin
-        .from('payout_profiles')
-        .select('stripe_account_id')
-        .eq('user_id', t.userId)
-        .maybeSingle();
-      const destination = profile?.stripe_account_id ?? null;
-      if (!destination) {
-        transfersSkippedNoDestination += 1;
-        continue;
-      }
       try {
         transfersAttempted += 1;
-        await stripeRequest(
-          'transfers',
-          {
-            amount: t.cents,
-            currency,
-            destination,
-            description: `Kickback ${t.type} settlement`,
-            metadata: {
+        const { data: existing } = await supabaseAdmin
+          .from('user_balances')
+          .select('id, status')
+          .eq('user_id', t.userId)
+          .eq('claim_id', claim.id ?? null)
+          .eq('type', t.type)
+          .maybeSingle();
+        if (existing?.id) {
+          const { error: upErr } = await supabaseAdmin
+            .from('user_balances')
+            .update({
+              amount: t.cents / 100,
+              currency,
               venue_id: venueId,
-              claim_id: claim.id ?? null,
-              type: t.type
-            },
-            source_transaction: sourceCharge ?? undefined
-          },
-          stripeKey
-        );
-        transfersCreated += 1;
+              week_start: startIso?.slice(0, 10) ?? null,
+              week_end: endIso?.slice(0, 10) ?? null,
+              source_invoice_id: sourceInvoiceId ?? null,
+              source_charge_id: sourceCharge ?? null,
+              status: 'available',
+              created_at: new Date().toISOString()
+            })
+            .eq('id', existing.id);
+          if (upErr) {
+            transfersFailed += 1;
+          } else {
+            transfersCreated += 1;
+          }
+        } else {
+          const { error } = await supabaseAdmin.from('user_balances').insert({
+            user_id: t.userId,
+            type: t.type,
+            amount: t.cents / 100,
+            currency,
+            claim_id: claim.id ?? null,
+            venue_id: venueId,
+            week_start: startIso?.slice(0, 10) ?? null,
+            week_end: endIso?.slice(0, 10) ?? null,
+            source_invoice_id: sourceInvoiceId ?? null,
+            source_charge_id: sourceCharge ?? null,
+            status: 'available',
+            created_at: new Date().toISOString()
+          });
+          if (error) {
+            transfersFailed += 1;
+          } else {
+            transfersCreated += 1;
+          }
+        }
       } catch {
         transfersFailed += 1;
       }
@@ -237,7 +277,7 @@ export async function POST({ request }) {
         })
         .eq('stripe_invoice_id', invoiceId);
     }
-    const stats = await settleClaimsForRange(venueId, startIso, endIso, stripeKey, sourceCharge, currency);
+    const stats = await settleClaimsForRange(venueId, startIso, endIso, stripeKey, sourceCharge, currency, invoiceId);
     return json({ ok: true, stats });
   } catch (error) {
     return json({ ok: false, error: error instanceof Error ? error.message : 'stripe_webhook_failed' }, { status: 500 });

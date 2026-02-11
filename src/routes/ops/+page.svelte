@@ -79,6 +79,20 @@
       }[]
     | null = null;
   let invoiceBulkRaw = '';
+  let balanceInvoiceId = '';
+  let balanceSyncStatus: 'idle' | 'running' | 'error' | 'success' = 'idle';
+  let balanceSyncMessage = '';
+  let balanceSyncError = '';
+  let weeklyStatus: 'idle' | 'loading' | 'error' | 'success' = 'idle';
+  let weeklyError = '';
+  let weeklyPayouts:
+    | {
+        user_id: string;
+        amount: number;
+        currency: string;
+        stripe_account_id: string | null;
+      }[]
+    | null = null;
 
   const venueById = new Map<string, Venue>();
   const profileById = new Map<string, Profile>();
@@ -693,6 +707,117 @@
       alert('Failed to send invoice');
     }
   }
+  async function syncBalancesForInvoice() {
+    if (!balanceInvoiceId.trim()) return;
+    balanceSyncStatus = 'running';
+    balanceSyncError = '';
+    balanceSyncMessage = '';
+    try {
+      const response = await fetch('/api/payouts/sync-balances', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stripe_invoice_id: balanceInvoiceId.trim() })
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        balanceSyncStatus = 'error';
+        balanceSyncError = payload?.error ?? 'Sync failed';
+        return;
+      }
+      balanceSyncStatus = 'success';
+      balanceSyncMessage = `Wrote ${payload?.written ?? 0} balance rows`;
+    } catch (error) {
+      balanceSyncStatus = 'error';
+      balanceSyncError = error instanceof Error ? error.message : 'Sync failed';
+    }
+  }
+  async function backfillAllBalances() {
+    balanceSyncStatus = 'running';
+    balanceSyncError = '';
+    balanceSyncMessage = '';
+    try {
+      const response = await fetch('/api/payouts/sync-balances', { method: 'POST' });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        balanceSyncStatus = 'error';
+        balanceSyncError = payload?.error ?? 'Backfill failed';
+        return;
+      }
+      const wrote = payload?.written ?? 0;
+      const updated = payload?.updated ?? 0;
+      const totals = payload?.totals
+        ? ` pending ${Number(payload.totals.pending ?? 0).toFixed(2)}, approved ${Number(payload.totals.approved ?? 0).toFixed(2)}, denied ${Number(payload.totals.denied ?? 0).toFixed(2)}, available ${Number(payload.totals.available ?? 0).toFixed(2)}`
+        : '';
+      balanceSyncStatus = 'success';
+      balanceSyncMessage = `Backfill wrote ${wrote}, updated ${updated}.${totals}`;
+    } catch (error) {
+      balanceSyncStatus = 'error';
+      balanceSyncError = error instanceof Error ? error.message : 'Backfill failed';
+    }
+  }
+  async function backfillSummaryBalances() {
+    balanceSyncStatus = 'running';
+    balanceSyncError = '';
+    balanceSyncMessage = '';
+    try {
+      const response = await fetch('/api/payouts/backfill-summary', { method: 'POST' });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        balanceSyncStatus = 'error';
+        balanceSyncError = payload?.error ?? 'Backfill summary failed';
+        return;
+      }
+      balanceSyncStatus = 'success';
+      balanceSyncMessage = `Summary wrote ${payload?.written ?? 0}, updated ${payload?.updated ?? 0}`;
+    } catch (error) {
+      balanceSyncStatus = 'error';
+      balanceSyncError = error instanceof Error ? error.message : 'Backfill summary failed';
+    }
+  }
+  async function promoteBalances(action: 'pending_to_approved' | 'approved_to_available' | 'all') {
+    balanceSyncStatus = 'running';
+    balanceSyncError = '';
+    balanceSyncMessage = '';
+    try {
+      const response = await fetch('/api/payouts/promote-balances', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action })
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        balanceSyncStatus = 'error';
+        balanceSyncError = payload?.error ?? 'Promote failed';
+        return;
+      }
+      const p2a = payload?.pending_to_approved ?? 0;
+      const a2v = payload?.approved_to_available ?? 0;
+      balanceSyncStatus = 'success';
+      balanceSyncMessage = `Promoted: pending→approved ${p2a}, approved→available ${a2v}`;
+    } catch (error) {
+      balanceSyncStatus = 'error';
+      balanceSyncError = error instanceof Error ? error.message : 'Promote failed';
+    }
+  }
+  async function loadWeeklyPayouts() {
+    weeklyStatus = 'loading';
+    weeklyError = '';
+    weeklyPayouts = null;
+    try {
+      const response = await fetch('/api/payouts/weekly?min=20&currency=aud');
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        weeklyStatus = 'error';
+        weeklyError = payload?.error ?? 'Failed to load payouts';
+        return;
+      }
+      weeklyStatus = 'success';
+      weeklyPayouts = payload?.payouts ?? [];
+    } catch (error) {
+      weeklyStatus = 'error';
+      weeklyError = error instanceof Error ? error.message : 'Failed to load payouts';
+    }
+  }
 </script>
 
 <main class="min-h-screen bg-zinc-950 text-white p-6 md:p-10">
@@ -1122,6 +1247,91 @@
             {/if}
           </section>
         {/if}
+
+        <section class="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-5">
+          <p class="text-xs font-black uppercase tracking-widest text-zinc-500">Balances</p>
+          <div class="mt-3 flex items-center gap-3">
+            <input
+              type="text"
+              placeholder="Stripe invoice id"
+              bind:value={balanceInvoiceId}
+              class="flex-1 px-3 py-1 rounded-lg bg-zinc-800 border border-zinc-700 text-sm"
+            />
+            <button
+              type="button"
+              class="px-3 py-1 rounded-lg bg-orange-500 text-black text-xs font-black uppercase tracking-widest"
+              on:click={syncBalancesForInvoice}
+              disabled={balanceSyncStatus === 'running'}
+            >
+              Sync Balances
+            </button>
+            <button
+              type="button"
+              class="px-3 py-1 rounded-lg bg-green-500 text-black text-xs font-black uppercase tracking-widest"
+              on:click={backfillAllBalances}
+              disabled={balanceSyncStatus === 'running'}
+            >
+              Backfill All
+            </button>
+            <button
+              type="button"
+              class="px-3 py-1 rounded-lg bg-green-600 text-black text-xs font-black uppercase tracking-widest"
+              on:click={backfillSummaryBalances}
+              disabled={balanceSyncStatus === 'running'}
+            >
+              Recompute Summary
+            </button>
+            <button
+              type="button"
+              class="px-3 py-1 rounded-lg bg-zinc-700 text-white text-xs font-black uppercase tracking-widest"
+              on:click={() => promoteBalances('pending_to_approved')}
+              disabled={balanceSyncStatus === 'running'}
+            >
+              Approve All Pending
+            </button>
+            <button
+              type="button"
+              class="px-3 py-1 rounded-lg bg-blue-600 text-black text-xs font-black uppercase tracking-widest"
+              on:click={() => promoteBalances('approved_to_available')}
+              disabled={balanceSyncStatus === 'running'}
+            >
+              Make Approved Available
+            </button>
+            <button
+              type="button"
+              class="px-3 py-1 rounded-lg bg-blue-500 text-black text-xs font-black uppercase tracking-widest"
+              on:click={loadWeeklyPayouts}
+              disabled={weeklyStatus === 'loading'}
+            >
+              Weekly Payouts
+            </button>
+          </div>
+          {#if balanceSyncStatus === 'error' && balanceSyncError}
+            <p class="mt-3 text-[10px] font-bold uppercase tracking-widest text-red-400">{balanceSyncError}</p>
+          {/if}
+          {#if balanceSyncStatus === 'success' && balanceSyncMessage}
+            <p class="mt-3 text-[10px] font-bold uppercase tracking-widest text-green-300">{balanceSyncMessage}</p>
+          {/if}
+          {#if weeklyPayouts}
+            <div class="mt-4 space-y-1 text-[10px] text-zinc-300 normal-case tracking-normal">
+              {#each weeklyPayouts as p}
+                <div class="flex items-center justify-between gap-2">
+                  <span class="truncate">{p.user_id}</span>
+                  <span class="text-white">${p.amount.toFixed(2)} {p.currency.toUpperCase()}</span>
+                </div>
+                {#if p.stripe_account_id}
+                  <div class="ml-3 text-[10px] text-zinc-500">acct: {p.stripe_account_id}</div>
+                {/if}
+              {/each}
+              {#if weeklyPayouts.length === 0}
+                <p class="text-zinc-500">No users above threshold.</p>
+              {/if}
+            </div>
+            {#if weeklyError}
+              <p class="mt-3 text-[10px] font-bold uppercase tracking-widest text-red-400">{weeklyError}</p>
+            {/if}
+          {/if}
+        </section>
 
         <section class="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-5">
           <p class="text-xs font-black uppercase tracking-widest text-zinc-500">Venue Detail</p>
