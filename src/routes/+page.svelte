@@ -744,7 +744,7 @@
       )
     );
 
-    if (hasDraft) {
+    if (hasDraft && draft) {
       amountInput = draft.amount ?? '';
       if (draft.venueCode) {
         const venueFromCode = getVenueByCode(draft.venueCode);
@@ -856,7 +856,7 @@
         });
         const precheck = await precheckRes.json().catch(() => null);
         if (precheckRes.ok && precheck?.ok && precheck.duplicate && precheck.by_same_user) {
-          const venueName = selectedVenue?.name ?? venueId;
+          const venueName = getVenueNameById(venueId) || venueId;
           const daysLeft = getAutoClaimDaysLeft(venueId, venueName) ?? 0;
           autoClaimWarningVenue = venueName;
           autoClaimWarningDaysLeft = daysLeft;

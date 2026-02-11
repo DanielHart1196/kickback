@@ -5,12 +5,14 @@
   import { env as publicEnv } from '$env/dynamic/public';
 
   let { children, data } = $props();
-  const fbAppId = publicEnv.PUBLIC_FB_APP_ID;
-  const shareVenue = data?.ogVenue ?? null;
-  const shareRef = data?.ogRef ?? null;
-  const ogImage = (shareVenue || shareRef)
-    ? `https://kkbk.app/api/og?venue=${encodeURIComponent(shareVenue ?? '')}&ref=${encodeURIComponent(shareRef ?? '')}`
-    : 'https://kkbk.app/opengraph.png?v=2';
+  let fbAppId = publicEnv.PUBLIC_FB_APP_ID;
+  const shareVenue = $derived(data?.ogVenue ?? null);
+  const shareRef = $derived(data?.ogRef ?? null);
+  const ogImage = $derived(
+    (shareVenue || shareRef)
+      ? `https://kkbk.app/api/og?venue=${encodeURIComponent(shareVenue ?? '')}&ref=${encodeURIComponent(shareRef ?? '')}`
+      : 'https://kkbk.app/opengraph.png?v=2'
+  );
 
   onMount(() => {
     if ('serviceWorker' in navigator) {

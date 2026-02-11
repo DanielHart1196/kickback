@@ -89,6 +89,49 @@
     return value.replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 12);
   }
 
+  async function fetchVenueInvoices() {
+    if (!venue?.id) {
+      venueInvoices = [];
+      return;
+    }
+    try {
+      const response = await fetch(`/api/venue-invoices?venue_id=${encodeURIComponent(venue.id)}`);
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload?.ok) {
+        venueInvoices = [];
+        return;
+      }
+      venueInvoices = (payload?.invoices ?? []).filter(
+        (inv: any) => inv?.stripe_invoice_url && (inv?.status ?? '').toLowerCase() !== 'paid'
+      );
+      if (venueInvoices.length > 0) {
+        showPaymentMethods = true;
+      }
+    } catch {
+      venueInvoices = [];
+    }
+  }
+  async function syncStripeInvoices() {
+    if (!venue?.id) return;
+    invoiceSyncLoading = true;
+    invoiceSyncError = '';
+    invoiceSyncSuccess = '';
+    try {
+      const response = await fetch(`/api/stripe/invoices/sync?venue_id=${encodeURIComponent(venue.id)}`);
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload?.ok) {
+        invoiceSyncError = payload?.error ?? 'Failed to sync invoices';
+        return;
+      }
+      await fetchVenueInvoices();
+      invoiceSyncSuccess = `Synced ${payload.inserted ?? 0} new, updated ${payload.updated ?? 0}.`;
+    } catch (err) {
+      invoiceSyncError = err instanceof Error ? err.message : 'Failed to sync invoices';
+    } finally {
+      invoiceSyncLoading = false;
+    }
+  }
+
   async function checkVenueCode() {
     const code = normalizeVenueCode(venueCode);
     if (code.length < 4) {
@@ -193,6 +236,10 @@
   let zeptoAgreementDetails: ZeptoAgreementDetails | null = null;
   let zeptoAgreementDetailsLoading = false;
   let zeptoAgreementDetailsError = '';
+  let venueInvoices: { week_start?: string | null; week_end?: string | null; stripe_invoice_url?: string | null; status?: string | null }[] = [];
+  let invoiceSyncLoading = false;
+  let invoiceSyncError = '';
+  let invoiceSyncSuccess = '';
 
   function isAgreementActive(state: string | null | undefined): boolean {
     if (!state) return true;
@@ -274,6 +321,7 @@
           await fetchPayToAgreement();
           await fetchLatestPaymentRequest();
         }
+        await fetchVenueInvoices();
       } else {
         claims = [];
       }
@@ -1754,7 +1802,7 @@
     squareCheckedRange = '';
   }
 
-  function buildMatchesFromSquare(payments: SquarePayment[]) {
+  async function buildMatchesFromSquare(payments: SquarePayment[]) {
     squareError = '';
     const selectedIds = new Set(selectedClaimIds);
     const pendingClaims = claims.filter(
@@ -1763,6 +1811,35 @@
     const result = matchClaimsToSquarePayments(pendingClaims, payments, 5);
     squareMatches = result.matches;
     squareUnmatchedClaimIds = result.unmatchedClaimIds;
+
+    try {
+      const paymentIds = Array.from(new Set(squareMatches.map((m) => m.paymentId)));
+      if (paymentIds.length > 0) {
+        const { data: existing } = await supabase
+          .from('claims')
+          .select('square_payment_id')
+          .in('square_payment_id', paymentIds);
+        const existingPaymentIds = new Set(
+          (existing ?? []).map((r) => r.square_payment_id).filter(Boolean) as string[]
+        );
+        if (existingPaymentIds.size > 0) {
+          const duplicateClaimIds = new Set(
+            squareMatches
+              .filter((m) => existingPaymentIds.has(m.paymentId))
+              .map((m) => m.claimId)
+          );
+          if (duplicateClaimIds.size > 0) {
+            squareMatches = squareMatches.filter((m) => !duplicateClaimIds.has(m.claimId));
+            const uniqUnmatched = new Set(squareUnmatchedClaimIds);
+            duplicateClaimIds.forEach((id) => uniqUnmatched.add(id));
+            squareUnmatchedClaimIds = Array.from(uniqUnmatched);
+          }
+        }
+      }
+    } catch (err) {
+      // proceed without duplicate filtering if check fails
+    }
+
     const matchedIds = new Set(result.matches.map((match) => match.claimId));
     const unmatchedIds = new Set(result.unmatchedClaimIds);
     squareApprovedClaimIds = squareApprovedClaimIds.filter((id) => matchedIds.has(id));
@@ -1812,7 +1889,7 @@
       }
 
       const payments = (payload?.payments ?? []) as SquarePayment[];
-      buildMatchesFromSquare(payments);
+      await buildMatchesFromSquare(payments);
       if (squareMatches.length === 0 && squareUnmatchedClaimIds.length === 0) {
         squareError = 'No Square payments found in that time range.';
       }
@@ -1987,7 +2064,7 @@
               type="text"
               bind:value={venueName}
               placeholder="Venue name"
-              class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-lg font-bold text-white w-full md:w-72"
+              class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-lg font-bold text-white w-full md:w-72 font-mont"
             />
             <label class="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-zinc-500 mt-2">
               <span>Venue Code</span>
@@ -2046,7 +2123,7 @@
                 max="100"
                 step="0.1"
                 bind:value={guestRate}
-                class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-base font-bold text-white w-full md:w-40"
+                class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-base font-bold text-white w-full md:w-40 font-mont"
               />
             </label>
             <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
@@ -2057,7 +2134,7 @@
                 max="100"
                 step="0.1"
                 bind:value={referrerRate}
-                class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-base font-bold text-white w-full md:w-40"
+                class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-base font-bold text-white w-full md:w-40 font-mont"
               />
             </label>
           </div>
@@ -2325,7 +2402,7 @@
                     type="text"
                     bind:value={billingCompany}
                     placeholder="Venue Pty Ltd"
-                    class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-white"
+                    class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-white font-mont"
                   />
                 </label>
                 <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
@@ -2334,7 +2411,7 @@
                     type="text"
                     bind:value={abn}
                     placeholder="12 345 678 901"
-                    class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-white"
+                    class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-white font-mont"
                   />
                 </label>
                 <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500 md:col-span-2">
@@ -2343,7 +2420,7 @@
                     type="email"
                     bind:value={billingEmail}
                     placeholder="billing@venue.com"
-                    class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-white"
+                    class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-white font-mont"
                   />
                 </label>
                 <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500 md:col-span-2">
@@ -2352,7 +2429,7 @@
                     type="text"
                     bind:value={billingAddress}
                     placeholder="388 George Street"
-                    class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-white"
+                    class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-white font-mont"
                   />
                 </label>
                 <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
@@ -2361,7 +2438,7 @@
                     type="text"
                     bind:value={billingCity}
                     placeholder="Eltham"
-                    class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-white"
+                    class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-white font-mont"
                   />
                 </label>
                 <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
@@ -2370,7 +2447,7 @@
                     type="text"
                     bind:value={billingPostalCode}
                     placeholder="3095"
-                    class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-white"
+                    class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-white font-mont"
                   />
                 </label>
               </div>
@@ -2432,6 +2509,46 @@
               {/if}
             </div>
           {/if}
+
+          {#if venueInvoices.length > 0}
+            <div class="mt-5 bg-zinc-950 border border-zinc-800 rounded-xl p-4">
+              <p class="text-xs font-black uppercase tracking-widest text-zinc-500">Pending Invoices</p>
+              <div class="mt-3 space-y-2">
+                {#each venueInvoices as inv}
+                  <div class="flex items-center justify-between gap-2 text-[10px] font-bold uppercase tracking-widest text-zinc-400">
+                    <span>
+                      {formatIsoDate(inv.week_start ?? '')}
+                      {#if inv.week_end}
+                        <span class="text-zinc-600"> - {formatIsoDateMinusOneDay(inv.week_end)}</span>
+                      {/if}
+                    </span>
+                    <span class="inline-flex items-center gap-3">
+                      <span class="text-zinc-500">{inv.status ?? 'open'}</span>
+                      {#if inv.stripe_invoice_url}
+                        <a href={inv.stripe_invoice_url} target="_blank" rel="noreferrer" class="text-orange-400 underline underline-offset-2">View</a>
+                      {/if}
+                    </span>
+                  </div>
+                {/each}
+              </div>
+            </div>
+          {/if}
+          <div class="mt-4 flex items-center gap-3">
+            <button
+              type="button"
+              on:click={syncStripeInvoices}
+              class="px-4 py-2 rounded-xl bg-zinc-200 text-black text-xs font-black uppercase tracking-widest disabled:opacity-50"
+              disabled={invoiceSyncLoading || !venue}
+            >
+              {invoiceSyncLoading ? 'Syncing…' : 'Sync Stripe Invoices'}
+            </button>
+            {#if invoiceSyncError}
+              <span class="text-[10px] font-black uppercase tracking-widest text-red-400">{invoiceSyncError}</span>
+            {/if}
+            {#if invoiceSyncSuccess}
+              <span class="text-[10px] font-black uppercase tracking-widest text-green-400">{invoiceSyncSuccess}</span>
+            {/if}
+          </div>
         </div>
       {/if}
       {/if}

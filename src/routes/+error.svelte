@@ -1,31 +1,32 @@
-<script>
-  let { status, error } = $props();
-  const is404 = status === 404;
-  const title = is404 ? '404 — Page Not Found' : 'Something went wrong';
-  const detail = is404 ? 'The page you’re looking for doesn’t exist.' : (error?.message ?? 'Please try again.');
+<script lang="ts">
+  function goHome() {
+    if (typeof window !== 'undefined') {
+      window.location.href = '/';
+    }
+  }
 </script>
 
-<svelte:head>
-  <title>{title} · Kickback</title>
-</svelte:head>
+<main class="min-h-screen bg-black text-white flex flex-col items-center justify-center p-6">
+  <div class="w-full max-w-sm space-y-6 text-center">
+    <h1 class="text-3xl font-black uppercase tracking-tighter leading-none">
+      <span class="kickback-wordmark"><span class="text-white">Kick</span><span class="text-orange-500">back</span></span>
+    </h1>
 
-<main class="min-h-screen bg-black text-white flex items-center justify-center p-6">
-  <div class="w-full max-w-xl">
-    <div class="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-8 text-center">
-      <div class="kickback-wordmark text-5xl md:text-6xl text-orange-500">Kickback</div>
-      <h1 class="mt-6 text-2xl md:text-4xl font-black">{title}</h1>
-      <p class="mt-3 text-zinc-400 text-sm md:text-base">{detail}</p>
+    <div class="space-y-3">
+      <h2 class="text-xl font-bold">Table not found.</h2>
+      <p class="text-zinc-400">
+        Looks like this link has expired or the venue has moved.
+      </p>
+    </div>
 
-      <div class="mt-6 flex flex-wrap items-center justify-center gap-3">
-        <a href="/" class="bg-orange-500 text-black font-black px-6 py-3 rounded-xl uppercase tracking-tight">
-          Go Home
-        </a>
-        <a href="/?refer=" class="bg-zinc-800 text-white font-black px-6 py-3 rounded-xl uppercase tracking-tight border border-zinc-700">
-          Claim Portal
-        </a>
-      </div>
-
-      <p class="mt-6 text-zinc-600 text-xs font-bold uppercase tracking-widest">EAT. DRINK. GET PAID.</p>
+    <div class="mt-2">
+      <button
+        type="button"
+        on:click={goHome}
+        class="w-full h-10 rounded-full bg-orange-500 text-black text-[14px] leading-[20px] font-black uppercase inline-flex items-center justify-center active:scale-95 transition-all hover:bg-orange-600"
+      >
+        Go Home
+      </button>
     </div>
   </div>
 </main>

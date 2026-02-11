@@ -1098,6 +1098,22 @@
                       </a>
                     {/if}
                   </div>
+                {:else if result.ok && result.sent}
+                  <div class="ml-3 mt-2 flex items-center gap-3">
+                    <span class="px-3 py-1 rounded-lg bg-green-500/20 text-green-200 text-[10px] font-black uppercase tracking-widest">
+                      Sent
+                    </span>
+                    {#if result.invoice_url}
+                      <a
+                        href={result.invoice_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        class="text-green-300 underline underline-offset-2"
+                      >
+                        View
+                      </a>
+                    {/if}
+                  </div>
                 {/if}
               {/each}
             </div>

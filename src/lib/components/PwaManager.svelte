@@ -119,12 +119,13 @@
 
 {#if $pwaStore.isStandalone}
   <div class="mt-3 flex items-center justify-between">
-    <span class="text-[11px] font-bold uppercase tracking-widest text-zinc-400">Enable Notifications</span>
+    <span id="notifications-label" class="text-[11px] font-bold uppercase tracking-widest text-zinc-400">Enable Notifications</span>
     <button
       type="button"
       on:click={toggleNotifications}
       class={`relative w-12 h-6 rounded-full ${notificationsEnabled ? 'bg-green-500' : 'bg-zinc-700'} transition-colors`}
       aria-pressed={notificationsEnabled}
+      aria-labelledby="notifications-label"
     >
       <span class={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${notificationsEnabled ? 'translate-x-6' : ''}`}></span>
     </button>

@@ -42,11 +42,19 @@
           const target = new URL(redirectTo);
           const isAdmin = target.pathname.includes('/admin');
           if (isAdmin) {
-            await supabase.from('profiles').upsert({
-              id: session.user.id,
-              role: 'owner',
-              updated_at: new Date().toISOString()
-            });
+            const { data: profile } = await supabase
+              .from('profiles')
+              .select('role')
+              .eq('id', session.user.id)
+              .maybeSingle();
+            const currentRole = profile?.role ?? 'member';
+            if (currentRole !== 'admin' && currentRole !== 'owner') {
+              await supabase.from('profiles').upsert({
+                id: session.user.id,
+                role: 'owner',
+                updated_at: new Date().toISOString()
+              });
+            }
           }
           if (target.origin !== window.location.origin) {
             const access_token = session?.access_token ?? '';
@@ -69,11 +77,19 @@
       }
       const isAdmin = redirectTo.includes('/admin');
       if (isAdmin) {
-        await supabase.from('profiles').upsert({
-          id: session.user.id,
-          role: 'owner',
-          updated_at: new Date().toISOString()
-        });
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('role')
+          .eq('id', session.user.id)
+          .maybeSingle();
+        const currentRole = profile?.role ?? 'member';
+        if (currentRole !== 'admin' && currentRole !== 'owner') {
+          await supabase.from('profiles').upsert({
+            id: session.user.id,
+            role: 'owner',
+            updated_at: new Date().toISOString()
+          });
+        }
         await goto('/admin');
       } else {
         await goto(redirectTo);

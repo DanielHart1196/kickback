@@ -232,9 +232,27 @@ export async function POST({ request }) {
         const amountDue = Number(finalized?.amount_due ?? invoice?.amount_due ?? 0) / 100;
         const invoiceUrl = finalized?.hosted_invoice_url ?? invoice?.hosted_invoice_url ?? null;
 
+        const { error: upsertError } = await supabaseAdmin
+          .from('venue_invoices')
+          .upsert(
+            {
+              venue_id: venue.id,
+              week_start: startLabel,
+              week_end: endLabel,
+              subtotal,
+              total: totalWithGst,
+              gst: 0,
+              stripe_invoice_id: invoice.id,
+              stripe_invoice_url: invoiceUrl,
+              status: finalized?.status ?? invoice?.status ?? null
+            },
+            { onConflict: 'stripe_invoice_id' }
+          );
+
         results.push({
           venue_id: venue.id,
-          ok: true,
+          ok: !upsertError,
+          error: upsertError?.message ?? undefined,
           subtotal,
           total: totalWithGst,
           amount_due: amountDue,

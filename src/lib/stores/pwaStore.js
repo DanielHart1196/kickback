@@ -1,5 +1,6 @@
 import { writable } from 'svelte/store';
 
+/** @type {{ isStandalone: boolean; installStatus: 'idle'|'prompted'|'installing'|'installed'; deferredPrompt: any; installed: boolean; manualInstall: boolean }} */
 const initial = {
   isStandalone: false,
   installStatus: 'idle',
@@ -18,7 +19,12 @@ function detectStandalone() {
       (typeof window !== 'undefined' &&
         window.matchMedia &&
         window.matchMedia('(display-mode: standalone)').matches) ||
-      ((typeof navigator !== 'undefined' && navigator) && (navigator).standalone === true)
+      (
+        typeof navigator !== 'undefined' &&
+        // iOS Safari exposes non-standard navigator.standalone
+        /** @type {any} */ (navigator) &&
+        /** @type {any} */ (navigator).standalone === true
+      )
     );
   } catch {
     return false;
@@ -44,6 +50,7 @@ export function init() {
     manualInstall: detectIOS()
   }));
 
+  /** @param {Event & { prompt?: () => void }} e */
   const handleBeforeInstall = (e) => {
     e.preventDefault();
     store.update((s) => ({
@@ -96,8 +103,8 @@ export async function promptInstall() {
   if (!dp) return;
   store.update((s) => ({ ...s, installStatus: 'installing' }));
   try {
-    dp.prompt();
-    const choice = await dp.userChoice;
+    /** @type {any} */ (dp).prompt?.();
+    const choice = await /** @type {any} */ (dp).userChoice;
     if (!choice || choice.outcome !== 'accepted') {
       store.update((s) => ({ ...s, installStatus: 'idle', deferredPrompt: null }));
     }
