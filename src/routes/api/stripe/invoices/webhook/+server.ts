@@ -58,6 +58,25 @@ async function stripeRequest(path: string, payload: Record<string, unknown>, key
   return data;
 }
 
+async function stripeGet(path: string, key: string, query?: Record<string, string | number | boolean>) {
+  const url = new URL(`https://api.stripe.com/v1/${path}`);
+  if (query) {
+    Object.entries(query).forEach(([k, v]) => url.searchParams.set(k, String(v)));
+  }
+  const response = await fetch(url.toString(), {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${key}`
+    }
+  });
+  const data = await response.json().catch(() => null);
+  if (!response.ok) {
+    const message = data?.error?.message ?? `stripe_${response.status}`;
+    throw new Error(message);
+  }
+  return data;
+}
+
 async function settleClaimsForRange(
   venueId: string,
   startIso: string,
@@ -182,7 +201,16 @@ export async function POST({ request }) {
       return json({ ok: true });
     }
     const invoiceId: string | null = obj?.id ?? null;
-    const sourceCharge: string | null = obj?.charge ?? null;
+    let sourceCharge: string | null = obj?.charge ?? null;
+    const paymentIntentId: string | null = obj?.payment_intent ?? null;
+    if (!sourceCharge && paymentIntentId) {
+      try {
+        const pi = await stripeGet(`payment_intents/${paymentIntentId}`, stripeKey);
+        sourceCharge = pi?.charges?.data?.[0]?.id ?? null;
+      } catch {
+        sourceCharge = null;
+      }
+    }
     const currency: string = String(obj?.currency ?? 'aud').toLowerCase();
     let venueId: string | null = obj?.metadata?.venue_id ?? null;
     let startIso: string | null = obj?.metadata?.week_start ?? null;
