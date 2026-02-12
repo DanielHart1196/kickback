@@ -634,7 +634,7 @@
     }
   }
 
-  async function createBulkInvoices() {
+  async function previewBulkInvoices() {
     if (selectedClaimIds.size === 0) return;
     invoiceBulkStatus = 'running';
     invoiceBulkError = '';
@@ -665,7 +665,7 @@
         invoiceBulkError = 'Select exactly one full week to generate invoices';
         return;
       }
-      const response = await fetch('/api/stripe/invoices/bulk-create', {
+      const response = await fetch('/api/stripe/invoices/preview', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ claim_ids: claimIds, range_start: rangeStart, range_end: rangeEnd })
@@ -682,6 +682,44 @@
     } catch (error) {
       invoiceBulkStatus = 'error';
       invoiceBulkError = error instanceof Error ? error.message : 'Bulk invoice creation failed.';
+    }
+  }
+  async function sendBulkInvoices() {
+    if (selectedClaimIds.size === 0) return;
+    invoiceBulkStatus = 'running';
+    invoiceBulkError = '';
+    try {
+      const claimIds = Array.from(
+        new Set(
+          claims
+            .filter((c) => c.id && selectedClaimIds.has(c.id))
+            .map((c) => c.id as string)
+        )
+      );
+      const weekRange = getSelectedWeekRange();
+      const rangeStart = weekRange?.start;
+      const rangeEnd = weekRange?.end;
+      if (!rangeStart || !rangeEnd) {
+        invoiceBulkStatus = 'error';
+        invoiceBulkError = 'Select exactly one full week to send invoices';
+        return;
+      }
+      const response = await fetch('/api/stripe/invoices/bulk-send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ claim_ids: claimIds, range_start: rangeStart, range_end: rangeEnd })
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        invoiceBulkStatus = 'error';
+        invoiceBulkError = payload?.error ?? 'Bulk send failed.';
+        return;
+      }
+      invoiceBulkStatus = 'success';
+      invoiceBulkResults = payload?.results ?? [];
+    } catch (error) {
+      invoiceBulkStatus = 'error';
+      invoiceBulkError = error instanceof Error ? error.message : 'Bulk send failed.';
     }
   }
 
@@ -774,6 +812,25 @@
       balanceSyncError = error instanceof Error ? error.message : 'Backfill summary failed';
     }
   }
+  async function backfillProfilesBalances() {
+    balanceSyncStatus = 'running';
+    balanceSyncError = '';
+    balanceSyncMessage = '';
+    try {
+      const response = await fetch('/api/profiles/backfill-balances', { method: 'POST' });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        balanceSyncStatus = 'error';
+        balanceSyncError = payload?.error ?? 'Profiles backfill failed';
+        return;
+      }
+      balanceSyncStatus = 'success';
+      balanceSyncMessage = `Profiles updated ${payload?.updated ?? 0}`;
+    } catch (error) {
+      balanceSyncStatus = 'error';
+      balanceSyncError = error instanceof Error ? error.message : 'Profiles backfill failed';
+    }
+  }
   async function promoteBalances(action: 'pending_to_approved' | 'approved_to_available' | 'all') {
     balanceSyncStatus = 'running';
     balanceSyncError = '';
@@ -816,6 +873,44 @@
     } catch (error) {
       weeklyStatus = 'error';
       weeklyError = error instanceof Error ? error.message : 'Failed to load payouts';
+    }
+  }
+  async function loadAllAvailablePayouts() {
+    weeklyStatus = 'loading';
+    weeklyError = '';
+    weeklyPayouts = null;
+    try {
+      const response = await fetch('/api/payouts/weekly?min=0&currency=aud');
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        weeklyStatus = 'error';
+        weeklyError = payload?.error ?? 'Failed to load payouts';
+        return;
+      }
+      weeklyStatus = 'success';
+      weeklyPayouts = payload?.payouts ?? [];
+    } catch (error) {
+      weeklyStatus = 'error';
+      weeklyError = error instanceof Error ? error.message : 'Failed to load payouts';
+    }
+  }
+  async function transferToStripe(userId: string, currency: string) {
+    if (!userId) return;
+    try {
+      const response = await fetch('/api/payouts/transfer-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userId, currency })
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        alert(payload?.error ?? 'Transfer failed');
+        return;
+      }
+      alert(`Transferred $${Number(payload?.transferred ?? 0).toFixed(2)} ${currency.toUpperCase()}`);
+      await loadAllAvailablePayouts();
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Transfer failed');
     }
   }
 </script>
@@ -1036,11 +1131,20 @@
                           <button
                             type="button"
                             class="px-3 py-1 rounded-lg bg-blue-500 text-black text-xs font-black uppercase tracking-widest disabled:opacity-50"
-                            on:click={createBulkInvoices}
+                            on:click={previewBulkInvoices}
                             disabled={invoiceBulkStatus === 'running'}
-                            title="Generate Stripe invoice drafts for selected week"
+                            title="Preview invoices for selected week"
                           >
-                            {invoiceBulkStatus === 'running' ? 'Generating...' : 'Generate Invoices'}
+                            {invoiceBulkStatus === 'running' ? 'Generating...' : 'Preview Invoices'}
+                          </button>
+                          <button
+                            type="button"
+                            class="px-3 py-1 rounded-lg bg-orange-500 text-black text-xs font-black uppercase tracking-widest disabled:opacity-50"
+                            on:click={sendBulkInvoices}
+                            disabled={invoiceBulkStatus === 'running'}
+                            title="Create and send invoices for selected week"
+                          >
+                            {invoiceBulkStatus === 'running' ? 'Sending...' : 'Send Invoices'}
                           </button>
                         {/if}
                         <button
@@ -1182,7 +1286,7 @@
         </section>
         {#if invoiceBulkResults}
           <section class="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-5">
-            <p class="text-xs font-black uppercase tracking-widest text-zinc-500">Bulk Invoice Drafts</p>
+            <p class="text-xs font-black uppercase tracking-widest text-zinc-500">Invoice Preview</p>
             <div class="mt-3 space-y-1 text-[10px] text-zinc-300 normal-case tracking-normal">
               {#each invoiceBulkResults as result}
                 <div class="flex items-center justify-between gap-2">
@@ -1203,7 +1307,7 @@
                     {/each}
                   </div>
                 {/if}
-                {#if result.ok && !result.sent}
+                {#if result.ok && !result.sent && result.invoice_id}
                   <div class="ml-3 mt-2">
                     <button
                       type="button"
@@ -1251,52 +1355,6 @@
         <section class="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-5">
           <p class="text-xs font-black uppercase tracking-widest text-zinc-500">Balances</p>
           <div class="mt-3 flex items-center gap-3">
-            <input
-              type="text"
-              placeholder="Stripe invoice id"
-              bind:value={balanceInvoiceId}
-              class="flex-1 px-3 py-1 rounded-lg bg-zinc-800 border border-zinc-700 text-sm"
-            />
-            <button
-              type="button"
-              class="px-3 py-1 rounded-lg bg-orange-500 text-black text-xs font-black uppercase tracking-widest"
-              on:click={syncBalancesForInvoice}
-              disabled={balanceSyncStatus === 'running'}
-            >
-              Sync Balances
-            </button>
-            <button
-              type="button"
-              class="px-3 py-1 rounded-lg bg-green-500 text-black text-xs font-black uppercase tracking-widest"
-              on:click={backfillAllBalances}
-              disabled={balanceSyncStatus === 'running'}
-            >
-              Backfill All
-            </button>
-            <button
-              type="button"
-              class="px-3 py-1 rounded-lg bg-green-600 text-black text-xs font-black uppercase tracking-widest"
-              on:click={backfillSummaryBalances}
-              disabled={balanceSyncStatus === 'running'}
-            >
-              Recompute Summary
-            </button>
-            <button
-              type="button"
-              class="px-3 py-1 rounded-lg bg-zinc-700 text-white text-xs font-black uppercase tracking-widest"
-              on:click={() => promoteBalances('pending_to_approved')}
-              disabled={balanceSyncStatus === 'running'}
-            >
-              Approve All Pending
-            </button>
-            <button
-              type="button"
-              class="px-3 py-1 rounded-lg bg-blue-600 text-black text-xs font-black uppercase tracking-widest"
-              on:click={() => promoteBalances('approved_to_available')}
-              disabled={balanceSyncStatus === 'running'}
-            >
-              Make Approved Available
-            </button>
             <button
               type="button"
               class="px-3 py-1 rounded-lg bg-blue-500 text-black text-xs font-black uppercase tracking-widest"
@@ -1305,13 +1363,15 @@
             >
               Weekly Payouts
             </button>
+            <button
+              type="button"
+              class="px-3 py-1 rounded-lg bg-blue-700 text-black text-xs font-black uppercase tracking-widest"
+              on:click={loadAllAvailablePayouts}
+              disabled={weeklyStatus === 'loading'}
+            >
+              All Available
+            </button>
           </div>
-          {#if balanceSyncStatus === 'error' && balanceSyncError}
-            <p class="mt-3 text-[10px] font-bold uppercase tracking-widest text-red-400">{balanceSyncError}</p>
-          {/if}
-          {#if balanceSyncStatus === 'success' && balanceSyncMessage}
-            <p class="mt-3 text-[10px] font-bold uppercase tracking-widest text-green-300">{balanceSyncMessage}</p>
-          {/if}
           {#if weeklyPayouts}
             <div class="mt-4 space-y-1 text-[10px] text-zinc-300 normal-case tracking-normal">
               {#each weeklyPayouts as p}
@@ -1320,7 +1380,18 @@
                   <span class="text-white">${p.amount.toFixed(2)} {p.currency.toUpperCase()}</span>
                 </div>
                 {#if p.stripe_account_id}
-                  <div class="ml-3 text-[10px] text-zinc-500">acct: {p.stripe_account_id}</div>
+                  <div class="ml-3 text-[10px] text-zinc-500">
+                    Stripe: Connected (acct {p.stripe_account_id})
+                    <button
+                      type="button"
+                      class="ml-3 px-2 py-0.5 rounded bg-white text-black text-[10px] font-black uppercase tracking-widest"
+                      on:click={() => transferToStripe(p.user_id, p.currency)}
+                    >
+                      Transfer
+                    </button>
+                  </div>
+                {:else}
+                  <div class="ml-3 text-[10px] text-zinc-500">Stripe: Not connected</div>
                 {/if}
               {/each}
               {#if weeklyPayouts.length === 0}

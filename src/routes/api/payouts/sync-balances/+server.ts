@@ -37,7 +37,7 @@ export async function POST({ request }) {
         for (const t of transfers) {
           try {
             const rawStatus = (claim?.status ?? 'approved') as string;
-            const ledgerStatus = rawStatus === 'paid' ? 'available' : rawStatus;
+            const ledgerStatus = rawStatus === 'paid' ? 'venuepaid' : rawStatus;
             const ledgerAmount = t.cents / 100;
             if (ledgerStatus === 'pending') pendingTotal += ledgerAmount;
             else if (ledgerStatus === 'approved') approvedTotal += ledgerAmount;

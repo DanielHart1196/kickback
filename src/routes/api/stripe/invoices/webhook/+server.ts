@@ -155,7 +155,7 @@ async function settleClaimsForRange(
               week_end: endIso?.slice(0, 10) ?? null,
               source_invoice_id: sourceInvoiceId ?? null,
               source_charge_id: sourceCharge ?? null,
-              status: 'available',
+              status: 'venuepaid',
               created_at: new Date().toISOString()
             })
             .eq('id', existing.id);
@@ -176,7 +176,7 @@ async function settleClaimsForRange(
             week_end: endIso?.slice(0, 10) ?? null,
             source_invoice_id: sourceInvoiceId ?? null,
             source_charge_id: sourceCharge ?? null,
-            status: 'available',
+            status: 'venuepaid',
             created_at: new Date().toISOString()
           });
           if (error) {
