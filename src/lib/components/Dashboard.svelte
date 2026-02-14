@@ -384,9 +384,13 @@
           payoutMessage = '';
         }
       }, 3000);
-    } catch (error) {
+    } catch (error: any) {
       payoutStatus = 'error';
-      payoutError = error instanceof Error ? error.message : 'Failed to save payout details.';
+      if (error?.code === '23505') {
+        payoutError = 'This PayID is already registered to another user';
+      } else {
+        payoutError = error instanceof Error ? error.message : 'Failed to save payout details.';
+      }
     }
   }
 

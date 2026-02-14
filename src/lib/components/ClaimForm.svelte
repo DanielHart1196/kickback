@@ -311,7 +311,7 @@
       </div>
     {/if}
 
-    <div class="relative flex items-center justify-center text-lg font-black uppercase tracking-[0.6em]">
+    <div class="relative flex items-center justify-center gap-2 text-lg font-black uppercase tracking-[0.6em] text-center">
       {#if !isReferrerLocked && referrerEditing}
         <span class="text-white">CODE:</span>
         <span class="inline-block w-[14ch] text-center whitespace-nowrap">
@@ -336,13 +336,18 @@
             referrerEditing = true;
             setTimeout(() => referrerBannerInput?.focus(), 0);
           }}
-          class="inline-flex items-center justify-center gap-2 min-h-[1.75rem] cursor-text font-black uppercase text-lg tracking-[0.6em] text-center"
-          class:border-b={!referrer || !referrer.trim().length}
-          class:border-orange-500={!referrer || !referrer.trim().length}
+          class="inline-flex items-center justify-center gap-2 cursor-text font-black uppercase text-lg tracking-[0.6em] text-center mx-auto"
           aria-label="Edit referral code"
         >
           <span class="text-white">CODE:</span>
-          <span class="inline-block text-orange-500 text-center whitespace-nowrap">{referrer}</span>
+          <span 
+            class="inline-block text-orange-500 text-center whitespace-nowrap"
+            class:w-[14ch]={!referrer || !referrer.trim()}
+            class:border-b={!referrer || !referrer.trim()}
+            class:border-orange-500={!referrer || !referrer.trim()}
+          >
+            {referrer || '\u00A0'}
+          </span>
         </button>
       {/if}
     </div>

@@ -64,9 +64,13 @@
       setTimeout(() => {
         onClose();
       }, 1500);
-    } catch (error) {
+    } catch (error: any) {
       status = 'error';
-      errorMessage = error instanceof Error ? error.message : 'Failed to save payout details';
+      if (error?.code === '23505') {
+        errorMessage = 'This PayID is already registered to another user';
+      } else {
+        errorMessage = error instanceof Error ? error.message : 'Failed to save payout details';
+      }
     }
   }
 </script>

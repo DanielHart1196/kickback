@@ -141,7 +141,8 @@
 
       if (error) {
         message = error.message;
-        message = 'Check your email for the magic link!';
+      } else {
+        message = 'MAGIC LINK SENT, CHECK YOUR INBOX';
       }
     } catch (error) {
       message = error instanceof Error ? error.message : 'Failed to send magic link';
@@ -231,7 +232,7 @@
         disabled={magicLinkLoading}
         class="w-full h-10 rounded-full bg-orange-500 text-black text-[14px] leading-[20px] font-black inline-flex items-center justify-center active:scale-95 transition-all disabled:opacity-50 hover:bg-orange-600"
       >
-        {magicLinkLoading ? 'Sending...' : 'SEND MAGIC LINK'}
+        {magicLinkLoading ? 'SENDING...' : 'SEND MAGIC LINK'}
       </button>
 
       {#if message}
