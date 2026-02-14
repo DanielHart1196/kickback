@@ -1,6 +1,52 @@
 import { json } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
 import { supabaseAdmin } from '$lib/server/supabaseAdmin';
+import nodemailer from 'nodemailer';
+
+function getSmtpConfig() {
+  const host = env.PRIVATE_SMTP_HOST || 'smtp.resend.com';
+  const port = Number(env.PRIVATE_SMTP_PORT || '465');
+  const user = env.PRIVATE_SMTP_USER || 'resend';
+  const pass = env.PRIVATE_SMTP_PASS ?? '';
+  const from = env.PRIVATE_SMTP_FROM || 'Kickback <notifications@kkbk.app>';
+  const secure = env.PRIVATE_SMTP_SECURE ? String(env.PRIVATE_SMTP_SECURE).toLowerCase() === 'true' : true;
+
+  if (!pass) {
+    console.warn('SMTP configuration: Missing PRIVATE_SMTP_PASS (API Key)');
+    return null;
+  }
+  return { host, port, user, pass, from, secure };
+}
+
+async function sendEmailNotification(to: string, subject: string, text: string) {
+  const smtp = getSmtpConfig();
+  if (!smtp) {
+    console.warn('Email skipped: SMTP not configured');
+    return false;
+  }
+
+  try {
+    const transporter = nodemailer.createTransport({
+      host: smtp.host,
+      port: smtp.port,
+      secure: smtp.secure,
+      auth: { user: smtp.user, pass: smtp.pass }
+    });
+
+    console.log(`Attempting to send email to ${to} via ${smtp.host}`);
+    await transporter.sendMail({
+      from: smtp.from,
+      to,
+      subject,
+      text
+    });
+    console.log(`Email sent successfully to ${to}`);
+    return true;
+  } catch (error) {
+    console.error(`Email notification failed for ${to}:`, error);
+    return false;
+  }
+}
 
 async function getWebPush() {
   try {
@@ -53,13 +99,14 @@ export async function POST({ request }) {
     const referrerId = String(claim.referrer_id || '');
     const codeUsed = String(claim.submitter_referral_code || 'member');
 
-    const targets: { userId: string; title: string; body: string }[] = [];
+    const targets: { userId: string; title: string; body: string; isSubmitter: boolean }[] = [];
     if (submitterId) {
       const earned = Math.max(0, Number((amount * guestRate).toFixed(2)));
       targets.push({
         userId: submitterId,
         title: `+${earned.toFixed(2)} earned`,
-        body: `from ${venueName}`
+        body: `from ${venueName}`,
+        isSubmitter: true
       });
     }
     if (referrerId) {
@@ -67,12 +114,37 @@ export async function POST({ request }) {
       targets.push({
         userId: referrerId,
         title: `+${earned.toFixed(2)} ${codeUsed} used your code`,
-        body: `at ${venueName}`
+        body: `at ${venueName}`,
+        isSubmitter: false
       });
     }
 
-    const sent: string[] = [];
+    const sentPush: string[] = [];
+    const sentEmail: string[] = [];
     for (const t of targets) {
+      // 1. Fetch user profile for email and preferences
+      const { data: profile } = await supabaseAdmin
+        .from('profiles')
+        .select('email, notify_approved_claims')
+        .eq('id', t.userId)
+        .maybeSingle();
+
+      // 2. Try Email Notification
+      if (profile?.email && profile?.notify_approved_claims) {
+        const ok = await sendEmailNotification(
+          profile.email,
+          t.title,
+          `${t.title}\n${t.body}\n\nView your dashboard at https://kkbk.app/`
+        );
+        if (ok) sentEmail.push(t.userId);
+      } else {
+        console.log(`Email skipped for ${t.userId}:`, {
+          hasEmail: !!profile?.email,
+          notifyApproved: !!profile?.notify_approved_claims
+        });
+      }
+
+      // 3. Try Web Push Notification
       const { data: sub, error: subError } = await supabaseAdmin
         .from('push_subscriptions')
         .select('endpoint,p256dh,auth')
@@ -92,13 +164,13 @@ export async function POST({ request }) {
             badge: '/favicon.png'
           })
         );
-        sent.push(t.userId);
+        sentPush.push(t.userId);
       } catch (error) {
         // ignore individual push failures
       }
     }
 
-    return json({ ok: true, sent });
+    return json({ ok: true, sentPush, sentEmail });
   } catch (error) {
     return json({ ok: false, error: 'failed_to_send' }, { status: 500 });
   }

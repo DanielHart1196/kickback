@@ -43,6 +43,7 @@
   import ClaimWindowExpiredModal from '$lib/components/ClaimWindowExpiredModal.svelte';
   import GuestWarningModal from '$lib/components/GuestWarningModal.svelte';
   import ReferralModal from '$lib/components/ReferralModal.svelte';
+  import PayoutSetupModal from '$lib/components/PayoutSetupModal.svelte';
   import { onDestroy } from 'svelte';
 
   let last4 = '';
@@ -56,6 +57,7 @@
   let successMessage = '';
 
   let showReferModal = false;
+  let showPayoutSetup = false;
   let showLanding = false;
   let referralPresetVenueId = '';
   let referralPresetVenueName = '';
@@ -786,6 +788,18 @@
 
       await ensureProfileRow(session.user.id);
       await ensureReferralCode(session.user.id, session.user.email ?? 'member');
+      
+      // Check if they need payout setup
+      const { data: payoutProfile } = await supabase
+        .from('payout_profiles')
+        .select('user_id')
+        .eq('user_id', session.user.id)
+        .maybeSingle();
+      
+      if (!payoutProfile) {
+        showPayoutSetup = true;
+      }
+
       await fetchDashboardData();
 
       if (shouldOpenReferFromUrl) {
@@ -986,7 +1000,7 @@
           console.error('Error clearing auth storage:', error);
         }
       }
-      window.location.replace('/login');
+      window.location.replace('/');
     }
   }
 
@@ -1338,6 +1352,13 @@
       initialVenueName={referralPresetVenueName}
       onUpdateReferralCode={updateReferralCode}
       onClose={closeReferModal}
+    />
+  {/if}
+
+  {#if showPayoutSetup && userId}
+    <PayoutSetupModal
+      userId={userId}
+      onClose={() => (showPayoutSetup = false)}
     />
   {/if}
 

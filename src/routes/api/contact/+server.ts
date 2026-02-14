@@ -6,14 +6,14 @@ import { supabaseAdmin } from '$lib/server/supabaseAdmin';
 const SUPPORT_TO = 'support@kkbk.app';
 
 function getSmtpConfig() {
-  const host = env.PRIVATE_SMTP_HOST ?? '';
-  const port = Number(env.PRIVATE_SMTP_PORT ?? '');
-  const user = env.PRIVATE_SMTP_USER ?? '';
+  const host = env.PRIVATE_SMTP_HOST || 'smtp.resend.com';
+  const port = Number(env.PRIVATE_SMTP_PORT || '465');
+  const user = env.PRIVATE_SMTP_USER || 'resend';
   const pass = env.PRIVATE_SMTP_PASS ?? '';
-  const from = env.PRIVATE_SMTP_FROM ?? '';
-  const secure = String(env.PRIVATE_SMTP_SECURE ?? '').toLowerCase() === 'true';
+  const from = env.PRIVATE_SMTP_FROM || 'Kickback <notifications@kkbk.app>';
+  const secure = env.PRIVATE_VAPID_SUBJECT ? String(env.PRIVATE_SMTP_SECURE).toLowerCase() === 'true' : true;
 
-  if (!host || !port || !user || !pass || !from) return null;
+  if (!pass) return null;
   return { host, port, user, pass, from, secure };
 }
 

@@ -55,12 +55,12 @@
           EAT. DRINK. <br /> GET PAID.
         </h1>
         <div class="flex justify-center">
-          <a
-            href="/login"
-            class="inline-flex items-center justify-center rounded-full bg-orange-500 px-8 py-3 text-lg font-black uppercase text-black transition-transform active:scale-95 hover-lift"
-          >
-            Join
-          </a>
+            <a
+              href="/login"
+              class="inline-flex items-center justify-center rounded-full bg-orange-500 px-8 py-3 text-lg font-black uppercase text-black transition-colors active:scale-95 hover:bg-orange-600"
+            >
+              Join
+            </a>
         </div>
       </div>
 
@@ -191,7 +191,7 @@
             <button
               type="submit"
               disabled={contactSubmitting}
-              class="w-full inline-flex items-center justify-center rounded-full bg-orange-500 px-8 py-3 text-lg font-black uppercase text-black transition-transform active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed hover-lift"
+              class="w-full inline-flex items-center justify-center rounded-full bg-orange-500 px-8 py-3 text-lg font-black uppercase text-black transition-colors active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-orange-600"
             >
               {contactSubmitting ? 'Sending…' : 'Send'}
             </button>
@@ -218,13 +218,6 @@
 </main>
 
 <style>
-@media (hover: hover) and (pointer: fine) {
-  .hover-lift:hover {
-    transform: translateY(-4px) scale(1.02);
-    box-shadow: 0 18px 40px rgba(0, 0, 0, 0.6);
-  }
-}
-
 /* Venues marquee */
 .venue-marquee {
   width: 100vw;

@@ -40,12 +40,17 @@
   let payoutFullName = '';
   let payoutDob = '';
   let payoutAddress = '';
+  let payoutIsHobbyist = false;
+  let payoutHobbyistConfirmedAt: string | null = null;
   let payoutStatus: 'idle' | 'loading' | 'saving' | 'error' | 'success' = 'idle';
   let payoutError = '';
   let payoutMessage = '';
   let payoutStripeAccountId = '';
   let payoutStripeOnboarded = false;
   let payoutStripeStatusLoaded = false;
+  let notifyApprovedClaims = false;
+  let notifyPayoutConfirmation = false;
+  const notifyEssential = true;
   let authProviderLabel = '';
   let isPwaInstalled = false;
   let notificationsEnabled = false;
@@ -92,6 +97,27 @@
     }
   }
 
+  let lastLoadedUserId: string | null = null;
+  $: if (userId && userId !== lastLoadedUserId) {
+    console.log('Dashboard: userId changed, loading profile', userId);
+    lastLoadedUserId = userId;
+    void loadPayoutProfile();
+    void ensureProfileEmail();
+  }
+
+  async function ensureProfileEmail() {
+    if (!userId || !userEmail) return;
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ email: userEmail })
+        .eq('id', userId);
+      if (error) console.error('Error ensuring profile email:', error);
+    } catch (err) {
+      console.error('Failed to ensure profile email:', err);
+    }
+  }
+
   onMount(() => {
     const handleOutsideClick = (event: MouseEvent) => {
       if (!showFilterMenu) return;
@@ -117,6 +143,7 @@
         });
       } catch {}
       const hash = window.location.hash || '';
+      /*
       if (hash && /payouts/i.test(hash)) {
         openSettings();
         if (/connected/i.test(hash)) {
@@ -134,6 +161,7 @@
         const cleanUrl = window.location.pathname + window.location.search;
         window.history.replaceState(window.history.state, '', cleanUrl);
       }
+      */
       supabase.auth.getSession().then(({ data }) => {
         const session = data?.session;
         let provider: string =
@@ -141,11 +169,11 @@
           ((session?.user as any)?.identities?.[0]?.provider ?? '');
         provider = String(provider || '').toLowerCase();
         if (provider === 'email') {
-          authProviderLabel = 'Signed in with Magic Link';
+          authProviderLabel = 'Signed up with Magic Link';
         } else if (provider) {
-          authProviderLabel = 'Signed in with ' + (provider.charAt(0).toUpperCase() + provider.slice(1));
+          authProviderLabel = 'Signed up with ' + (provider.charAt(0).toUpperCase() + provider.slice(1));
         } else {
-          authProviderLabel = 'Signed in';
+          authProviderLabel = 'Signed up';
         }
       });
     }
@@ -195,7 +223,6 @@
 
   function openSettings() {
     showSettings = true;
-    void loadPayoutProfile();
   }
 
   function closeSettings() {
@@ -209,17 +236,39 @@
     payoutMessage = '';
     payoutStripeStatusLoaded = false;
     try {
-      const { data, error } = await supabase
+      // Load payout profile data
+      const { data: payoutData, error: payoutErrorData } = await supabase
         .from('payout_profiles')
-        .select('pay_id, full_name, dob, address')
+        .select('pay_id, full_name, dob, address, is_hobbyist, hobbyist_confirmed_at')
         .eq('user_id', userId)
         .maybeSingle();
-      if (error) throw error;
-      payoutPayId = data?.pay_id ?? '';
-      payoutFullName = data?.full_name ?? '';
-      payoutDob = data?.dob ?? '';
-      payoutAddress = data?.address ?? '';
+      
+      if (payoutErrorData) throw payoutErrorData;
+      
+      payoutPayId = payoutData?.pay_id ?? '';
+      payoutFullName = payoutData?.full_name ?? '';
+      payoutDob = payoutData?.dob ?? '';
+      payoutAddress = payoutData?.address ?? '';
+      payoutIsHobbyist = payoutData?.is_hobbyist ?? false;
+      payoutHobbyistConfirmedAt = payoutData?.hobbyist_confirmed_at ?? null;
+
+      // Load notification preferences from profiles
+      const { data: profileData, error: profileError } = await supabase
+        .from('profiles')
+        .select('notify_approved_claims, notify_payout_confirmation')
+        .eq('id', userId)
+        .maybeSingle();
+      
+      if (profileError) {
+        console.error('Error loading profile notifications:', profileError);
+      }
+      if (!profileError && profileData) {
+        notifyApprovedClaims = profileData.notify_approved_claims ?? false;
+        notifyPayoutConfirmation = profileData.notify_payout_confirmation ?? false;
+      }
+
       payoutStripeAccountId = '';
+      /*
       try {
         const localId = typeof window !== 'undefined' ? localStorage.getItem('stripe_account_id') || '' : '';
         if (!payoutStripeAccountId && localId) {
@@ -232,6 +281,8 @@
             );
         }
       } catch {}
+      */
+      /*
       try {
         const statusRes = await fetch('/api/stripe/connect/status', {
           method: 'POST',
@@ -249,40 +300,80 @@
       } catch {
         payoutStripeStatusLoaded = true;
       }
+      */
       payoutStatus = 'idle';
     } catch (error) {
       payoutStatus = 'idle';
     }
   }
 
-  async function savePayoutProfile() {
+  async function saveNotificationPreferences() {
     if (!userId) return;
+    try {
+      const profilePayload = {
+        id: userId,
+        notify_approved_claims: notifyApprovedClaims,
+        notify_payout_confirmation: notifyPayoutConfirmation,
+        updated_at: new Date().toISOString()
+      };
+      const { error } = await supabase.from('profiles').upsert(profilePayload, { onConflict: 'id' });
+      if (error) {
+        console.error('Error saving notification preferences:', error);
+      } else {
+        console.log('Notification preferences saved instantly');
+      }
+    } catch (err) {
+      console.error('Failed to save notification preferences:', err);
+    }
+  }
+
+  async function savePayoutProfile() {
+    if (!userId) {
+      console.warn('savePayoutProfile: No userId available');
+      return;
+    }
+    
+    console.log('savePayoutProfile: Saving with', { notifyApprovedClaims, notifyPayoutConfirmation });
+    if (payoutIsHobbyist && !payoutHobbyistConfirmedAt) {
+      payoutHobbyistConfirmedAt = new Date().toISOString();
+    } else if (!payoutIsHobbyist) {
+      payoutHobbyistConfirmedAt = null;
+    }
+
     payoutStatus = 'saving';
     payoutError = '';
     payoutMessage = '';
     try {
-      const payload = {
+      const payoutPayload = {
         user_id: userId,
         pay_id: payoutPayId.trim() || null,
         full_name: payoutFullName.trim() || null,
         dob: payoutDob || null,
         address: payoutAddress.trim() || null,
+        is_hobbyist: payoutIsHobbyist,
+        hobbyist_confirmed_at: payoutHobbyistConfirmedAt,
         stripe_account_id: payoutStripeAccountId || null,
         updated_at: new Date().toISOString()
       };
-      const { error } = await supabase.from('payout_profiles').upsert(payload, { onConflict: 'user_id' });
-      if (error) throw error;
+      
+      const { error: payoutErr } = await supabase.from('payout_profiles').upsert(payoutPayload, { onConflict: 'user_id' });
+      if (payoutErr) throw payoutErr;
+
       payoutStatus = 'success';
-      payoutMessage = 'Payout details saved.';
+      payoutMessage = 'Payout details saved';
       setTimeout(() => {
-        if (payoutStatus === 'success') payoutStatus = 'idle';
-      }, 2000);
+        if (payoutStatus === 'success') {
+          payoutStatus = 'idle';
+          payoutMessage = '';
+        }
+      }, 3000);
     } catch (error) {
       payoutStatus = 'error';
       payoutError = error instanceof Error ? error.message : 'Failed to save payout details.';
     }
   }
 
+  /*
   async function connectStripe() {
     if (!userId) return;
     try {
@@ -336,6 +427,7 @@
       payoutError = error instanceof Error ? error.message : 'Failed to open Stripe dashboard.';
     }
   }
+  */
 
   function openDeleteWarning() {
     deleteStatus = 'idle';
@@ -370,7 +462,7 @@
         return;
       }
       await supabase.auth.signOut();
-      window.location.href = '/login';
+      window.location.href = '/';
     } catch (error) {
       deleteStatus = 'error';
       deleteError = error instanceof Error ? error.message : 'Failed to delete account.';
@@ -554,13 +646,13 @@
                 {#if status === 'approved'}
                   <button
                     type="button"
-                    class={`px-3 py-2 rounded-full text-[10px] font-black uppercase tracking-widest border inline-flex items-center justify-center ${filterStatus.has(status as any) ? 'border-green-500/30 bg-green-500/10 text-green-400' : 'border-zinc-800 bg-zinc-900 text-zinc-300 hover:border-zinc-700'}`}
+                    class={`px-3 py-2 rounded-full text-[10px] font-black uppercase tracking-widest border inline-flex items-center justify-center ${filterStatus.has(status) ? 'border-green-500/30 bg-green-500/10 text-green-400' : 'border-zinc-800 bg-zinc-900 text-zinc-300 hover:border-zinc-700'}`}
                     on:click={() => {
                       const next = new Set(filterStatus);
-                      if (next.has(status as any)) {
-                        next.delete(status as any);
+                      if (next.has(status)) {
+                        next.delete(status);
                       } else {
-                        next.add(status as any);
+                        next.add(status);
                       }
                       filterStatus = next;
                     }}
@@ -570,13 +662,13 @@
                 {:else if status === 'pending'}
                   <button
                     type="button"
-                    class={`px-3 py-2 rounded-full text-[10px] font-black uppercase tracking-widest border inline-flex items-center justify-center ${filterStatus.has(status as any) ? 'border-zinc-700 bg-zinc-800 text-zinc-200' : 'border-zinc-800 bg-zinc-900 text-zinc-300 hover:border-zinc-700'}`}
+                    class={`px-3 py-2 rounded-full text-[10px] font-black uppercase tracking-widest border inline-flex items-center justify-center ${filterStatus.has(status) ? 'border-zinc-700 bg-zinc-800 text-zinc-200' : 'border-zinc-800 bg-zinc-900 text-zinc-300 hover:border-zinc-700'}`}
                     on:click={() => {
                       const next = new Set(filterStatus);
-                      if (next.has(status as any)) {
-                        next.delete(status as any);
+                      if (next.has(status)) {
+                        next.delete(status);
                       } else {
-                        next.add(status as any);
+                        next.add(status);
                       }
                       filterStatus = next;
                     }}
@@ -586,13 +678,13 @@
                 {:else}
                   <button
                     type="button"
-                    class={`px-3 py-2 rounded-full text-[10px] font-black uppercase tracking-widest border inline-flex items-center justify-center ${filterStatus.has(status as any) ? 'border-red-500/30 bg-red-500/10 text-red-400' : 'border-zinc-800 bg-zinc-900 text-zinc-300 hover:border-zinc-700'}`}
+                    class={`px-3 py-2 rounded-full text-[10px] font-black uppercase tracking-widest border inline-flex items-center justify-center ${filterStatus.has(status) ? 'border-red-500/30 bg-red-500/10 text-red-400' : 'border-zinc-800 bg-zinc-900 text-zinc-300 hover:border-zinc-700'}`}
                     on:click={() => {
                       const next = new Set(filterStatus);
-                      if (next.has(status as any)) {
-                        next.delete(status as any);
+                      if (next.has(status)) {
+                        next.delete(status);
                       } else {
-                        next.add(status as any);
+                        next.add(status);
                       }
                       filterStatus = next;
                     }}
@@ -611,19 +703,19 @@
                   type="button"
                   class={`px-3 py-2 rounded-full text-[10px] font-black uppercase tracking-widest border inline-flex items-center justify-center ${
                     kind === 'referred'
-                      ? filterReferred.has(kind as any)
+                      ? filterReferred.has(kind)
                         ? 'border-orange-400/60 bg-orange-500/15 text-orange-300'
                         : 'border-zinc-800 bg-zinc-900 text-zinc-300 hover:border-zinc-700'
-                      : filterReferred.has(kind as any)
+                      : filterReferred.has(kind)
                         ? 'border-zinc-600 bg-zinc-800 text-zinc-200'
                         : 'border-zinc-800 bg-zinc-900 text-zinc-300 hover:border-zinc-700'
                   }`}
                   on:click={() => {
                     const next = new Set(filterReferred);
-                    if (next.has(kind as any)) {
-                      next.delete(kind as any);
+                    if (next.has(kind)) {
+                      next.delete(kind);
                     } else {
-                      next.add(kind as any);
+                      next.add(kind);
                     }
                     filterReferred = next;
                   }}
@@ -790,7 +882,7 @@
           Close
         </button>
       </div>
-      <div class="mt-6 space-y-4 text-sm text-zinc-300 overflow-y-auto flex-1">
+      <div class="mt-6 space-y-4 text-sm text-zinc-300 overflow-y-auto flex-1 custom-scrollbar">
         <div class="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
           <p class="text-[10px] font-black uppercase tracking-[0.25em] text-zinc-500">Account</p>
           <p class="mt-3 text-white truncate">{userEmail || 'Signed in'}</p>
@@ -799,59 +891,114 @@
           </p>
         </div>
         <div class="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
-          <p class="text-[10px] font-black uppercase tracking-[0.25em] text-zinc-500">Payouts</p>
-          <div class="mt-4 space-y-3">
-            {#if payoutStripeAccountId}
-              {#if payoutStripeStatusLoaded}
-                <p class="text-[11px] font-bold uppercase tracking-widest text-zinc-400">
-                  {payoutStripeOnboarded ? 'Connected via Stripe' : 'Verification required in Stripe'}
-                </p>
-              {:else}
-                <p class="text-[11px] font-bold uppercase tracking-widest text-zinc-400">Checking Stripe status…</p>
-              {/if}
-              {#if payoutStripeOnboarded}
-                <button
-                  type="button"
-                  on:click={openStripeDashboard}
-                  class="w-full rounded-xl bg-white px-4 py-3 text-xs font-black uppercase tracking-[0.2em] text-black hover:bg-zinc-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  disabled={payoutStatus === 'loading'}
-                >
-                  {payoutStatus === 'loading' ? 'Opening...' : 'Manage Stripe Account'}
-                </button>
-              {:else}
-                <button
-                  type="button"
-                  on:click={connectStripe}
-                  class="w-full rounded-xl bg-white px-4 py-3 text-xs font-black uppercase tracking-[0.2em] text-black hover:bg-zinc-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  disabled={payoutStatus === 'loading'}
-                >
-                  {payoutStatus === 'loading' ? 'Opening...' : 'Continue Stripe Onboarding'}
-                </button>
-              {/if}
-            {:else}
-              <p class="text-[11px] font-bold uppercase tracking-widest text-zinc-400">
-                Connect your Stripe account to receive payouts
-              </p>
-              <button
-                type="button"
-                on:click={connectStripe}
-                class="w-full rounded-xl bg-white px-4 py-3 text-xs font-black uppercase tracking-[0.2em] text-black hover:bg-zinc-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                disabled={payoutStatus === 'loading'}
-              >
-                {payoutStatus === 'loading' ? 'Connecting...' : 'Connect with Stripe'}
-              </button>
-            {/if}
+          <p class="text-[10px] font-black uppercase tracking-[0.25em] text-zinc-500">PAYOUTS (EVERY WEDNESDAY)</p>
+          <div class="mt-4 space-y-4">
+            <div>
+              <label for="payout-full-name" class="mb-1 block text-[10px] font-bold uppercase text-zinc-500">
+                Full Name
+              </label>
+              <input
+                id="payout-full-name"
+                type="text"
+                bind:value={payoutFullName}
+                placeholder="Your legal name"
+                class="w-full rounded-xl border border-zinc-800 bg-black/40 px-4 py-3 text-sm text-white placeholder-zinc-600 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500 transition-all"
+              />
+            </div>
+            <div>
+              <label for="payout-payid" class="mb-1 block text-[10px] font-bold uppercase text-zinc-500">
+                PayID
+              </label>
+              <input
+                id="payout-payid"
+                type="text"
+                bind:value={payoutPayId}
+                placeholder="Phone or email"
+                class="w-full rounded-xl border border-zinc-800 bg-black/40 px-4 py-3 text-sm text-white placeholder-zinc-600 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500 transition-all"
+              />
+            </div>
+
+            <div class="space-y-3 pt-2">
+              <label class="flex items-start gap-3 cursor-pointer group">
+                <div class="relative flex items-center pt-0.5">
+                  <input
+                    type="checkbox"
+                    bind:checked={payoutIsHobbyist}
+                    class="peer h-4 w-4 rounded border-zinc-800 bg-black/40 text-orange-500 focus:ring-orange-500/20 focus:ring-offset-0 transition-all cursor-pointer appearance-none border"
+                  />
+                  <svg 
+                    class="absolute h-4 w-4 text-orange-500 opacity-0 peer-checked:opacity-100 transition-opacity pointer-events-none p-0.5" 
+                    fill="none" 
+                    viewBox="0 0 24 24" 
+                    stroke="currentColor" 
+                    stroke-width="4"
+                  >
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+                  </svg>
+                </div>
+                <div class="flex-1">
+                  <p class="text-[10px] font-black uppercase tracking-widest text-white group-hover:text-orange-500 transition-colors">
+                    I confirm I'm a Hobbyist
+                  </p>
+                  {#if !payoutIsHobbyist}
+                    <p class="mt-1 text-[10px] leading-relaxed font-bold text-zinc-500 uppercase tracking-tight" transition:slide|local>
+                      I agree that my referrals are a social/recreational activity and not a business. I understand that if I earn over $500/month, I may need to provide an ABN. 
+                      <a href="https://kkbk.app/terms" target="_blank" class="text-orange-500/80 hover:text-orange-500 underline decoration-orange-500/30 transition-colors">Terms</a>
+                    </p>
+                  {/if}
+                </div>
+              </label>
+            </div>
+
             {#if payoutError}
               <p class="text-[10px] font-bold uppercase tracking-widest text-red-400">{payoutError}</p>
             {/if}
             {#if payoutMessage}
-              <p class="text-[10px] font-bold uppercase tracking-widest text-zinc-400">{payoutMessage}</p>
+              <p class="text-[10px] font-bold uppercase tracking-widest text-green-400">{payoutMessage}</p>
             {/if}
+            <button
+              type="button"
+              on:click={savePayoutProfile}
+              disabled={payoutStatus === 'saving'}
+              class="w-full rounded-xl bg-white px-4 py-3 text-xs font-black uppercase tracking-[0.2em] text-black hover:bg-zinc-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {payoutStatus === 'saving' ? 'Saving...' : 'Save'}
+            </button>
           </div>
         </div>
         <div class="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
-          <p class="text-[10px] font-black uppercase tracking-[0.25em] text-zinc-500">Notifications</p>
-          <p class="mt-3 text-[11px] font-bold uppercase tracking-widest text-zinc-400">iOS and Android app coming soon</p>
+          <p class="text-[10px] font-black uppercase tracking-[0.25em] text-zinc-500">Notifications (Email)</p>
+          <div class="mt-4 space-y-4">
+            <div class="flex items-center justify-between">
+              <div class="flex-1 pr-4">
+                <p class="text-[10px] font-black uppercase tracking-widest text-white">Approved claims</p>
+              </div>
+              <label class="relative inline-flex cursor-pointer items-center">
+                <input type="checkbox" bind:checked={notifyApprovedClaims} on:change={saveNotificationPreferences} class="peer sr-only" />
+                <div class="h-5 w-9 rounded-full bg-zinc-800 transition-colors peer-checked:bg-orange-500 after:absolute after:left-[2px] after:top-[2px] after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-all peer-checked:after:translate-x-full"></div>
+              </label>
+            </div>
+
+            <div class="flex items-center justify-between">
+              <div class="flex-1 pr-4">
+                <p class="text-[10px] font-black uppercase tracking-widest text-white">Payout confirmation</p>
+              </div>
+              <label class="relative inline-flex cursor-pointer items-center">
+                <input type="checkbox" bind:checked={notifyPayoutConfirmation} on:change={saveNotificationPreferences} class="peer sr-only" />
+                <div class="h-5 w-9 rounded-full bg-zinc-800 transition-colors peer-checked:bg-orange-500 after:absolute after:left-[2px] after:top-[2px] after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-all peer-checked:after:translate-x-full"></div>
+              </label>
+            </div>
+
+            <div class="flex items-center justify-between opacity-50">
+              <div class="flex-1 pr-4">
+                <p class="text-[10px] font-black uppercase tracking-widest text-white">Essential account & compliance</p>
+              </div>
+              <label class="relative inline-flex cursor-not-allowed items-center">
+                <input type="checkbox" checked={notifyEssential} disabled class="peer sr-only" />
+                <div class="h-5 w-9 rounded-full bg-zinc-700 transition-colors after:absolute after:left-[2px] after:top-[2px] after:h-4 after:w-4 after:rounded-full after:bg-zinc-400 after:transition-all peer-checked:after:translate-x-full"></div>
+              </label>
+            </div>
+          </div>
         </div>
         <div class="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
           <p class="text-[10px] font-black uppercase tracking-[0.25em] text-zinc-500">Actions</p>
@@ -874,6 +1021,16 @@
     </aside>
   </div>
 {/if}
+
+<style>
+  .custom-scrollbar {
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none;  /* IE and Edge */
+  }
+  .custom-scrollbar::-webkit-scrollbar {
+    display: none; /* Chrome, Safari, Opera */
+  }
+</style>
 
 {#if showDeleteWarning}
   <div class="fixed inset-0 z-[260]">

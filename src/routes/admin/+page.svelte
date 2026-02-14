@@ -1588,7 +1588,7 @@
           console.error('Error clearing auth storage:', error);
         }
       }
-      window.location.href = '/admin/login';
+      window.location.href = '/';
     }
   }
 
