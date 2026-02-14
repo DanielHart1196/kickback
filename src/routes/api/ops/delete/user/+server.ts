@@ -33,11 +33,12 @@ export const POST: RequestHandler = async ({ request }) => {
     return json({ ok: false, error: 'missing_user_id' }, { status: 400 });
   }
 
+  // Delete only pending claims submitted by the user to preserve approved/paid claims
   const { error: claimsError } = await supabaseAdmin
     .from('claims')
     .delete()
     .eq('submitter_id', targetUserId)
-    .in('status', ['pending', 'approved', 'denied']);
+    .eq('status', 'pending');
   if (claimsError) {
     return json({ ok: false, error: claimsError.message }, { status: 500 });
   }

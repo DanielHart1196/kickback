@@ -46,7 +46,15 @@
   import PayoutSetupModal from '$lib/components/PayoutSetupModal.svelte';
   import { onDestroy } from 'svelte';
 
-  let last4 = '';
+  let last4: string = '';
+  let dashboardComponent: Dashboard | null = null;
+
+  function refreshDashboardPayoutProfile() {
+    if (dashboardComponent?.loadPayoutProfile) {
+      dashboardComponent.loadPayoutProfile();
+    }
+  }
+
   let venue = '';
   let venueId = '';
   let referrer = '';
@@ -181,10 +189,9 @@
     };
   });
 
-  $: last4 = normalizeLast4(last4);
   $: amount = parseAmount(amountInput);
-  $: venueId = getVenueIdByName(venue);
-  $: kickbackRate = getKickbackRate(venueId, session ? 'referrer' : 'guest');
+  $: venueId = venues?.length ? getVenueIdByName(venue) : '';
+  $: kickbackRate = venueId && venues?.length ? getKickbackRate(venueId, session ? 'referrer' : 'guest') : KICKBACK_RATE;
   $: kickbackRatePercent = formatRatePercent(kickbackRate);
   $: kickbackAmount = calculateKickbackWithRate(Number(amountInput || 0), kickbackRate);
   $: kickback = kickbackAmount.toFixed(2);
@@ -306,10 +313,19 @@
   }
 
   async function generateUniqueReferralCode(userId: string, email: string): Promise<string> {
-    const preferred = buildReferralCodeFromEmail(email);
-    if (preferred && isReferralCodeValid(preferred)) {
-      if (await isReferralCodeAvailable(preferred, userId)) return preferred;
+    const baseCode = buildReferralCodeFromEmail(email);
+    if (baseCode && isReferralCodeValid(baseCode)) {
+      // Try the base code first (e.g., "daniel")
+      if (await isReferralCodeAvailable(baseCode, userId)) return baseCode;
+      
+      // Try numbered variations (e.g., "daniel1", "daniel2", etc.)
+      for (let i = 1; i <= 9; i++) {
+        const numberedCode = `${baseCode}${i}`;
+        if (await isReferralCodeAvailable(numberedCode, userId)) return numberedCode;
+      }
     }
+    
+    // Fallback to random codes
     for (let i = 0; i < 20; i += 1) {
       const code = generateReferralCode(4);
       if (await isReferralCodeAvailable(code, userId)) return code;
@@ -704,6 +720,30 @@
     session = data.session;
     userId = session?.user?.id ?? null;
     if (userId) {
+      // Fetch user profile to ensure email is available
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('email, role')
+        .eq('id', userId)
+        .maybeSingle();
+      
+      // If profile doesn't exist, create it
+      if (!profile && session?.user?.email) {
+        const profilePayload = {
+          id: userId,
+          email: session.user.email,
+          role: 'member',
+          updated_at: new Date().toISOString()
+        };
+        console.log('Creating profile:', profilePayload);
+        const { error } = await supabase.from('profiles').upsert(profilePayload);
+        if (error) {
+          console.error('Error creating profile:', error);
+        } else {
+          console.log('Profile created successfully');
+        }
+      }
+      
       setupClaimsRealtime(userId);
     }
 
@@ -1282,7 +1322,6 @@
         onNewClaim={startNewClaim}
         onDeleteClaim={handleDeleteClaim}
         onOpenRefer={openReferModal}
-        onRequestInstall={handleInstall}
         onLogout={handleSignOut}
       />
     </div>

@@ -3,7 +3,7 @@
   import { onMount, tick } from 'svelte';
   import { flip } from 'svelte/animate';
   import { GOAL_DAYS, KICKBACK_RATE } from '$lib/claims/constants';
-  import { calculateKickbackWithRate, getDaysAtVenue, isClaimDenied } from '$lib/claims/utils';
+  import { calculateKickbackWithRate, getDaysAtVenue, getDaysAtVenueForUser, isClaimDenied } from '$lib/claims/utils';
   import { supabase } from '$lib/supabase';
   import type { Claim } from '$lib/claims/types';
   import type { Venue } from '$lib/venues/types';
@@ -45,16 +45,20 @@
   let payoutStatus: 'idle' | 'loading' | 'saving' | 'error' | 'success' = 'idle';
   let payoutError = '';
   let payoutMessage = '';
+  let lastLoadedUserId: string | null = null;
   let payoutStripeAccountId = '';
-  let payoutStripeOnboarded = false;
   let payoutStripeStatusLoaded = false;
+  let payoutStripeAccountStatus: 'pending' | 'verified' | 'rejected' | null = null;
+  let payoutStripeAccountLink = '';
+  let payoutStripeRequirements: any[] = [];
   let notifyApprovedClaims = false;
   let notifyPayoutConfirmation = false;
-  const notifyEssential = true;
-  let authProviderLabel = '';
   let isPwaInstalled = false;
   let notificationsEnabled = false;
   let notificationMessage = '';
+  let authProviderLabel = '';
+  let payoutStripeOnboarded = false;
+  const notifyEssential = true;
   let notificationError = false;
   async function ensurePushSubscription() {
     try {
@@ -97,12 +101,9 @@
     }
   }
 
-  let lastLoadedUserId: string | null = null;
   $: if (userId && userId !== lastLoadedUserId) {
     console.log('Dashboard: userId changed, loading profile', userId);
     lastLoadedUserId = userId;
-    void loadPayoutProfile();
-    void ensureProfileEmail();
   }
 
   async function ensureProfileEmail() {
@@ -110,8 +111,11 @@
     try {
       const { error } = await supabase
         .from('profiles')
-        .update({ email: userEmail })
-        .eq('id', userId);
+        .upsert({ 
+          id: userId, 
+          email: userEmail,
+          updated_at: new Date().toISOString()
+        });
       if (error) console.error('Error ensuring profile email:', error);
     } catch (err) {
       console.error('Failed to ensure profile email:', err);
@@ -223,13 +227,13 @@
 
   function openSettings() {
     showSettings = true;
+    loadPayoutProfileInternal();
   }
-
   function closeSettings() {
     showSettings = false;
   }
 
-  async function loadPayoutProfile() {
+  async function loadPayoutProfileInternal() {
     if (!userId) return;
     payoutStatus = 'loading';
     payoutError = '';
@@ -534,12 +538,51 @@
     return calculateKickbackWithRate(claim.amount, getClaimRate(claim));
   }
 
-  function getTotalKickbackAtVenue(venueName: string): number {
-    return claims.reduce((sum, claim) => {
-      if (isClaimDenied(claim)) return sum;
-      if (claim.venue.trim().toLowerCase() !== venueName.trim().toLowerCase()) return sum;
-      const claimRate = getClaimRate(claim) * 100;
-      return sum + calculateKickbackWithRate(Number(claim.amount || 0), Number(claimRate) / 100);
+  function getTotalKickbackAtVenue(venueName: string, claim: Claim): number {
+    const isDirectClaim = claim.submitter_id === userId;
+    const isReferrerClaim = claim.referrer_id === userId;
+
+    return claims.reduce((sum, c) => {
+      if (isClaimDenied(c)) return sum;
+      if (c.venue.trim().toLowerCase() !== venueName.trim().toLowerCase()) return sum;
+
+      // For direct claims: include all claims at venue where user is submitter OR referrer
+      if (isDirectClaim) {
+        const isUserSubmitter = c.submitter_id === userId;
+        const isUserReferrer = c.referrer_id === userId;
+
+        if (!isUserSubmitter && !isUserReferrer) return sum;
+
+        // Use appropriate rate based on relationship
+        let kickbackRate: number;
+        if (isUserSubmitter) {
+          const storedGuestRate = c.kickback_guest_rate ?? null;
+          if (storedGuestRate != null) {
+            kickbackRate = Number(storedGuestRate) / 100;
+          } else {
+            if (c.venue_id) {
+              const venue = venues.find((v) => v.id === c.venue_id);
+              kickbackRate = Number(venue?.kickback_guest ?? KICKBACK_RATE * 100) / 100;
+            } else {
+              kickbackRate = KICKBACK_RATE;
+            }
+          }
+        } else {
+          // User is referrer
+          kickbackRate = getClaimRate(c);
+        }
+
+        return sum + calculateKickbackWithRate(Number(c.amount || 0), kickbackRate);
+      }
+
+      // For referrer claims: only include claims from this specific submitter where user is referrer
+      if (isReferrerClaim) {
+        if (c.submitter_id !== claim.submitter_id || c.referrer_id !== userId) return sum;
+        const kickbackRate = getClaimRate(c);
+        return sum + calculateKickbackWithRate(Number(c.amount || 0), kickbackRate);
+      }
+
+      return sum;
     }, 0);
   }
 
@@ -572,7 +615,7 @@
     const statusOk = filterStatus.size === 0 || filterStatus.has(status);
     const referredOk =
       filterReferred.size === 0 ||
-      (filterReferred.has('referred') && isReferred) ||
+      (filterReferred.has('referrer') && isReferred) ||
       (filterReferred.has('direct') && !isReferred);
     return statusOk && referredOk;
   });
@@ -719,11 +762,11 @@
           <div>
             <p class="text-[10px] font-black uppercase tracking-[0.25em] text-zinc-500 mb-2">Referral</p>
             <div class="flex flex-col gap-2">
-              {#each ['referred','direct'] as kind}
+              {#each ['referrer','direct'] as kind}
                 <button
                   type="button"
                   class={`px-3 py-2 rounded-full text-[10px] font-black uppercase tracking-widest border inline-flex items-center justify-center ${
-                    kind === 'referred'
+                    kind === 'referrer'
                       ? filterReferred.has(kind)
                         ? 'border-orange-400/60 bg-orange-500/15 text-orange-300'
                         : 'border-zinc-800 bg-zinc-900 text-zinc-300 hover:border-zinc-700'
@@ -741,7 +784,7 @@
                     filterReferred = next;
                   }}
                 >
-                  {kind === 'referred' ? 'Referred' : 'Direct'}
+                  {kind === 'referrer' ? 'Referrer' : 'Direct'}
                 </button>
               {/each}
             </div>
@@ -789,6 +832,11 @@
               </p>
             </div>
             <div class="flex items-center gap-2">
+              {#if claim.referrer_id && claim.referrer_id === userId}
+                <span class="border rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-widest border-orange-500/30 bg-orange-500/10 text-orange-400">
+                  REFERRER
+                </span>
+              {/if}
               <span class={`border rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-widest ${getStatusBadgeClass(getDisplayStatus(claim))}`}>
                 {getDisplayStatus(claim).toUpperCase()}
               </span>
@@ -812,19 +860,19 @@
                 <p class="text-sm font-black uppercase tracking-widest text-zinc-400">Total kickback at {claim.venue}</p>
               {/if}
               <p class="text-base font-black text-orange-500">
-                ${getTotalKickbackAtVenue(claim.venue).toFixed(2)}
+                ${getTotalKickbackAtVenue(claim.venue, claim).toFixed(2)}
               </p>
             </div>
             <div class="flex items-center justify-between">
               <p class="text-sm font-black uppercase text-zinc-400 tracking-widest">30-day progress</p>
               <p class="text-sm font-black text-white">
-                {Math.max(GOAL_DAYS - getDaysAtVenue(claims, claim.venue), 0)} DAYS LEFT
+                {Math.max(GOAL_DAYS - getDaysAtVenueForUser(claims, claim.venue, claim.submitter_id), 0)} DAYS LEFT
               </p>
             </div>
             <div class="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden">
               <div
                 class="h-full bg-orange-500 transition-all duration-1000"
-                style="width: {(getDaysAtVenue(claims, claim.venue) / GOAL_DAYS) * 100}%"
+                style="width: {(getDaysAtVenueForUser(claims, claim.venue, claim.submitter_id) / GOAL_DAYS) * 100}%"
               ></div>
             </div>
           </div>
@@ -856,7 +904,7 @@
               </div>
             {/if}
             <div class="flex items-end justify-end">
-              {#if claim.id && claim.submitter_id === userId}
+              {#if claim.id && claim.submitter_id === userId && claim.status === 'pending'}
                 <button
                   type="button"
                   on:click={() => onDeleteClaim(claim)}
@@ -963,8 +1011,7 @@
                   </p>
                   {#if !payoutIsHobbyist}
                     <p class="mt-1 text-[10px] leading-relaxed font-bold text-zinc-500 uppercase tracking-tight" transition:slide|local>
-                      I agree that my referrals are a social/recreational activity and not a business. I understand that if I earn over $500/month, I may need to provide an ABN. 
-                      <a href="https://kkbk.app/terms" target="_blank" class="text-orange-500/80 hover:text-orange-500 underline decoration-orange-500/30 transition-colors">Terms</a>
+                      I agree that my referrals are a social/recreational activity and not a business. <a href="https://kkbk.app/terms" target="_blank" class="text-orange-500/80 hover:text-orange-500 underline decoration-orange-500/30 transition-colors">Terms</a>
                     </p>
                   {/if}
                 </div>

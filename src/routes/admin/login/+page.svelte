@@ -42,7 +42,7 @@
       const { data, error } = await supabase.auth.signInWithOtp({
         email: magicLinkEmail,
         options: {
-          emailRedirectTo: `${window.location.origin}/auth/callback?redirect_to=${encodeURIComponent(window.location.origin + '/admin')}`
+          emailRedirectTo: `${window.location.origin}/auth/callback?redirect_to=${encodeURIComponent(window.location.origin + '/admin')}&email=${encodeURIComponent(magicLinkEmail)}`
         }
       });
 

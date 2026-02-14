@@ -4,6 +4,7 @@
 
   export let userId: string;
   export let onClose: () => void;
+  export let onSuccess: () => void = () => {};
 
   let fullName = '';
   let payId = '';
@@ -53,16 +54,27 @@
         updated_at: new Date().toISOString()
       };
 
+      console.log('Saving payload:', payload);
+
       const { error } = await supabase
         .from('payout_profiles')
         .upsert(payload, { onConflict: 'user_id' });
 
-      if (error) throw error;
+      console.log('Save result:', { error });
+
+      if (error) {
+        console.error('Supabase error:', error);
+        throw error;
+      }
 
       status = 'success';
       successMessage = 'Payout details saved';
       setTimeout(() => {
         onClose();
+        // Force a page refresh to ensure data is reloaded
+        if (typeof window !== 'undefined') {
+          window.location.reload();
+        }
       }, 1500);
     } catch (error: any) {
       status = 'error';
@@ -140,7 +152,7 @@
           </p>
           <p class="mt-1 text-[10px] leading-relaxed font-bold text-zinc-500 uppercase tracking-tight">
             I agree that my referrals are a social/recreational activity and not a business. 
-            <a href="https://kkbk.app/terms" target="_blank" class="text-orange-500/80 hover:text-orange-500 underline decoration-orange-500/30">Terms</a>
+            <a href="https://kkbk.app/terms" target="_blank" class="text-orange-500/80 hover:text-orange-500 underline decoration-orange-500/30 transition-colors">Terms</a>
           </p>
         </div>
       </label>

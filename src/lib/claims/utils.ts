@@ -56,8 +56,35 @@ export function getDaysAtVenue(
   return Math.min(diffInDays + 1, goalDays);
 }
 
-export function normalizeLast4(value: string): string {
-  return value.replace(/\D/g, '').slice(0, 4);
+export function getDaysAtVenueForUser(
+  claims: Claim[],
+  venueName: string,
+  userId: string | undefined,
+  goalDays: number = GOAL_DAYS
+): number {
+  if (!userId) return 0;
+  
+  const userVenueClaims = claims.filter((c) => 
+    c.venue === venueName && 
+    !isClaimDenied(c) && 
+    c.submitter_id === userId
+  );
+  
+  if (userVenueClaims.length === 0) return 0;
+
+  const dates = userVenueClaims.map((c) => new Date(c.purchased_at).getTime());
+  const firstDate = Math.min(...dates);
+  const now = Date.now();
+  const diffInDays = Math.floor((now - firstDate) / (1000 * 60 * 60 * 24));
+
+  return Math.min(diffInDays + 1, goalDays);
+}
+
+export function parseAmount(value: string): number {
+  if (!value || !value.trim()) return 0;
+  const normalized = normalizeAmountInput(value, MAX_BILL);
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 export function normalizeAmountInput(raw: string, max: number): string {
@@ -84,8 +111,6 @@ export function normalizeAmountInput(raw: string, max: number): string {
   return value;
 }
 
-export function parseAmount(value: string): number | null {
-  if (!value) return null;
-  const numeric = Number(value);
-  return Number.isFinite(numeric) ? numeric : null;
+export function normalizeLast4(value: string): string {
+  return value.replace(/\D/g, '').slice(0, 4);
 }

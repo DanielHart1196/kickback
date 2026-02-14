@@ -14,7 +14,9 @@
         if (access_token && refresh_token) {
           try {
             await supabase.auth.setSession({ access_token, refresh_token });
-            history.replaceState(history.state, '', window.location.pathname + window.location.search);
+            // Clean up URL parameters after auth
+            const redirectTo = $page.url.searchParams.get('redirect_to') || '/';
+            history.replaceState(history.state, '', redirectTo);
           } catch {}
         }
       }
@@ -92,6 +94,16 @@
         }
         await goto('/admin');
       } else {
+        // Create/update profile for regular users
+        const userEmail = session.user.email || $page.url.searchParams.get('email');
+        if (userEmail) {
+          await supabase.from('profiles').upsert({
+            id: session.user.id,
+            email: userEmail,
+            role: 'member',
+            updated_at: new Date().toISOString()
+          });
+        }
         await goto(redirectTo);
       }
     } else {
