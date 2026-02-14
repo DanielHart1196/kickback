@@ -27,9 +27,26 @@
     successMessage = '';
 
     try {
+      const trimmedPayId = payId.trim();
+      
+      if (trimmedPayId) {
+        // Check if pay_id is already used by another user
+        const { data: existing, error: checkError } = await supabase
+          .from('payout_profiles')
+          .select('user_id')
+          .eq('pay_id', trimmedPayId)
+          .neq('user_id', userId)
+          .maybeSingle();
+
+        if (checkError) throw checkError;
+        if (existing) {
+          throw new Error('This PayID is already registered to another user');
+        }
+      }
+
       const payload = {
         user_id: userId,
-        pay_id: payId.trim() || null,
+        pay_id: trimmedPayId || null,
         full_name: fullName.trim() || null,
         is_hobbyist: isHobbyist,
         hobbyist_confirmed_at: hobbyistConfirmedAt,
