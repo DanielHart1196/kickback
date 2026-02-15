@@ -25,6 +25,13 @@
     referralCode: string | null;
   };
 
+  type UserBalanceBreakdown = {
+    pending: number;
+    approved: number;
+    available: number;
+    paidout: number;
+  };
+
   let loading = true;
   let loadError = '';
 
@@ -83,14 +90,32 @@
   let balanceSyncStatus: 'idle' | 'running' | 'error' | 'success' = 'idle';
   let balanceSyncMessage = '';
   let balanceSyncError = '';
-  let weeklyStatus: 'idle' | 'loading' | 'error' | 'success' = 'idle';
-  let weeklyError = '';
-  let weeklyPayouts:
+  let invoiceClaimsStatus: 'idle' | 'running' | 'error' | 'success' = 'idle';
+  let invoiceClaimsError = '';
+  let invoiceClaimsMessage = '';
+  let invoiceClaimsResult: {
+    stripe_invoice_id: string;
+    venue_id: string;
+    week_start: string;
+    week_end: string;
+    claims_included: number;
+    claims_paid: number;
+    claims_unpaid: number;
+    mark_paid: boolean;
+    marked_paid: number;
+    claim_ids: string[];
+  } | null = null;
+  let payoutsStatus: 'idle' | 'loading' | 'error' | 'success' = 'idle';
+  let payoutsError = '';
+  let payoutsMessage = '';
+  let payouts:
     | {
         user_id: string;
-        amount: number;
-        currency: string;
-        stripe_account_id: string | null;
+        referral_code: string | null;
+        pay_id: string | null;
+        total_amount: number;
+        claim_ids: string[];
+        claim_count: number;
       }[]
     | null = null;
 
@@ -98,6 +123,9 @@
   const profileById = new Map<string, Profile>();
   let selectedClaimIds = new Set<string>();
   let bulkApplying = false;
+  let squareAutoStatus: 'idle' | 'running' | 'error' | 'success' = 'idle';
+  let squareAutoMessage = '';
+  let squareAutoError = '';
 
   function buildMaps() {
     venueById.clear();
@@ -216,7 +244,8 @@
 
   function matchesStatus(claim: Claim): boolean {
     if (statusFilter === 'all') return true;
-    return (claim.status ?? 'approved') === statusFilter;
+    const status = claim.status ?? 'approved';
+    return status === statusFilter;
   }
 
   function formatDate(value: string) {
@@ -239,8 +268,31 @@
   function getStatusClass(status: ClaimStatus) {
     if (status === 'approved') return 'border-green-500/30 bg-green-500/10 text-green-300';
     if (status === 'paid') return 'border-blue-500/30 bg-blue-500/10 text-blue-300';
+    if (status === 'paidout') return 'border-cyan-500/30 bg-cyan-500/10 text-cyan-300';
     if (status === 'denied') return 'border-red-500/30 bg-red-500/10 text-red-300';
     return 'border-yellow-500/30 bg-yellow-500/10 text-yellow-300';
+  }
+
+  function getKickbackRate(claim: Claim, kind: 'guest' | 'referrer'): number {
+    const rawRate = kind === 'guest' ? claim.kickback_guest_rate : claim.kickback_referrer_rate;
+    const rate = Number(rawRate ?? 5);
+    if (!Number.isFinite(rate) || rate < 0) return 0;
+    return rate / 100;
+  }
+
+  function getUserEarnedAmount(claim: Claim, userId: string): number {
+    if (!userId || claim.status === 'denied') return 0;
+    const amount = Number(claim.amount ?? 0);
+    if (!Number.isFinite(amount) || amount <= 0) return 0;
+
+    let earned = 0;
+    if (claim.submitter_id === userId) {
+      earned += amount * getKickbackRate(claim, 'guest');
+    }
+    if (claim.referrer_id === userId) {
+      earned += amount * getKickbackRate(claim, 'referrer');
+    }
+    return Number(earned.toFixed(2));
   }
 
   function selectUser(userId: string | null) {
@@ -302,7 +354,8 @@
   }
 
   function canDeleteClaim(claim: Claim): boolean {
-    return getClaimStatus(claim) !== 'paid';
+    const status = claim.status ?? 'approved';
+    return status !== 'paid' && status !== 'paidout';
   }
 
   async function handleDeleteClaim(claim: Claim) {
@@ -369,6 +422,28 @@
     };
   }
 
+  function buildUserBalanceBreakdown(list: Claim[], userId: string | null): UserBalanceBreakdown {
+    const totals: UserBalanceBreakdown = { pending: 0, approved: 0, available: 0, paidout: 0 };
+    if (!userId) return totals;
+
+    for (const claim of list) {
+      const earned = getUserEarnedAmount(claim, userId);
+      if (earned <= 0) continue;
+      const status = claim.status ?? 'approved';
+      if (status === 'pending') totals.pending += earned;
+      else if (status === 'approved') totals.approved += earned;
+      else if (status === 'paid') totals.available += earned;
+      else if (status === 'paidout') totals.paidout += earned;
+    }
+
+    return {
+      pending: Number(totals.pending.toFixed(2)),
+      approved: Number(totals.approved.toFixed(2)),
+      available: Number(totals.available.toFixed(2)),
+      paidout: Number(totals.paidout.toFixed(2))
+    };
+  }
+
   $: filteredClaims = claims.filter((claim) =>
     matchesVenue(claim) && matchesUser(claim) && matchesStatus(claim)
   );
@@ -389,6 +464,9 @@
   $: selectedUserReferralClaims = selectedUserId
     ? claims.filter((claim) => claim.referrer_id === selectedUserId)
     : [];
+  $: selectedUserBalanceClaims = selectedUserId
+    ? claims.filter((claim) => claim.submitter_id === selectedUserId || claim.referrer_id === selectedUserId)
+    : [];
   $: selectedVenueClaims = selectedVenueId
     ? claims.filter((claim) => claim.venue_id === selectedVenueId)
     : [];
@@ -396,6 +474,7 @@
   $: selectedUserStats = buildUserStats(selectedUserClaims);
   $: selectedUserVenues = buildVenueStats(selectedUserClaims);
   $: selectedUserRefVenues = buildVenueStats(selectedUserReferralClaims);
+  $: selectedUserBalanceBreakdown = buildUserBalanceBreakdown(selectedUserBalanceClaims, selectedUserId);
 
   $: selectedVenue = selectedVenueId ? venueById.get(selectedVenueId) ?? null : null;
 
@@ -604,6 +683,66 @@
     }
   }
 
+  async function autoCheckSquareSelected() {
+    if (selectedClaimIds.size === 0) return;
+    squareAutoStatus = 'running';
+    squareAutoMessage = '';
+    squareAutoError = '';
+    try {
+      const selectedClaims = claims.filter(
+        (claim) => claim.id && selectedClaimIds.has(claim.id) && (claim.status ?? 'approved') === 'pending'
+      );
+      if (selectedClaims.length === 0) {
+        squareAutoStatus = 'error';
+        squareAutoError = 'Select pending claims to auto-check.';
+        return;
+      }
+
+      const linkedIds: string[] = [];
+      let skipped = 0;
+      let failed = 0;
+
+      for (const claim of selectedClaims) {
+        const claimId = claim.id;
+        if (!claimId) continue;
+        try {
+          const response = await fetch('/api/square/link-claim', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ claim_id: claimId })
+          });
+          const payload = await response.json().catch(() => null);
+          if (!response.ok || !payload?.ok) {
+            failed += 1;
+            continue;
+          }
+          if (payload?.linked) {
+            linkedIds.push(claimId);
+          } else {
+            skipped += 1;
+          }
+        } catch {
+          failed += 1;
+        }
+      }
+
+      if (linkedIds.length > 0) {
+        claims = claims.map((claim) =>
+          claim.id && linkedIds.includes(claim.id) ? { ...claim, status: 'approved' } : claim
+        );
+      }
+
+      squareAutoStatus = linkedIds.length > 0 ? 'success' : failed > 0 ? 'error' : 'success';
+      squareAutoMessage = `Approved ${linkedIds.length}. Skipped ${skipped}. Failed ${failed}.`;
+      if (failed > 0 && linkedIds.length === 0) {
+        squareAutoError = 'Square auto-check failed for selected claims.';
+      }
+    } catch (error) {
+      squareAutoStatus = 'error';
+      squareAutoError = error instanceof Error ? error.message : 'Square auto-check failed.';
+    }
+  }
+
   async function deleteSelectedClaims() {
     if (selectedClaimIds.size === 0) return;
     bulkApplying = true;
@@ -769,6 +908,81 @@
       balanceSyncError = error instanceof Error ? error.message : 'Sync failed';
     }
   }
+  async function checkInvoiceClaims() {
+    const invoiceId = balanceInvoiceId.trim();
+    if (!invoiceId) return;
+    invoiceClaimsStatus = 'running';
+    invoiceClaimsError = '';
+    invoiceClaimsMessage = '';
+    try {
+      const { data, error } = await supabase.auth.getSession();
+      if (error || !data.session?.access_token) {
+        invoiceClaimsStatus = 'error';
+        invoiceClaimsError = 'Session expired. Please sign in again.';
+        return;
+      }
+      const response = await fetch('/api/ops/invoices/claims', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${data.session.access_token}`
+        },
+        body: JSON.stringify({ stripe_invoice_id: invoiceId })
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload?.ok) {
+        invoiceClaimsStatus = 'error';
+        invoiceClaimsError = payload?.error ?? 'Failed to check invoice claims';
+        return;
+      }
+      invoiceClaimsResult = payload;
+      invoiceClaimsStatus = 'success';
+      invoiceClaimsMessage = `Found ${payload.claims_included ?? 0} claims (${payload.claims_unpaid ?? 0} unpaid).`;
+    } catch (error) {
+      invoiceClaimsStatus = 'error';
+      invoiceClaimsError = error instanceof Error ? error.message : 'Failed to check invoice claims';
+    }
+  }
+  async function markInvoiceClaimsPaid() {
+    const invoiceId = balanceInvoiceId.trim();
+    if (!invoiceId) return;
+    invoiceClaimsStatus = 'running';
+    invoiceClaimsError = '';
+    invoiceClaimsMessage = '';
+    try {
+      const { data, error } = await supabase.auth.getSession();
+      if (error || !data.session?.access_token) {
+        invoiceClaimsStatus = 'error';
+        invoiceClaimsError = 'Session expired. Please sign in again.';
+        return;
+      }
+      const response = await fetch('/api/ops/invoices/claims', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${data.session.access_token}`
+        },
+        body: JSON.stringify({ stripe_invoice_id: invoiceId, mark_paid: true })
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload?.ok) {
+        invoiceClaimsStatus = 'error';
+        invoiceClaimsError = payload?.error ?? 'Failed to mark invoice claims paid';
+        return;
+      }
+      invoiceClaimsResult = payload;
+      const paidIds = new Set<string>((payload.claim_ids ?? []).map((id: string) => String(id)));
+      claims = claims.map((claim) => {
+        if (!claim.id || !paidIds.has(claim.id)) return claim;
+        return { ...claim, status: 'paid' };
+      });
+      invoiceClaimsStatus = 'success';
+      invoiceClaimsMessage = `Marked ${payload.marked_paid ?? 0} claims as paid.`;
+    } catch (error) {
+      invoiceClaimsStatus = 'error';
+      invoiceClaimsError = error instanceof Error ? error.message : 'Failed to mark invoice claims paid';
+    }
+  }
   async function backfillAllBalances() {
     balanceSyncStatus = 'running';
     balanceSyncError = '';
@@ -856,61 +1070,78 @@
       balanceSyncError = error instanceof Error ? error.message : 'Promote failed';
     }
   }
-  async function loadWeeklyPayouts() {
-    weeklyStatus = 'loading';
-    weeklyError = '';
-    weeklyPayouts = null;
+  async function calculatePayouts() {
+    payoutsStatus = 'loading';
+    payoutsError = '';
+    payoutsMessage = '';
+    payouts = null;
     try {
-      const response = await fetch('/api/payouts/weekly?min=20&currency=aud');
-      const payload = await response.json().catch(() => null);
-      if (!response.ok) {
-        weeklyStatus = 'error';
-        weeklyError = payload?.error ?? 'Failed to load payouts';
+      const { data, error } = await supabase.auth.getSession();
+      if (error || !data.session?.access_token) {
+        payoutsStatus = 'error';
+        payoutsError = 'Session expired. Please sign in again.';
         return;
       }
-      weeklyStatus = 'success';
-      weeklyPayouts = payload?.payouts ?? [];
-    } catch (error) {
-      weeklyStatus = 'error';
-      weeklyError = error instanceof Error ? error.message : 'Failed to load payouts';
-    }
-  }
-  async function loadAllAvailablePayouts() {
-    weeklyStatus = 'loading';
-    weeklyError = '';
-    weeklyPayouts = null;
-    try {
-      const response = await fetch('/api/payouts/weekly?min=0&currency=aud');
-      const payload = await response.json().catch(() => null);
-      if (!response.ok) {
-        weeklyStatus = 'error';
-        weeklyError = payload?.error ?? 'Failed to load payouts';
-        return;
-      }
-      weeklyStatus = 'success';
-      weeklyPayouts = payload?.payouts ?? [];
-    } catch (error) {
-      weeklyStatus = 'error';
-      weeklyError = error instanceof Error ? error.message : 'Failed to load payouts';
-    }
-  }
-  async function transferToStripe(userId: string, currency: string) {
-    if (!userId) return;
-    try {
-      const response = await fetch('/api/payouts/transfer-user', {
+      const response = await fetch('/api/ops/payouts', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: userId, currency })
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${data.session.access_token}`
+        },
+        body: JSON.stringify({ action: 'calculate' })
       });
       const payload = await response.json().catch(() => null);
-      if (!response.ok) {
-        alert(payload?.error ?? 'Transfer failed');
+      if (!response.ok || !payload?.ok) {
+        payoutsStatus = 'error';
+        payoutsError = payload?.error ?? 'Failed to calculate payouts';
         return;
       }
-      alert(`Transferred $${Number(payload?.transferred ?? 0).toFixed(2)} ${currency.toUpperCase()}`);
-      await loadAllAvailablePayouts();
+      payouts = payload?.payouts ?? [];
+      payoutsStatus = 'success';
+      payoutsMessage = `Calculated ${payouts?.length ?? 0} users.`;
     } catch (error) {
-      alert(error instanceof Error ? error.message : 'Transfer failed');
+      payoutsStatus = 'error';
+      payoutsError = error instanceof Error ? error.message : 'Failed to calculate payouts';
+    }
+  }
+
+  async function markUserPaidOut(userId: string) {
+    if (!userId) return;
+    payoutsStatus = 'loading';
+    payoutsError = '';
+    payoutsMessage = '';
+    try {
+      const { data, error } = await supabase.auth.getSession();
+      if (error || !data.session?.access_token) {
+        payoutsStatus = 'error';
+        payoutsError = 'Session expired. Please sign in again.';
+        return;
+      }
+      const response = await fetch('/api/ops/payouts', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${data.session.access_token}`
+        },
+        body: JSON.stringify({ action: 'mark_paid', user_id: userId })
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload?.ok) {
+        payoutsStatus = 'error';
+        payoutsError = payload?.error ?? 'Failed to mark user paid';
+        return;
+      }
+      const paidClaimIds = new Set<string>((payload?.claim_ids ?? []).map((id: string) => String(id)));
+      claims = claims.map((claim) => {
+        if (!claim.id || !paidClaimIds.has(claim.id)) return claim;
+        return { ...claim, status: 'paidout' as ClaimStatus };
+      });
+      payoutsStatus = 'success';
+      payoutsMessage = `Marked ${payload?.marked_claims ?? 0} claims paid out.`;
+      await calculatePayouts();
+    } catch (error) {
+      payoutsStatus = 'error';
+      payoutsError = error instanceof Error ? error.message : 'Failed to mark user paid';
     }
   }
 </script>
@@ -951,6 +1182,8 @@
             <option value="all">all</option>
             <option value="approved">approved</option>
             <option value="pending">pending</option>
+            <option value="paid">paid</option>
+            <option value="paidout">paidout</option>
             <option value="denied">denied</option>
           </select>
         </label>
@@ -963,14 +1196,6 @@
           disabled={loading}
         >
           {loading ? 'Loading...' : 'Refresh'}
-        </button>
-        <button
-          type="button"
-          on:click={runWeeklyInvoices}
-          class="bg-orange-500 text-black font-black px-4 py-2 rounded-xl uppercase tracking-tight text-xs"
-          disabled={invoiceRunStatus === 'running'}
-        >
-          {invoiceRunStatus === 'running' ? 'Running...' : 'Run Weekly Invoices'}
         </button>
         <button
           type="button"
@@ -1127,6 +1352,15 @@
                         >
                           Mark Paid
                         </button>
+                        <button
+                          type="button"
+                          class="px-3 py-1 rounded-lg bg-orange-500 text-black text-xs font-black uppercase tracking-widest disabled:opacity-50"
+                          on:click={autoCheckSquareSelected}
+                          disabled={squareAutoStatus === 'running'}
+                          title="Auto-check selected pending claims against Square"
+                        >
+                          {squareAutoStatus === 'running' ? 'Checking...' : 'Auto-check Square'}
+                        </button>
                         {#if getSelectedWeekRange()}
                           <button
                             type="button"
@@ -1159,6 +1393,12 @@
                       {/if}
                     </div>
                   </div>
+                  {#if squareAutoMessage}
+                    <p class="mt-2 text-[10px] font-bold uppercase tracking-widest text-green-400">{squareAutoMessage}</p>
+                  {/if}
+                  {#if squareAutoError}
+                    <p class="mt-2 text-[10px] font-bold uppercase tracking-widest text-red-400">{squareAutoError}</p>
+                  {/if}
                 </td>
               </tr>
               {#if loading}
@@ -1242,6 +1482,27 @@
               <div>Email: <span class="text-white">{selectedUserStats.email ?? 'Unknown'}</span></div>
               <div>Referral Code: <span class="text-white">{selectedUserStats.referralCode ?? 'None'}</span></div>
               <div>User ID: <span class="text-white">{selectedUserStats.id}</span></div>
+            </div>
+            <div class="mt-4">
+              <p class="text-[10px] font-black uppercase tracking-widest text-zinc-500">Balance Breakdown</p>
+              <div class="mt-2 space-y-1 text-xs text-zinc-300">
+                <div class="flex justify-between">
+                  <span>Pending</span>
+                  <span class="text-yellow-300">${selectedUserBalanceBreakdown.pending.toFixed(2)}</span>
+                </div>
+                <div class="flex justify-between">
+                  <span>Approved</span>
+                  <span class="text-green-300">${selectedUserBalanceBreakdown.approved.toFixed(2)}</span>
+                </div>
+                <div class="flex justify-between">
+                  <span>Available</span>
+                  <span class="text-blue-300">${selectedUserBalanceBreakdown.available.toFixed(2)}</span>
+                </div>
+                <div class="flex justify-between">
+                  <span>PaidOut</span>
+                  <span class="text-cyan-300">${selectedUserBalanceBreakdown.paidout.toFixed(2)}</span>
+                </div>
+              </div>
             </div>
             <div class="mt-4">
               <button
@@ -1353,54 +1614,98 @@
         {/if}
 
         <section class="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-5">
-          <p class="text-xs font-black uppercase tracking-widest text-zinc-500">Balances</p>
+          <p class="text-xs font-black uppercase tracking-widest text-zinc-500">PayIn</p>
+          <div class="mt-3 space-y-2">
+            <label class="flex flex-col gap-2 text-[10px] font-black uppercase tracking-widest text-zinc-500">
+              Stripe Invoice ID
+              <input
+                type="text"
+                bind:value={balanceInvoiceId}
+                placeholder="in_..."
+                class="bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs font-bold text-white"
+              />
+            </label>
+            <div class="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                class="px-3 py-1 rounded-lg bg-blue-600 text-black text-xs font-black uppercase tracking-widest disabled:opacity-50"
+                on:click={checkInvoiceClaims}
+                disabled={invoiceClaimsStatus === 'running' || !balanceInvoiceId.trim()}
+              >
+                Check
+              </button>
+              <button
+                type="button"
+                class="px-3 py-1 rounded-lg bg-blue-500 text-black text-xs font-black uppercase tracking-widest disabled:opacity-50"
+                on:click={markInvoiceClaimsPaid}
+                disabled={invoiceClaimsStatus === 'running' || !balanceInvoiceId.trim()}
+              >
+                Mark Paid
+              </button>
+            </div>
+            {#if invoiceClaimsMessage}
+              <p class="text-[10px] font-bold uppercase tracking-widest text-green-400">{invoiceClaimsMessage}</p>
+            {/if}
+            {#if invoiceClaimsError}
+              <p class="text-[10px] font-bold uppercase tracking-widest text-red-400">{invoiceClaimsError}</p>
+            {/if}
+            {#if invoiceClaimsResult}
+              <div class="text-[10px] font-bold uppercase tracking-widest text-zinc-400">
+                Included: <span class="text-white">{invoiceClaimsResult.claims_included}</span> | Paid:{' '}
+                <span class="text-white">{invoiceClaimsResult.claims_paid}</span> | Unpaid:{' '}
+                <span class="text-white">{invoiceClaimsResult.claims_unpaid}</span>
+              </div>
+            {/if}
+          </div>
+        </section>
+
+        <section class="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-5">
+          <p class="text-xs font-black uppercase tracking-widest text-zinc-500">Payouts</p>
           <div class="mt-3 flex items-center gap-3">
             <button
               type="button"
-              class="px-3 py-1 rounded-lg bg-blue-500 text-black text-xs font-black uppercase tracking-widest"
-              on:click={loadWeeklyPayouts}
-              disabled={weeklyStatus === 'loading'}
+              class="px-3 py-1 rounded-lg bg-blue-500 text-black text-xs font-black uppercase tracking-widest disabled:opacity-50"
+              on:click={calculatePayouts}
+              disabled={payoutsStatus === 'loading'}
             >
-              Weekly Payouts
-            </button>
-            <button
-              type="button"
-              class="px-3 py-1 rounded-lg bg-blue-700 text-black text-xs font-black uppercase tracking-widest"
-              on:click={loadAllAvailablePayouts}
-              disabled={weeklyStatus === 'loading'}
-            >
-              All Available
+              Calculate Payouts
             </button>
           </div>
-          {#if weeklyPayouts}
-            <div class="mt-4 space-y-1 text-[10px] text-zinc-300 normal-case tracking-normal">
-              {#each weeklyPayouts as p}
-                <div class="flex items-center justify-between gap-2">
-                  <span class="truncate">{p.user_id}</span>
-                  <span class="text-white">${p.amount.toFixed(2)} {p.currency.toUpperCase()}</span>
-                </div>
-                {#if p.stripe_account_id}
-                  <div class="ml-3 text-[10px] text-zinc-500">
-                    Stripe: Connected (acct {p.stripe_account_id})
+          {#if payoutsMessage}
+            <p class="mt-3 text-[10px] font-bold uppercase tracking-widest text-green-400">{payoutsMessage}</p>
+          {/if}
+          {#if payoutsError}
+            <p class="mt-3 text-[10px] font-bold uppercase tracking-widest text-red-400">{payoutsError}</p>
+          {/if}
+          {#if payouts}
+            <div class="mt-4 space-y-2 text-[10px] text-zinc-300 normal-case tracking-normal">
+              {#each payouts as payout}
+                <div class="rounded-lg border border-zinc-800 bg-zinc-950/60 p-3">
+                  <div class="flex items-center justify-between gap-2">
+                    <span class="truncate font-black uppercase tracking-widest text-zinc-400">
+                      {payout.referral_code ?? payout.user_id}
+                    </span>
+                    <span class="text-white font-black">${payout.total_amount.toFixed(2)}</span>
+                  </div>
+                  <div class="mt-1 text-zinc-500 uppercase tracking-widest">
+                    PayID: <span class="text-zinc-300">{payout.pay_id ?? 'Not set'}</span>
+                  </div>
+                  <div class="mt-2">
                     <button
                       type="button"
-                      class="ml-3 px-2 py-0.5 rounded bg-white text-black text-[10px] font-black uppercase tracking-widest"
-                      on:click={() => transferToStripe(p.user_id, p.currency)}
+                      class="px-3 py-1 rounded-lg bg-green-500 text-black text-xs font-black uppercase tracking-widest disabled:opacity-50"
+                      on:click={() => markUserPaidOut(payout.user_id)}
+                      disabled={payoutsStatus === 'loading'}
                     >
-                      Transfer
+                      Paid
                     </button>
                   </div>
-                {:else}
-                  <div class="ml-3 text-[10px] text-zinc-500">Stripe: Not connected</div>
-                {/if}
+                </div>
               {/each}
-              {#if weeklyPayouts.length === 0}
-                <p class="text-zinc-500">No users above threshold.</p>
+              {#if payouts.length === 0}
+                <p class="text-zinc-500">No paid claims waiting for payout.</p>
               {/if}
             </div>
-            {#if weeklyError}
-              <p class="mt-3 text-[10px] font-bold uppercase tracking-widest text-red-400">{weeklyError}</p>
-            {/if}
           {/if}
         </section>
 

@@ -118,7 +118,6 @@ async function settleClaimsForRange(
   let transfersCreated = 0;
   let transfersFailed = 0;
   let transfersSkippedNoDestination = 0;
-  let claimsPaid = 0;
   for (const claim of items) {
     const amount = Number(claim.amount ?? 0);
     const guestRate = Number(claim.kickback_guest_rate ?? 5);
@@ -190,12 +189,8 @@ async function settleClaimsForRange(
       }
     }
 
-    if (claim.id) {
-      await supabaseAdmin.from('claims').update({ status: 'paid' }).eq('id', claim.id);
-      claimsPaid += 1;
-    }
   }
-  return { transfersAttempted, transfersCreated, transfersFailed, transfersSkippedNoDestination, claimsPaid };
+  return { transfersAttempted, transfersCreated, transfersFailed, transfersSkippedNoDestination, claimsPaid: 0 };
 }
 
 function parseStripeSignature(header: string | null) {

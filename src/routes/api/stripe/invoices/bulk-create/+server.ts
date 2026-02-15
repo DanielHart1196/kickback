@@ -175,7 +175,7 @@ export async function POST({ request }) {
 
         const referrerFee = total * 0.05;
         const guestFee = total * 0.05;
-        const platformFee = total * 0.01;
+        const platformFee = total * 0.02;
         const subtotal = referrerFee + guestFee + platformFee;
         const totalWithGst = subtotal;
         const referrerCents = Math.round(referrerFee * 100);
@@ -219,7 +219,7 @@ export async function POST({ request }) {
           invoice: invoice.id,
           currency: 'aud',
           amount: platformCents,
-          description: 'Kickback platform fee (1%)',
+          description: 'Kickback platform fee (2%)',
           metadata: { venue_id: venue.id }
         });
 

@@ -13,7 +13,7 @@ const WEEKDAY_INDEX: Record<string, number> = {
   Fri: 5,
   Sat: 6
 };
-const PLATFORM_FEE_RATE = 1;
+const PLATFORM_FEE_RATE = 2;
 
 type ZonedParts = {
   year: number;

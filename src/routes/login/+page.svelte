@@ -84,7 +84,13 @@
     
     const { data } = await supabase.auth.getSession();
     if (data?.session?.user) {
-      window.location.href = '/';
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', data.session.user.id)
+        .maybeSingle();
+      const role = profile?.role ?? 'member';
+      window.location.href = role === 'admin' || role === 'owner' ? '/admin' : '/';
       return;
     }
   });

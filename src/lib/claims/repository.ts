@@ -57,6 +57,13 @@ export async function deleteClaim(claimId: string): Promise<void> {
 export async function updateClaimStatus(claimId: string, status: ClaimStatus): Promise<void> {
   const { error } = await supabase.from('claims').update({ status }).eq('id', claimId);
   if (error) throw error;
+  if ((status === 'approved' || status === 'paid') && typeof window !== 'undefined') {
+    void fetch('/api/notifications/claim-created', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ claim_id: claimId })
+    }).catch(() => {});
+  }
 }
 
 export async function updateClaimWithSquareMatch(

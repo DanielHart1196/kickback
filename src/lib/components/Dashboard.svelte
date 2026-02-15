@@ -25,7 +25,7 @@
   let lastHighlightKey: string | null = null;
   let pendingTotal = 0;
   let approvedTotal = 0;
-  let availableTotal = 0;
+  let payoutHistory: { id: string; amount: number; currency: string; paid_at: string; pay_id: string }[] = [];
   let filterStatus: Set<'pending' | 'approved' | 'paid' | 'denied'> = new Set();
   let filterReferred: Set<'referred' | 'direct'> = new Set();
   let showFilterMenu = false;
@@ -179,6 +179,9 @@
         } else {
           authProviderLabel = 'Signed up';
         }
+        if (session?.access_token) {
+          void loadPayoutHistory(session.access_token);
+        }
       });
     }
     return () => {
@@ -220,6 +223,25 @@
         notificationMessage = 'Failed to register push';
         notificationError = true;
       }
+    }
+  }
+
+  async function loadPayoutHistory(token: string) {
+    try {
+      const response = await fetch('/api/payouts/history', {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload?.ok) {
+        payoutHistory = [];
+        return;
+      }
+      payoutHistory = Array.isArray(payload?.payouts) ? payload.payouts : [];
+    } catch {
+      payoutHistory = [];
     }
   }
 
@@ -516,26 +538,37 @@
     scrollToHighlightedClaim(highlightClaimKey);
   }
 
-  function getVenueRate(claim: Claim): number {
+  function getVenueRate(claim: Claim, kind: 'guest' | 'referrer'): number {
+    const fallback = KICKBACK_RATE * 100;
     if (claim.venue_id) {
       const venue = venues.find((v) => v.id === claim.venue_id);
-      const rate = venue?.kickback_referrer ?? KICKBACK_RATE * 100;
+      const rate = kind === 'guest' ? venue?.kickback_guest ?? fallback : venue?.kickback_referrer ?? fallback;
       return Number(rate) / 100;
     }
     const normalizedName = claim.venue.trim().toLowerCase();
     const venue = venues.find((v) => v.name.trim().toLowerCase() === normalizedName);
-    const rate = venue?.kickback_referrer ?? KICKBACK_RATE * 100;
+    const rate = kind === 'guest' ? venue?.kickback_guest ?? fallback : venue?.kickback_referrer ?? fallback;
     return Number(rate) / 100;
   }
 
-  function getClaimRate(claim: Claim): number {
-    const storedRate = claim.kickback_referrer_rate ?? null;
+  function getClaimRateForKind(claim: Claim, kind: 'guest' | 'referrer'): number {
+    const storedRate = kind === 'guest' ? claim.kickback_guest_rate : claim.kickback_referrer_rate;
     if (storedRate != null) return Number(storedRate) / 100;
-    return getVenueRate(claim);
+    return getVenueRate(claim, kind);
   }
 
   function getKickbackForClaim(claim: Claim): number {
-    return calculateKickbackWithRate(claim.amount, getClaimRate(claim));
+    if (isClaimDenied(claim)) return 0;
+    const amount = Number(claim.amount ?? 0);
+    if (!Number.isFinite(amount) || amount <= 0) return 0;
+    let total = 0;
+    if (claim.submitter_id === userId) {
+      total += calculateKickbackWithRate(amount, getClaimRateForKind(claim, 'guest'));
+    }
+    if (claim.referrer_id === userId) {
+      total += calculateKickbackWithRate(amount, getClaimRateForKind(claim, 'referrer'));
+    }
+    return Number(total.toFixed(2));
   }
 
   function getTotalKickbackAtVenue(venueName: string, claim: Claim): number {
@@ -553,51 +586,34 @@
 
         if (!isUserSubmitter && !isUserReferrer) return sum;
 
-        // Use appropriate rate based on relationship
-        let kickbackRate: number;
-        if (isUserSubmitter) {
-          const storedGuestRate = c.kickback_guest_rate ?? null;
-          if (storedGuestRate != null) {
-            kickbackRate = Number(storedGuestRate) / 100;
-          } else {
-            if (c.venue_id) {
-              const venue = venues.find((v) => v.id === c.venue_id);
-              kickbackRate = Number(venue?.kickback_guest ?? KICKBACK_RATE * 100) / 100;
-            } else {
-              kickbackRate = KICKBACK_RATE;
-            }
-          }
-        } else {
-          // User is referrer
-          kickbackRate = getClaimRate(c);
-        }
-
-        return sum + calculateKickbackWithRate(Number(c.amount || 0), kickbackRate);
+        return sum + getKickbackForClaim(c);
       }
 
       // For referrer claims: only include claims from this specific submitter where user is referrer
       if (isReferrerClaim) {
         if (c.submitter_id !== claim.submitter_id || c.referrer_id !== userId) return sum;
-        const kickbackRate = getClaimRate(c);
-        return sum + calculateKickbackWithRate(Number(c.amount || 0), kickbackRate);
+        return sum + getKickbackForClaim(c);
       }
 
       return sum;
     }, 0);
   }
 
-  function getClaimStatus(claim: Claim): 'pending' | 'approved' | 'paid' | 'denied' {
-    return claim.status ?? 'approved';
+  function getClaimStatus(claim: Claim): 'pending' | 'approved' | 'paid' | 'paidout' | 'denied' {
+    return (claim.status as any) ?? 'approved';
   }
 
-  function getDisplayStatus(claim: Claim): 'pending' | 'approved' | 'denied' {
+  function getDisplayStatus(claim: Claim): 'pending' | 'approved' | 'paid' | 'denied' {
     const status = getClaimStatus(claim);
-    return status === 'paid' ? 'approved' : status;
+    if (status === 'paidout') return 'paid';
+    return status;
   }
 
-  function getStatusTotal(status: 'pending' | 'approved' | 'paid'): number {
+  function getStatusTotal(status: 'pending' | 'approved'): number {
     return claims.reduce((sum, claim) => {
-      if (getClaimStatus(claim) !== status) return sum;
+      const claimStatus = getClaimStatus(claim);
+      if (status === 'pending' && claimStatus !== 'pending') return sum;
+      if (status === 'approved' && !(claimStatus === 'approved' || claimStatus === 'paid')) return sum;
       return sum + getKickbackForClaim(claim);
     }, 0);
   }
@@ -607,7 +623,6 @@
     venues;
     pendingTotal = getStatusTotal('pending');
     approvedTotal = getStatusTotal('approved');
-    availableTotal = getStatusTotal('paid');
   }
   $: filteredClaims = claims.filter((claim) => {
     const status = getDisplayStatus(claim);
@@ -621,8 +636,9 @@
   });
 
 
-  function getStatusBadgeClass(status: 'pending' | 'approved' | 'denied'): string {
+  function getStatusBadgeClass(status: 'pending' | 'approved' | 'paid' | 'denied'): string {
     if (status === 'approved') return 'border-green-500/30 bg-green-500/10 text-green-400';
+    if (status === 'paid') return 'border-blue-500/30 bg-blue-500/10 text-blue-300';
     if (status === 'denied') return 'border-red-500/30 bg-red-500/10 text-red-400';
     return 'border-zinc-700 bg-zinc-800 text-zinc-300';
   }
@@ -668,8 +684,7 @@
         >
           <span class="block">Pending - ${pendingTotal.toFixed(2)}</span>
           <span class="block mt-1">Approved - ${approvedTotal.toFixed(2)}</span>
-          <span class="block mt-1">Available - ${availableTotal.toFixed(2)}</span>
-          <span class="block mt-2">{availableTotal >= 20 ? 'Payout expected on Thursday' : 'Minimum payout $20'}</span>
+          <span class="block mt-2">Payouts every Wednesday</span>
         </span>
       </span>
     </p>
@@ -706,7 +721,7 @@
           <div>
             <p class="text-[10px] font-black uppercase tracking-[0.25em] text-zinc-500 mb-2">Status</p>
             <div class="flex flex-col gap-2">
-              {#each ['approved','pending','denied'] as status}
+              {#each ['approved','pending','paid','denied'] as status}
                 {#if status === 'approved'}
                   <button
                     type="button"
@@ -738,6 +753,22 @@
                     }}
                   >
                     PENDING
+                  </button>
+                {:else if status === 'paid'}
+                  <button
+                    type="button"
+                    class={`px-3 py-2 rounded-full text-[10px] font-black uppercase tracking-widest border inline-flex items-center justify-center ${filterStatus.has(status) ? 'border-blue-500/30 bg-blue-500/10 text-blue-300' : 'border-zinc-800 bg-zinc-900 text-zinc-300 hover:border-zinc-700'}`}
+                    on:click={() => {
+                      const next = new Set(filterStatus);
+                      if (next.has(status)) {
+                        next.delete(status);
+                      } else {
+                        next.add(status);
+                      }
+                      filterStatus = next;
+                    }}
+                  >
+                    PAID
                   </button>
                 {:else}
                   <button
@@ -793,10 +824,31 @@
       {/if}
     </div>
 
-    {#if filteredClaims.length === 0}
+    {#if filteredClaims.length === 0 && payoutHistory.length === 0}
       <div class="py-12 text-center border-2 border-dashed border-zinc-900 rounded-[2rem]" transition:fade|local={{ duration: 180 }}>
         <p class="text-zinc-600 text-xs font-bold uppercase tracking-widest">No activity yet</p>
       </div>
+    {/if}
+    {#if payoutHistory.length > 0}
+      {#each payoutHistory as payout (payout.id)}
+        <div transition:slide|local={{ duration: 220 }}>
+          <div class="bg-blue-500/10 border border-blue-500/20 rounded-2xl p-5 mb-4">
+            <div class="flex items-center justify-between gap-3">
+              <p class="text-sm font-black uppercase tracking-widest text-blue-300">Payout</p>
+              <span class="border rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-widest border-blue-500/30 bg-blue-500/10 text-blue-300">
+                PAID
+              </span>
+            </div>
+            <div class="mt-3 text-sm font-bold text-white">${Number(payout.amount ?? 0).toFixed(2)} {String(payout.currency ?? 'aud').toUpperCase()}</div>
+            <div class="mt-2 text-[10px] font-bold uppercase tracking-widest text-zinc-400">
+              {new Date(payout.paid_at).toLocaleDateString()} {new Date(payout.paid_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </div>
+            <div class="mt-1 text-[10px] font-bold uppercase tracking-widest text-zinc-500">
+              PayID: {payout.pay_id || 'Not set'}
+            </div>
+          </div>
+        </div>
+      {/each}
     {/if}
     {#each filteredClaims as claim (claim.id ?? claim.created_at)}
       <div transition:slide|local={{ duration: 220 }}>
@@ -812,13 +864,13 @@
             <div class="flex items-center justify-between flex-1 gap-4">
               <div class="flex flex-col justify-center">
               <p class={`text-xl font-black uppercase tracking-widest ${isClaimDenied(claim) ? 'text-zinc-500' : 'text-green-500'}`}>
-                +${calculateKickbackWithRate(claim.amount, getClaimRate(claim)).toFixed(2)}
+                +${getKickbackForClaim(claim).toFixed(2)}
               </p>
               {#if claim.referrer_id && claim.referrer_id === userId}
                 <p class="text-zinc-300 uppercase tracking-tight text-sm font-bold">
                   {claimantCodes[claim.submitter_id ?? ''] || claim.referrer || 'Referral'}
                   <span class="ml-1 text-orange-400 font-black uppercase tracking-widest">
-                    +${calculateKickbackWithRate(claim.amount, getClaimRate(claim)).toFixed(2)}
+                    +${getKickbackForClaim(claim).toFixed(2)}
                   </span>
                 </p>
               {:else}
@@ -892,7 +944,7 @@
                 {:else}
                   <span class="text-white">{claim.referrer || 'Direct'}</span>
                   <span class={`${isClaimDenied(claim) ? 'text-zinc-500' : 'text-green-500'} font-black uppercase tracking-widest`}>
-                    +${calculateKickbackWithRate(claim.amount, getClaimRate(claim)).toFixed(2)}
+                    +${getKickbackForClaim(claim).toFixed(2)}
                   </span>
                 {/if}
               </p>
@@ -1063,7 +1115,7 @@
               </div>
               <label class="relative inline-flex cursor-not-allowed items-center">
                 <input type="checkbox" checked={notifyEssential} disabled class="peer sr-only" />
-                <div class="h-5 w-9 rounded-full bg-zinc-700 transition-colors after:absolute after:left-[2px] after:top-[2px] after:h-4 after:w-4 after:rounded-full after:bg-zinc-400 after:transition-all peer-checked:after:translate-x-full"></div>
+                <div class="h-5 w-9 rounded-full border border-orange-500/25 bg-orange-500/20 transition-colors after:absolute after:left-[2px] after:top-[2px] after:h-4 after:w-4 after:rounded-full after:bg-orange-200/70 after:transition-all peer-checked:after:translate-x-full"></div>
               </label>
             </div>
           </div>

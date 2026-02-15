@@ -120,5 +120,14 @@ export async function POST({ request }) {
     return json({ ok: false, error: updateError.message }, { status: 500 });
   }
 
+  try {
+    const origin = new URL(request.url).origin;
+    await fetch(`${origin}/api/notifications/claim-created`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ claim_id: claim.id })
+    });
+  } catch {}
+
   return json({ ok: true, linked: true });
 }

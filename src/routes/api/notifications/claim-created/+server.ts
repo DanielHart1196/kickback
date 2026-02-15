@@ -18,7 +18,7 @@ function getSmtpConfig() {
   return { host, port, user, pass, from, secure };
 }
 
-async function sendEmailNotification(to: string, subject: string, text: string) {
+async function sendEmailNotification(to: string, subject: string, text: string, html?: string) {
   const smtp = getSmtpConfig();
   if (!smtp) {
     console.warn('Email skipped: SMTP not configured');
@@ -38,7 +38,8 @@ async function sendEmailNotification(to: string, subject: string, text: string) 
       from: smtp.from,
       to,
       subject,
-      text
+      text,
+      html
     });
     console.log(`Email sent successfully to ${to}`);
     return true;
@@ -91,6 +92,10 @@ export async function POST({ request }) {
     if (claimError || !claim) {
       return json({ ok: false, error: claimError?.message ?? 'claim_not_found' }, { status: 404 });
     }
+    const claimStatus = String(claim.status ?? '').toLowerCase();
+    if (claimStatus !== 'approved' && claimStatus !== 'paid') {
+      return json({ ok: true, skipped: 'claim_not_approved' });
+    }
     const amount = Number(claim.amount || 0);
     const venueName = String(claim.venue || '');
     const guestRate = Number(claim.kickback_guest_rate || 0) / 100;
@@ -99,23 +104,41 @@ export async function POST({ request }) {
     const referrerId = String(claim.referrer_id || '');
     const codeUsed = String(claim.submitter_referral_code || 'member');
 
-    const targets: { userId: string; title: string; body: string; isSubmitter: boolean }[] = [];
+    const targets: {
+      userId: string;
+      title: string;
+      body: string;
+      isSubmitter: boolean;
+      emailSubject: string;
+      emailText: string;
+      emailHtml?: string;
+    }[] = [];
     if (submitterId) {
       const earned = Math.max(0, Number((amount * guestRate).toFixed(2)));
+      const earnedText = `+$${earned.toFixed(2)} earned`;
+      const detailText = `from ${venueName}`;
       targets.push({
         userId: submitterId,
-        title: `+${earned.toFixed(2)} earned`,
-        body: `from ${venueName}`,
-        isSubmitter: true
+        title: earnedText,
+        body: detailText,
+        isSubmitter: true,
+        emailSubject: earnedText,
+        emailText: `${earnedText}\n${detailText}\n\nView your dashboard at https://kkbk.app/`,
+        emailHtml: `${earnedText}<br>${detailText}<br><br>View your dashboard at https://kkbk.app/`
       });
     }
     if (referrerId) {
       const earned = Math.max(0, Number((amount * refRate).toFixed(2)));
+      const earnedText = `+$${earned.toFixed(2)} earned`;
+      const detailText = `${codeUsed} used your code at ${venueName}`;
       targets.push({
         userId: referrerId,
-        title: `+${earned.toFixed(2)} ${codeUsed} used your code`,
+        title: `+$${earned.toFixed(2)} ${codeUsed} used your code`,
         body: `at ${venueName}`,
-        isSubmitter: false
+        isSubmitter: false,
+        emailSubject: earnedText,
+        emailText: `${earnedText}\n${detailText}\n\nView your dashboard at https://kkbk.app/`,
+        emailHtml: `${earnedText}<br>${detailText}<br><br>View your dashboard at https://kkbk.app/`
       });
     }
 
@@ -133,8 +156,9 @@ export async function POST({ request }) {
       if (profile?.email && profile?.notify_approved_claims) {
         const ok = await sendEmailNotification(
           profile.email,
-          t.title,
-          `${t.title}\n${t.body}\n\nView your dashboard at https://kkbk.app/`
+          t.emailSubject,
+          t.emailText,
+          t.emailHtml
         );
         if (ok) sentEmail.push(t.userId);
       } else {

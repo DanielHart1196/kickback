@@ -1,4 +1,4 @@
-import { GOAL_DAYS, KICKBACK_RATE } from './constants';
+import { GOAL_DAYS, KICKBACK_RATE, MAX_BILL } from './constants';
 import type { Claim } from './types';
 
 export function isClaimDenied(claim: Claim): boolean {
@@ -80,15 +80,18 @@ export function getDaysAtVenueForUser(
   return Math.min(diffInDays + 1, goalDays);
 }
 
-export function parseAmount(value: string): number {
-  if (!value || !value.trim()) return 0;
-  const normalized = normalizeAmountInput(value, MAX_BILL);
+export function parseAmount(value: string | number | null | undefined): number {
+  if (value == null) return 0;
+  const raw = typeof value === 'string' ? value : String(value);
+  if (!raw.trim()) return 0;
+  const normalized = normalizeAmountInput(raw, MAX_BILL);
   const parsed = Number(normalized);
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-export function normalizeAmountInput(raw: string, max: number): string {
-  let value = raw.replace(/[^\d.]/g, '');
+export function normalizeAmountInput(raw: string | number | null | undefined, max: number): string {
+  const source = raw == null ? '' : typeof raw === 'string' ? raw : String(raw);
+  let value = source.replace(/[^\d.]/g, '');
   const decimalCount = (value.match(/\./g) || []).length;
 
   if (decimalCount > 1) {

@@ -131,12 +131,12 @@
   function mergeDrafts(urlDraft: ClaimDraft | null, storedDraft: ClaimDraft | null): ClaimDraft | null {
     if (!urlDraft && !storedDraft) return null;
     return {
-      amount: (urlDraft?.amount || storedDraft?.amount || '').trim(),
-      venue: (urlDraft?.venue || storedDraft?.venue || '').trim(),
-      venueId: (urlDraft?.venueId || storedDraft?.venueId || '').trim(),
-      venueCode: (urlDraft?.venueCode || storedDraft?.venueCode || undefined),
-      ref: (urlDraft?.ref || storedDraft?.ref || '').trim(),
-      last4: (urlDraft?.last4 || storedDraft?.last4 || '').trim()
+      amount: String(urlDraft?.amount ?? storedDraft?.amount ?? '').trim(),
+      venue: String(urlDraft?.venue ?? storedDraft?.venue ?? '').trim(),
+      venueId: String(urlDraft?.venueId ?? storedDraft?.venueId ?? '').trim(),
+      venueCode: String(urlDraft?.venueCode ?? storedDraft?.venueCode ?? '').trim() || undefined,
+      ref: String(urlDraft?.ref ?? storedDraft?.ref ?? '').trim(),
+      last4: String(urlDraft?.last4 ?? storedDraft?.last4 ?? '').trim()
     };
   }
 
@@ -206,7 +206,7 @@
     try {
       if (typeof window !== 'undefined' && window.localStorage) {
         const meaningful = Boolean(
-          (amountInput || '').trim() ||
+          String(amountInput ?? '').trim() ||
           (venue || '').trim() ||
           venueId ||
           (normalizedReferrerInput || '').trim() ||
@@ -215,7 +215,7 @@
         if (meaningful) {
           const code = getVenueCodeById(venueId);
           saveDraftToStorage(window.localStorage, {
-            amount: amountInput || '',
+            amount: String(amountInput ?? ''),
             venue,
             venueId,
             venueCode: code || undefined,
@@ -588,11 +588,11 @@
               const refRate = Number(row.kickback_referrer_rate || 0) / 100;
               if (isSubmitter) {
                 const earned = calculateKickbackWithRate(amount, guestRate);
-                showLocalNotification(`+${earned.toFixed(2)} earned`, `from ${venueName}`);
+                showLocalNotification(`+$${earned.toFixed(2)} earned`, `from ${venueName}`);
               } else if (isReferrer) {
                 const earned = calculateKickbackWithRate(amount, refRate);
                 const codeUsed = String(row.submitter_referral_code || 'member');
-                showLocalNotification(`+${earned.toFixed(2)} ${codeUsed} used your code`, `at ${venueName}`);
+                showLocalNotification(`+$${earned.toFixed(2)} ${codeUsed} used your code`, `at ${venueName}`);
               }
             } catch {}
           }
@@ -777,17 +777,17 @@
     const hasDraft = Boolean(
       draft &&
       (
-        (draft.amount || '').trim() ||
-        (draft.venue || '').trim() ||
-        (draft.venueId || '').trim() ||
-        (draft.venueCode || '').trim() ||
-        (draft.ref || '').trim() ||
-        (draft.last4 || '').trim()
+        String(draft.amount ?? '').trim() ||
+        String(draft.venue ?? '').trim() ||
+        String(draft.venueId ?? '').trim() ||
+        String(draft.venueCode ?? '').trim() ||
+        String(draft.ref ?? '').trim() ||
+        String(draft.last4 ?? '').trim()
       )
     );
 
     if (hasDraft && draft) {
-      amountInput = draft.amount ?? '';
+      amountInput = String(draft.amount ?? '');
       if (draft.venueCode) {
         const venueFromCode = getVenueByCode(draft.venueCode);
         venue = venueFromCode?.name ?? draft.venue ?? '';
@@ -883,7 +883,9 @@
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
-        await upsertProfileLast4(user.id, last4);
+        void upsertProfileLast4(user.id, last4).catch((error) => {
+          console.error('Error updating last4:', error);
+        });
       }
 
       const createdAt = new Date().toISOString();
@@ -894,33 +896,33 @@
         return false;
       }
 
-    const rates = getVenueRates(venueId);
-    if (session?.user?.id) {
-      try {
-        const precheckRes = await fetch('/api/square/precheck', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            venue_id: venueId,
-            amount: cleanAmount,
-            last_4: last4,
-            purchased_at: purchaseTime,
-            submitter_id: session.user.id
-          })
-        });
-        const precheck = await precheckRes.json().catch(() => null);
-        if (precheckRes.ok && precheck?.ok && precheck.duplicate && precheck.by_same_user) {
-          const venueName = getVenueNameById(venueId) || venueId;
-          const daysLeft = getAutoClaimDaysLeft(venueId, venueName) ?? 0;
-          autoClaimWarningVenue = venueName;
-          autoClaimWarningDaysLeft = daysLeft;
-          showAutoClaimWarning = true;
-          return false;
+      const rates = getVenueRates(venueId);
+      if (session?.user?.id) {
+        try {
+          const precheckRes = await fetch('/api/square/precheck', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              venue_id: venueId,
+              amount: cleanAmount,
+              last_4: last4,
+              purchased_at: purchaseTime,
+              submitter_id: session.user.id
+            })
+          });
+          const precheck = await precheckRes.json().catch(() => null);
+          if (precheckRes.ok && precheck?.ok && precheck.duplicate && precheck.by_same_user) {
+            const venueName = getVenueNameById(venueId) || venueId;
+            const daysLeft = getAutoClaimDaysLeft(venueId, venueName) ?? 0;
+            autoClaimWarningVenue = venueName;
+            autoClaimWarningDaysLeft = daysLeft;
+            showAutoClaimWarning = true;
+            return false;
+          }
+        } catch (err) {
+          // proceed as pending on any precheck error
         }
-      } catch (err) {
-        // proceed as pending on any precheck error
       }
-    }
       const insertedClaim = await insertClaim(
         buildClaimInsert({
           venueName,
@@ -936,32 +938,25 @@
           submitterReferralCode: userRefCode || null
         })
       );
-      let linkedSquare = false;
+      let linkSquarePromise: Promise<boolean> | null = null;
       if (insertedClaim.id && session?.user?.id) {
-        try {
-          const response = await fetch('/api/square/link-claim', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ claim_id: insertedClaim.id })
-          });
-          const payload = await response.json().catch(() => null);
-          if (response.ok) {
-            linkedSquare = Boolean(payload?.linked);
+        linkSquarePromise = (async () => {
+          try {
+            const response = await fetch('/api/square/link-claim', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ claim_id: insertedClaim.id })
+            });
+            const payload = await response.json().catch(() => null);
+            if (response.ok) {
+              return Boolean(payload?.linked);
+            }
+          } catch (error) {
+            console.error('Error linking Square payment:', error);
           }
-        } catch (error) {
-          console.error('Error linking Square payment:', error);
-        }
+          return false;
+        })();
       }
-      try {
-        if (insertedClaim?.id) {
-          await fetch('/api/notifications/claim-created', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ claim_id: insertedClaim.id })
-          });
-        }
-      } catch {}
-
       successMessage = `Submitted ${venue} claim for $${cleanAmount.toFixed(2)}.`;
       status = 'success';
       amountInput = '';
@@ -974,22 +969,15 @@
           const state = getHistoryState();
           replaceState('', { ...state, [historyViewKey]: 'dashboard' });
         }
-        status = 'idle';
-        successMessage = '';
-        highlightClaimKey = null;
-        await tick();
-        await fetchDashboardData();
-        const newClaim =
-          claims.find((claim) => claim.id && claim.id === insertedClaim.id) ??
-          claims.find((claim) => claim.created_at === insertedClaim.created_at);
-        highlightClaimKey = newClaim?.id ?? newClaim?.created_at ?? null;
-        if (linkedSquare) {
-          const daysAtVenue = getDaysAtVenue(claims, venueName);
-          const daysLeft = Math.max(GOAL_DAYS - daysAtVenue, 0);
-          if (daysLeft > 0) {
-            showAutoClaimNotice(venueName, daysLeft);
-          }
-        }
+        const existingClaims = insertedClaim.id
+          ? claims.filter((claim) => claim.id !== insertedClaim.id)
+          : claims;
+        claims = [insertedClaim, ...existingClaims].sort(
+          (a, b) =>
+            new Date(b.purchased_at ?? b.created_at).getTime() -
+            new Date(a.purchased_at ?? a.created_at).getTime()
+        );
+        highlightClaimKey = insertedClaim.id ?? insertedClaim.created_at ?? null;
         if (highlightClaimKey) {
           setTimeout(() => {
             if (highlightClaimKey) highlightClaimKey = null;
@@ -998,6 +986,29 @@
         if (shouldShowInstallBanner()) {
           showInstallBanner = true;
         }
+        status = 'idle';
+        successMessage = '';
+        void (async () => {
+          const linkedSquare = linkSquarePromise ? await linkSquarePromise : false;
+          try {
+            await fetchDashboardData();
+          } catch (error) {
+            console.error('Error refreshing dashboard after claim submit:', error);
+          }
+          const newClaim =
+            claims.find((claim) => claim.id && claim.id === insertedClaim.id) ??
+            claims.find((claim) => claim.created_at === insertedClaim.created_at);
+          if (newClaim) {
+            highlightClaimKey = newClaim.id ?? newClaim.created_at ?? null;
+          }
+          if (linkedSquare) {
+            const daysAtVenue = getDaysAtVenue(claims, venueName);
+            const daysLeft = Math.max(GOAL_DAYS - daysAtVenue, 0);
+            if (daysLeft > 0) {
+              showAutoClaimNotice(venueName, daysLeft);
+            }
+          }
+        })();
         return true;
       } else {
         setTimeout(() => {
@@ -1173,25 +1184,36 @@
     return percent.endsWith('.0') ? percent.slice(0, -2) : percent;
   }
 
+  function getClaimRateForKind(claim: Claim, kind: 'guest' | 'referrer'): number {
+    const storedRate = kind === 'guest' ? claim.kickback_guest_rate : claim.kickback_referrer_rate;
+    if (storedRate != null) return Number(storedRate) / 100;
+    if (claim.venue_id) {
+      const venueMatch = venues.find((venueItem) => venueItem.id === claim.venue_id);
+      const fallbackRate = kind === 'guest' ? venueMatch?.kickback_guest : venueMatch?.kickback_referrer;
+      return Number(fallbackRate ?? 5) / 100;
+    }
+    const venueMatch = venues.find(
+      (venueItem) => venueItem.name.trim().toLowerCase() === claim.venue.trim().toLowerCase()
+    );
+    const fallbackRate = kind === 'guest' ? venueMatch?.kickback_guest : venueMatch?.kickback_referrer;
+    return Number(fallbackRate ?? 5) / 100;
+  }
+
   function calculateTotalPendingWithRates(claimList: Claim[]): number {
+    const currentUserId = session?.user?.id ?? userId;
+    if (!currentUserId) return 0;
     return claimList.reduce((sum, claim) => {
-      if (claim.status === 'denied') return sum;
-      const savedRate = claim.kickback_referrer_rate ?? null;
-      if (savedRate != null) {
-        return sum + calculateKickbackWithRate(Number(claim.amount || 0), Number(savedRate) / 100);
+      if (claim.status === 'denied' || claim.status === 'paidout') return sum;
+      const amount = Number(claim.amount ?? 0);
+      if (!Number.isFinite(amount) || amount <= 0) return sum;
+      let earned = 0;
+      if (claim.submitter_id === currentUserId) {
+        earned += calculateKickbackWithRate(amount, getClaimRateForKind(claim, 'guest'));
       }
-
-      if (claim.venue_id) {
-        const venueMatch = venues.find((venueItem) => venueItem.id === claim.venue_id);
-        const rate = venueMatch?.kickback_referrer ?? 5;
-        return sum + calculateKickbackWithRate(Number(claim.amount || 0), Number(rate) / 100);
+      if (claim.referrer_id === currentUserId) {
+        earned += calculateKickbackWithRate(amount, getClaimRateForKind(claim, 'referrer'));
       }
-
-      const venueMatch = venues.find(
-        (venueItem) => venueItem.name.trim().toLowerCase() === claim.venue.trim().toLowerCase()
-      );
-      const rate = venueMatch?.kickback_referrer ?? 5;
-      return sum + calculateKickbackWithRate(Number(claim.amount || 0), Number(rate) / 100);
+      return sum + earned;
     }, 0);
   }
 

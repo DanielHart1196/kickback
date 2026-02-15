@@ -77,7 +77,7 @@ export async function POST({ request }) {
 
       const referrerFee = total * 0.05;
       const guestFee = total * 0.05;
-      const platformFee = total * 0.01;
+      const platformFee = total * 0.02;
       const subtotal = referrerFee + guestFee + platformFee;
       const totalWithGst = subtotal;
 
@@ -92,7 +92,7 @@ export async function POST({ request }) {
       const line_items = [
         { amount: Number(referrerFee.toFixed(2)), description: 'Referrer commission (5%)' },
         { amount: Number(guestFee.toFixed(2)), description: 'New customer cashback (5%)' },
-        { amount: Number(platformFee.toFixed(2)), description: 'Kickback platform fee (1%)' }
+        { amount: Number(platformFee.toFixed(2)), description: 'Kickback platform fee (2%)' }
       ];
 
       results.push({

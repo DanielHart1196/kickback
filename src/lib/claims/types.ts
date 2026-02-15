@@ -1,4 +1,4 @@
-export type ClaimStatus = 'pending' | 'approved' | 'paid' | 'denied';
+export type ClaimStatus = 'pending' | 'approved' | 'paid' | 'paidout' | 'denied';
 
 export type Claim = {
   id?: string;

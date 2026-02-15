@@ -1,7 +1,7 @@
 import { json } from '@sveltejs/kit';
 import { supabaseAdmin } from '$lib/server/supabaseAdmin';
 
-type ClaimStatus = 'pending' | 'approved' | 'paid' | 'denied';
+type ClaimStatus = 'pending' | 'approved' | 'paid' | 'paidout' | 'denied';
 
 export async function POST({ request }) {
   const authHeader = request.headers.get('authorization') ?? '';
@@ -33,7 +33,7 @@ export async function POST({ request }) {
   const rawIds = Array.isArray(body?.claim_ids) ? body.claim_ids : [];
   const claimIds = rawIds.map((v: unknown) => String(v)).filter((v) => v.length > 0);
   const status: ClaimStatus | null =
-    typeof body?.status === 'string' && ['pending', 'approved', 'paid', 'denied'].includes(body.status)
+    typeof body?.status === 'string' && ['pending', 'approved', 'paid', 'paidout', 'denied'].includes(body.status)
       ? body.status
       : null;
 
@@ -47,6 +47,21 @@ export async function POST({ request }) {
     .in('id', claimIds);
   if (updateError) {
     return json({ ok: false, error: updateError.message }, { status: 500 });
+  }
+
+  if (status === 'approved' || status === 'paid') {
+    try {
+      const origin = new URL(request.url).origin;
+      await Promise.all(
+        claimIds.map((id) =>
+          fetch(`${origin}/api/notifications/claim-created`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ claim_id: id })
+          }).catch(() => null)
+        )
+      );
+    } catch {}
   }
 
   return json({ ok: true, updated: claimIds.length, status });

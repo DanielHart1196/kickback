@@ -1365,7 +1365,7 @@
   }
 
   function getClaimStatus(claim: Claim): ClaimStatus {
-    return claim.status ?? 'approved';
+    return claim.status === 'paidout' ? 'paid' : (claim.status ?? 'approved');
   }
 
   function getStatusBadgeClass(status: ClaimStatus): string {
@@ -1383,7 +1383,10 @@
   }
 
   function formatRate(value: number | null | undefined): string {
-    return Number(value ?? 5).toFixed(1).replace('.0', '');
+    if (value == null) return '--';
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return '--';
+    return numeric.toFixed(1).replace('.0', '');
   }
 
   function getWeekStart(date: Date): Date {
@@ -1453,7 +1456,7 @@
   function getCombinedRate(claim: Claim): number {
     const guestRate = Number(claim.kickback_guest_rate ?? 5);
     const referrerRate = Number(claim.kickback_referrer_rate ?? 5);
-    const platformRate = 1;
+    const platformRate = 2;
     return guestRate + referrerRate + platformRate;
   }
 
@@ -1462,8 +1465,13 @@
     return calculateKickbackWithRate(Number(claim.amount || 0), combinedRate);
   }
 
+  function canModifyClaimStatus(claim: Claim): boolean {
+    return getClaimStatus(claim) !== 'paid';
+  }
+
   async function handleClaimStatus(claim: Claim, status: ClaimStatus) {
     if (!claim.id) return;
+    if (!canModifyClaimStatus(claim)) return;
     updatingClaimId = claim.id;
     try {
       await updateClaimStatus(claim.id, status);
@@ -1550,7 +1558,11 @@
     if (selectedClaimIds.size === 0) return;
     bulkApplying = true;
     try {
-      const ids = Array.from(selectedClaimIds);
+      const ids = Array.from(selectedClaimIds).filter((id) => {
+        const claim = claims.find((item) => item.id === id);
+        return claim ? canModifyClaimStatus(claim) : false;
+      });
+      if (ids.length === 0) return;
       for (const id of ids) {
         await updateClaimStatus(id, status);
         claims = claims.map((claim) => (claim.id === id ? { ...claim, status } : claim));
@@ -2154,7 +2166,7 @@
                     type="button"
                     on:click={disconnectSquare}
                     disabled={squareSyncing}
-                    class="bg-orange-500 text-black font-black px-6 py-3 rounded-xl uppercase tracking-tight shadow-xl shadow-orange-500/10 disabled:opacity-50"
+                    class="bg-orange-500 text-black font-black px-6 py-3 rounded-xl uppercase tracking-tight disabled:opacity-50"
                   >
                     {squareSyncing ? 'Disconnecting...' : 'Disconnect Square'}
                   </button>
@@ -2163,7 +2175,7 @@
                     type="button"
                     on:click={connectSquare}
                     disabled={squareConnecting}
-                    class="bg-orange-500 text-black font-black px-6 py-3 rounded-xl uppercase tracking-tight shadow-xl shadow-orange-500/10 disabled:opacity-50"
+                    class="bg-orange-500 text-black font-black px-6 py-3 rounded-xl uppercase tracking-tight disabled:opacity-50"
                   >
                     {squareConnecting ? 'Connecting...' : 'Connect Square'}
                   </button>
@@ -2848,7 +2860,7 @@
                   ${Number(claim.amount).toFixed(2)}
                 </td>
                 <td class="p-4 text-center text-xs font-bold uppercase tracking-widest text-zinc-400 whitespace-nowrap">
-                  {formatRate(claim.kickback_guest_rate)} / {formatRate(claim.kickback_referrer_rate)} / 1
+                  {formatRate(claim.kickback_guest_rate)} / {formatRate(claim.kickback_referrer_rate)} / 2
                 </td>
                 <td class={`p-4 text-center font-mono font-bold ${getClaimStatus(claim) === 'denied' ? 'text-zinc-600' : 'text-zinc-200'}`}>
                   ${getFeeAmount(claim).toFixed(2)}
@@ -2864,35 +2876,39 @@
                 <td class="p-4 text-right">
                   {#if claim.id}
                     <div class="flex justify-end gap-2">
-                      {#if getClaimStatus(claim) !== 'approved'}
-                        <button
-                          type="button"
-                          on:click={() => handleClaimStatus(claim, 'approved')}
-                          disabled={updatingClaimId === claim.id}
-                          class="text-xs font-black uppercase tracking-widest text-green-400 hover:text-green-300 transition-colors disabled:opacity-50"
-                        >
-                          Approve
-                        </button>
-                      {/if}
-                      {#if getClaimStatus(claim) !== 'pending'}
-                        <button
-                          type="button"
-                          on:click={() => handleClaimStatus(claim, 'pending')}
-                          disabled={updatingClaimId === claim.id}
-                          class="text-xs font-black uppercase tracking-widest text-zinc-400 hover:text-white transition-colors disabled:opacity-50"
-                        >
-                          Pending
-                        </button>
-                      {/if}
-                      {#if getClaimStatus(claim) !== 'denied'}
-                        <button
-                          type="button"
-                          on:click={() => handleClaimStatus(claim, 'denied')}
-                          disabled={updatingClaimId === claim.id}
-                          class="text-xs font-black uppercase tracking-widest text-red-400 hover:text-red-300 transition-colors disabled:opacity-50"
-                        >
-                          Deny
-                        </button>
+                      {#if canModifyClaimStatus(claim)}
+                        {#if getClaimStatus(claim) !== 'approved'}
+                          <button
+                            type="button"
+                            on:click={() => handleClaimStatus(claim, 'approved')}
+                            disabled={updatingClaimId === claim.id}
+                            class="text-xs font-black uppercase tracking-widest text-green-400 hover:text-green-300 transition-colors disabled:opacity-50"
+                          >
+                            Approve
+                          </button>
+                        {/if}
+                        {#if getClaimStatus(claim) !== 'pending'}
+                          <button
+                            type="button"
+                            on:click={() => handleClaimStatus(claim, 'pending')}
+                            disabled={updatingClaimId === claim.id}
+                            class="text-xs font-black uppercase tracking-widest text-zinc-400 hover:text-white transition-colors disabled:opacity-50"
+                          >
+                            Pending
+                          </button>
+                        {/if}
+                        {#if getClaimStatus(claim) !== 'denied'}
+                          <button
+                            type="button"
+                            on:click={() => handleClaimStatus(claim, 'denied')}
+                            disabled={updatingClaimId === claim.id}
+                            class="text-xs font-black uppercase tracking-widest text-red-400 hover:text-red-300 transition-colors disabled:opacity-50"
+                          >
+                            Deny
+                          </button>
+                        {/if}
+                      {:else}
+                        <span class="text-[10px] font-black uppercase tracking-widest text-zinc-600">Locked</span>
                       {/if}
                     </div>
                   {/if}

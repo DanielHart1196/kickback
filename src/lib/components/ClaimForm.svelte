@@ -376,8 +376,7 @@
           <span class="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500 font-bold">$</span>
           <input 
             id="amount"
-            type="number" 
-            step="0.01"
+            type="text"
             bind:value={amountInput}
             bind:this={amountField}
             on:focus={() => (keyboardPad = true)}

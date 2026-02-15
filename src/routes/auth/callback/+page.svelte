@@ -38,18 +38,24 @@
 
     if (session) {
       const redirectTo = $page.url.searchParams.get('redirect_to') || '/';
+      const { data: existingProfile } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', session.user.id)
+        .maybeSingle();
+      const currentRole = existingProfile?.role ?? 'member';
+      const isPrivilegedRole = currentRole === 'admin' || currentRole === 'owner';
       const isAbsolute = /^https?:\/\//.test(redirectTo);
       if (isAbsolute) {
         try {
           const target = new URL(redirectTo);
+          const isSameOrigin = target.origin === window.location.origin;
+          if (isPrivilegedRole && isSameOrigin && (target.pathname === '/' || target.pathname === '')) {
+            window.location.replace('/admin');
+            return;
+          }
           const isAdmin = target.pathname.includes('/admin');
           if (isAdmin) {
-            const { data: profile } = await supabase
-              .from('profiles')
-              .select('role')
-              .eq('id', session.user.id)
-              .maybeSingle();
-            const currentRole = profile?.role ?? 'member';
             if (currentRole !== 'admin' && currentRole !== 'owner') {
               await supabase.from('profiles').upsert({
                 id: session.user.id,
@@ -79,12 +85,6 @@
       }
       const isAdmin = redirectTo.includes('/admin');
       if (isAdmin) {
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('role')
-          .eq('id', session.user.id)
-          .maybeSingle();
-        const currentRole = profile?.role ?? 'member';
         if (currentRole !== 'admin' && currentRole !== 'owner') {
           await supabase.from('profiles').upsert({
             id: session.user.id,
@@ -94,13 +94,17 @@
         }
         await goto('/admin');
       } else {
+        if (isPrivilegedRole && (redirectTo === '/' || redirectTo === '')) {
+          await goto('/admin');
+          return;
+        }
         // Create/update profile for regular users
         const userEmail = session.user.email || $page.url.searchParams.get('email');
         if (userEmail) {
           await supabase.from('profiles').upsert({
             id: session.user.id,
             email: userEmail,
-            role: 'member',
+            role: isPrivilegedRole ? currentRole : 'member',
             updated_at: new Date().toISOString()
           });
         }
