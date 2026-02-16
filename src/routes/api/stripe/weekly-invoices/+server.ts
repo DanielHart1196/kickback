@@ -272,10 +272,7 @@ export async function POST({ request }) {
         await supabaseAdmin.from('venues').update({ stripe_customer_id: stripeCustomerId }).eq('id', venue.id);
       }
 
-      const referrerFee = total * 0.05;
-      const guestFee = total * 0.05;
-      const platformFee = total * 0.02;
-      const subtotal = referrerFee + guestFee + platformFee;
+      const subtotal = Number((total * 0.12).toFixed(2));
       const totalWithGst = subtotal;
       const memo = `Kickback invoice ($${formatMoney(total)} total referred revenue from ${weekStart} to ${weekEnd})`;
 
@@ -285,6 +282,7 @@ export async function POST({ request }) {
         days_until_due: 7,
         auto_advance: false,
         description: memo,
+        custom_fields: [{ name: 'ABN', value: '55 657 240 315' }],
         metadata: {
           venue_id: venue.id,
           week_start: weekStart,
@@ -296,34 +294,8 @@ export async function POST({ request }) {
         customer: stripeCustomerId,
         invoice: invoice.id,
         currency: 'aud',
-        amount: Math.round(referrerFee * 100),
-        description: 'Kickback Marketing & Referral Services - Referrer commission (5%)',
-        metadata: {
-          venue_id: venue.id,
-          week_start: weekStart,
-          week_end: weekEnd
-        }
-      });
-
-      await stripeRequest('invoiceitems', {
-        customer: stripeCustomerId,
-        invoice: invoice.id,
-        currency: 'aud',
-        amount: Math.round(guestFee * 100),
-        description: 'Kickback Marketing & Referral Services - New customer cashback (5%)',
-        metadata: {
-          venue_id: venue.id,
-          week_start: weekStart,
-          week_end: weekEnd
-        }
-      });
-
-      await stripeRequest('invoiceitems', {
-        customer: stripeCustomerId,
-        invoice: invoice.id,
-        currency: 'aud',
-        amount: Math.round(platformFee * 100),
-        description: 'Kickback Marketing & Referral Services - Platform fee (2%)',
+        amount: Math.round(totalWithGst * 100),
+        description: 'Kickback Marketing & Referral Services',
         metadata: {
           venue_id: venue.id,
           week_start: weekStart,

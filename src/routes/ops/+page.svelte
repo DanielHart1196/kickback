@@ -814,23 +814,26 @@
     }
   }
 
+  function getSelectedClaimIdsForVenue(venueId?: string): string[] {
+    return Array.from(
+      new Set(
+        claims
+          .filter((c) => c.id && selectedClaimIds.has(c.id) && (!venueId || String(c.venue_id ?? '') === venueId))
+          .map((c) => c.id as string)
+      )
+    );
+  }
+
   async function previewBulkInvoices() {
-    if (selectedClaimIds.size === 0) return;
     invoiceBulkStatus = 'running';
     invoiceBulkError = '';
     invoiceBulkResults = null;
     invoiceBulkRaw = '';
     try {
-      const claimIds = Array.from(
-        new Set(
-          claims
-            .filter((c) => c.id && selectedClaimIds.has(c.id))
-            .map((c) => c.id as string)
-        )
-      );
+      const claimIds = getSelectedClaimIdsForVenue();
       if (claimIds.length === 0) {
         invoiceBulkStatus = 'error';
-        invoiceBulkError = 'No claims found for selection';
+        invoiceBulkError = 'Select claims to preview invoices';
         return;
       }
       const weekRange = getSelectedWeekRange();
@@ -861,21 +864,14 @@
     }
   }
 
-  async function createBulkInvoices(sendNow: boolean) {
-    if (selectedClaimIds.size === 0) return;
+  async function createBulkInvoices(sendNow: boolean, venueId?: string) {
     invoiceBulkStatus = 'running';
     invoiceBulkError = '';
     try {
-      const claimIds = Array.from(
-        new Set(
-          claims
-            .filter((c) => c.id && selectedClaimIds.has(c.id))
-            .map((c) => c.id as string)
-        )
-      );
+      const claimIds = getSelectedClaimIdsForVenue(venueId);
       if (claimIds.length === 0) {
         invoiceBulkStatus = 'error';
-        invoiceBulkError = 'No claims found for selection';
+        invoiceBulkError = venueId ? 'No selected claims for this venue' : 'No claims found for selection';
         return;
       }
       const weekRange = getSelectedWeekRange();
@@ -900,7 +896,19 @@
         return;
       }
 
-      invoiceBulkResults = payload?.results ?? [];
+      const nextResults = payload?.results ?? [];
+      if (venueId && invoiceBulkResults) {
+        const venueResult = nextResults.find((r: any) => String(r?.venue_id ?? '') === venueId);
+        if (venueResult) {
+          invoiceBulkResults = invoiceBulkResults.map((r) =>
+            String(r.venue_id ?? '') === venueId ? { ...r, ...venueResult } : r
+          );
+        }
+      } else if (venueId) {
+        invoiceBulkResults = nextResults;
+      } else {
+        invoiceBulkResults = nextResults;
+      }
       invoiceBulkStatus = 'success';
       invoiceBulkError = '';
     } catch (error) {
@@ -1411,17 +1419,6 @@
                         >
                           {squareAutoStatus === 'running' ? 'Checking...' : 'Auto-check Square'}
                         </button>
-                        {#if getSelectedWeekRange()}
-                          <button
-                            type="button"
-                            class="px-3 py-1 rounded-lg bg-blue-500 text-black text-xs font-black uppercase tracking-widest disabled:opacity-50"
-                            on:click={previewBulkInvoices}
-                            disabled={invoiceBulkStatus === 'running'}
-                            title="Preview invoices for selected week"
-                          >
-                            {invoiceBulkStatus === 'running' ? 'Generating...' : 'Preview Invoices'}
-                          </button>
-                        {/if}
                         <button
                           type="button"
                           class="px-3 py-1 rounded-lg border border-zinc-800 text-white text-xs font-black uppercase tracking-widest disabled:opacity-50 hover:bg-red-500/10 hover:text-red-400 transition-colors"
@@ -1430,6 +1427,17 @@
                           title="Delete selected claims (paid claims are not deletable)"
                         >
                           Delete
+                        </button>
+                      {/if}
+                      {#if selectedClaimIds.size > 0}
+                        <button
+                          type="button"
+                          class="px-3 py-1 rounded-lg bg-blue-500 text-black text-xs font-black uppercase tracking-widest disabled:opacity-50"
+                          on:click={previewBulkInvoices}
+                          disabled={invoiceBulkStatus === 'running'}
+                          title="Preview invoices for selected week"
+                        >
+                          {invoiceBulkStatus === 'running' ? 'Generating...' : 'Preview Invoices'}
                         </button>
                       {/if}
                     </div>
@@ -1589,26 +1597,8 @@
         {#if invoiceBulkResults}
           <section class="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-5">
             <p class="text-xs font-black uppercase tracking-widest text-zinc-500">Invoice Preview</p>
-            <div class="mt-3 flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                class="px-3 py-1 rounded-lg bg-blue-600 text-black text-xs font-black uppercase tracking-widest disabled:opacity-50"
-                on:click={() => createBulkInvoices(false)}
-                disabled={invoiceBulkStatus === 'running'}
-              >
-                {invoiceBulkStatus === 'running' ? 'Working...' : 'Create Invoices'}
-              </button>
-              <button
-                type="button"
-                class="px-3 py-1 rounded-lg bg-green-500 text-black text-xs font-black uppercase tracking-widest disabled:opacity-50"
-                on:click={() => createBulkInvoices(true)}
-                disabled={invoiceBulkStatus === 'running'}
-              >
-                {invoiceBulkStatus === 'running' ? 'Working...' : 'Create + Send'}
-              </button>
-            </div>
             <p class="mt-2 text-[10px] text-zinc-500 normal-case tracking-normal">
-              Preview does not create invoices. Use Create Invoices, then Send on each row if needed.
+              Preview does not create invoices. Use Create invoice on each venue row, then Send if needed.
             </p>
             <div class="mt-3 space-y-1 text-[10px] text-zinc-300 normal-case tracking-normal">
               {#each invoiceBulkResults as result}
@@ -1620,14 +1610,16 @@
                     {#if result.ok}{`$${(result.amount_due ?? 0).toFixed(2)}`}{:else}{result.error ?? 'skipped'}{/if}
                   </span>
                 </div>
-                {#if result.ok && result.line_items && result.line_items.length > 0}
-                  <div class="ml-3 text-[10px] text-zinc-500">
-                    {#each result.line_items as line}
-                      <div class="flex items-center justify-between gap-2">
-                        <span class="truncate">{line.description ?? 'Line item'}</span>
-                        <span>${line.amount.toFixed(2)}</span>
-                      </div>
-                    {/each}
+                {#if result.ok && !result.invoice_id}
+                  <div class="ml-3 mt-2">
+                    <button
+                      type="button"
+                      class="text-[10px] font-black uppercase tracking-widest text-blue-300 underline underline-offset-2 hover:text-blue-200 disabled:opacity-50"
+                      on:click={() => createBulkInvoices(false, result.venue_id)}
+                      disabled={invoiceBulkStatus === 'running'}
+                    >
+                      {invoiceBulkStatus === 'running' ? 'Working...' : 'Create invoice'}
+                    </button>
                   </div>
                 {/if}
                 {#if result.ok && !result.sent && result.invoice_id}

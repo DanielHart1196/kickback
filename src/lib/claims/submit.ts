@@ -27,6 +27,14 @@ type ClaimInsertInput = {
   submitterReferralCode: string | null;
 };
 
+export const MAX_MANUAL_CLAIM_AGE_MS = 24 * 60 * 60 * 1000;
+
+export function isPurchaseTimeOlderThanMaxAge(purchaseTime: string, now: number = Date.now()): boolean {
+  const purchaseDate = new Date(purchaseTime);
+  if (Number.isNaN(purchaseDate.getTime())) return false;
+  return now - purchaseDate.getTime() > MAX_MANUAL_CLAIM_AGE_MS;
+}
+
 export function validateClaimInput(input: ClaimSubmitInput): string | null {
   if (!input.amount || input.amount <= 0) return 'Please enter a valid amount';
   if (input.last4.length !== 4) return 'Please enter 4 digits';
@@ -41,6 +49,9 @@ export function validateClaimInput(input: ClaimSubmitInput): string | null {
   if (Number.isNaN(purchaseDate.getTime())) return 'Please enter a valid purchase time';
   const now = input.now ?? Date.now();
   if (purchaseDate.getTime() > now + 60000) return 'Purchase time cannot be in the future';
+  if (isPurchaseTimeOlderThanMaxAge(input.purchaseTime, now)) {
+    return 'Manual claims can only be submitted within 24 hours of purchase';
+  }
   return null;
 }
 

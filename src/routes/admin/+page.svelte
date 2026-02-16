@@ -104,9 +104,6 @@
       venueInvoices = (payload?.invoices ?? []).filter(
         (inv: any) => inv?.stripe_invoice_url && (inv?.status ?? '').toLowerCase() !== 'paid'
       );
-      if (venueInvoices.length > 0) {
-        showPaymentMethods = true;
-      }
     } catch {
       venueInvoices = [];
     }

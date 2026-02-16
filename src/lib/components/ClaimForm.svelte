@@ -20,6 +20,7 @@
   export let kickback = '0.00';
   export let purchaseTime = '';
   export let maxPurchaseTime = '';
+  export let purchaseTimeTooOld = false;
   export let last4 = '';
   export let venue = '';
   export let venues: Venue[] = [];
@@ -435,6 +436,11 @@
               </button>
             {/if}
           </div>
+          {#if purchaseTimeTooOld}
+            <p class="mt-2 text-[11px] font-bold uppercase tracking-widest text-orange-500/70">
+              Manual claims must be submitted within 24 hours
+            </p>
+          {/if}
         </div>
 
         <div>
@@ -465,7 +471,7 @@
               class="fixed w-72 rounded-2xl border border-zinc-800 bg-zinc-950 p-3 text-[11px] text-zinc-300 shadow-xl shadow-black/30 z-[300] opacity-100"
               style={last4TooltipStyle}
             >
-              <p class="font-semibold">Why we need this</p>
+              <p class="font-semibold uppercase">WHY WE NEED THIS</p>
               <p class="mt-1 text-zinc-400">We use the last 4 digits to match your purchase with the venue. We never see the full card number and never charge your card.</p>
               <p class="mt-2 text-zinc-500">Apple Pay and Google Pay can show a different card number than the one on your physical card. Please enter the last 4 shown in your wallet app.</p>
             </div>
@@ -544,7 +550,14 @@
               SIGN UP & CLAIM ${kickback}
             </button>
 
-            <button on:mousedown={onConfirmGuest} on:click={onConfirmGuest} type="button" class="w-full py-3 text-zinc-500 font-bold text-sm uppercase tracking-[0.2em]">
+            <button
+              on:mousedown={() => { if (status !== 'loading' && canSubmit) onConfirmGuest(); }}
+              on:click={() => { if (status !== 'loading' && canSubmit) onConfirmGuest(); }}
+              type="button"
+              disabled={status === 'loading' || !canSubmit}
+              class="w-full py-3 text-zinc-500 font-bold text-sm uppercase tracking-[0.2em] disabled:opacity-50"
+              class:cursor-not-allowed={!canSubmit || status === 'loading'}
+            >
               Submit as Guest
             </button>
           {/if}

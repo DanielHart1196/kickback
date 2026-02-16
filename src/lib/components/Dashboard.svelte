@@ -73,7 +73,13 @@
   let notifyApprovedClaims = false;
   let notifyPayoutConfirmation = false;
   let isPwaInstalled = false;
+  let isMobileScreen = false;
   let authProviderLabel = '';
+  let canEditAuthEmail = false;
+  let emailEditMode = false;
+  let emailDraft = '';
+  let emailChangeStatus: 'idle' | 'saving' | 'success' | 'error' = 'idle';
+  let emailChangeMessage = '';
   let payoutStripeOnboarded = false;
   const notifyEssential = true;
   const REFER_BUTTON_GAP_PX = 32;
@@ -113,17 +119,19 @@
       if (filterButtonEl?.contains(target)) return;
       showFilterMenu = false;
     };
+    const updateInstallAvailability = () => {
+      if (typeof window === 'undefined') return;
+      isMobileScreen = window.matchMedia ? window.matchMedia('(max-width: 767px)').matches : false;
+      isPwaInstalled =
+        (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
+        ((window.navigator as any)?.standalone === true);
+    };
     document.addEventListener('click', handleOutsideClick);
     if (typeof window !== 'undefined') {
       try {
-        isPwaInstalled =
-          (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
-          ((window.navigator as any)?.standalone === true);
-        window.addEventListener('appinstalled', () => {
-          isPwaInstalled =
-            (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
-            ((window.navigator as any)?.standalone === true);
-        });
+        updateInstallAvailability();
+        window.addEventListener('appinstalled', updateInstallAvailability);
+        window.addEventListener('resize', updateInstallAvailability);
       } catch {}
       const hash = window.location.hash || '';
       /*
@@ -151,6 +159,7 @@
           (session?.user as any)?.app_metadata?.provider ??
           ((session?.user as any)?.identities?.[0]?.provider ?? '');
         provider = String(provider || '').toLowerCase();
+        canEditAuthEmail = provider === 'email';
         if (provider === 'email') {
           authProviderLabel = 'Signed up with Magic Link';
         } else if (provider) {
@@ -165,6 +174,10 @@
     }
     return () => {
       document.removeEventListener('click', handleOutsideClick);
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('appinstalled', updateInstallAvailability);
+        window.removeEventListener('resize', updateInstallAvailability);
+      }
     };
   });
 
@@ -292,6 +305,52 @@
       }
     } catch (err) {
       console.error('Failed to save notification preferences:', err);
+    }
+  }
+
+  function beginEmailEdit() {
+    emailDraft = String(userEmail || '').trim();
+    emailChangeStatus = 'idle';
+    emailChangeMessage = '';
+    emailEditMode = true;
+  }
+
+  function cancelEmailEdit() {
+    emailEditMode = false;
+    emailChangeStatus = 'idle';
+    emailChangeMessage = '';
+  }
+
+  async function saveEmailChange() {
+    const nextEmail = String(emailDraft || '').trim().toLowerCase();
+    const currentEmail = String(userEmail || '').trim().toLowerCase();
+    if (!nextEmail) {
+      emailChangeStatus = 'error';
+      emailChangeMessage = 'Enter an email address.';
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(nextEmail)) {
+      emailChangeStatus = 'error';
+      emailChangeMessage = 'Enter a valid email address.';
+      return;
+    }
+    if (nextEmail === currentEmail) {
+      emailChangeStatus = 'error';
+      emailChangeMessage = 'Use a different email address.';
+      return;
+    }
+
+    emailChangeStatus = 'saving';
+    emailChangeMessage = '';
+    try {
+      const { error } = await supabase.auth.updateUser({ email: nextEmail });
+      if (error) throw error;
+      emailChangeStatus = 'success';
+      emailChangeMessage = 'Check your inbox to confirm your new email.';
+      emailEditMode = false;
+    } catch (error) {
+      emailChangeStatus = 'error';
+      emailChangeMessage = error instanceof Error ? error.message : 'Failed to update email.';
     }
   }
 
@@ -709,7 +768,7 @@
       </span>
     </p>
     <div class="flex items-center justify-center gap-3">
-      <h2 class="text-6xl font-black text-green-500">${totalPending.toFixed(2)}</h2>
+      <h2 class="text-6xl font-black tracking-normal text-green-500">${totalPending.toFixed(2)}</h2>
     </div>
   </div>
 
@@ -1088,17 +1147,71 @@
       </div>
       <div class="mt-6 space-y-4 text-sm text-zinc-300 overflow-y-auto flex-1 custom-scrollbar">
         <div class="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
-          <p class="text-[10px] font-black uppercase tracking-[0.25em] text-zinc-500">Account</p>
-          <p class="mt-3 text-white truncate">{userEmail || 'Signed in'}</p>
+          <p class="text-[11px] font-black uppercase tracking-[0.2em] text-zinc-500">Account</p>
+          {#if canEditAuthEmail && emailEditMode}
+            <div class="mt-3">
+              <input
+                type="email"
+                bind:value={emailDraft}
+                placeholder="new@email.com"
+                class="w-full rounded-xl border border-zinc-800 bg-black/40 px-3 py-2 text-sm text-white placeholder-zinc-600 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500 transition-all"
+              />
+            </div>
+          {:else}
+            <div class="mt-3 flex items-center justify-between gap-2">
+              <p class="text-white truncate">{userEmail || 'Signed in'}</p>
+              {#if canEditAuthEmail}
+                <button
+                  type="button"
+                  on:click={beginEmailEdit}
+                  class="inline-flex h-7 w-7 items-center justify-center rounded-full border border-zinc-700 text-zinc-400 hover:text-white hover:border-zinc-500 transition-colors"
+                  aria-label="Edit email"
+                  title="Edit email"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 20h9" />
+                    <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                  </svg>
+                </button>
+              {/if}
+            </div>
+          {/if}
           <p class="mt-2 text-[10px] font-bold uppercase tracking-widest text-zinc-500">
             {authProviderLabel || 'Signed in'}
           </p>
+          {#if canEditAuthEmail}
+            {#if emailEditMode}
+              <div class="mt-3 flex items-center gap-2">
+                <button
+                  type="button"
+                  on:click={saveEmailChange}
+                  disabled={emailChangeStatus === 'saving'}
+                  class="rounded-lg bg-white px-3 py-1 text-[10px] font-black uppercase tracking-widest text-black hover:bg-zinc-200 transition-colors disabled:opacity-50"
+                >
+                  {emailChangeStatus === 'saving' ? 'Saving...' : 'Save'}
+                </button>
+                <button
+                  type="button"
+                  on:click={cancelEmailEdit}
+                  disabled={emailChangeStatus === 'saving'}
+                  class="rounded-lg border border-zinc-700 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-zinc-300 hover:text-white hover:border-zinc-500 transition-colors disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+              </div>
+            {/if}
+            {#if emailChangeMessage}
+              <p class={`mt-2 text-[10px] font-bold uppercase tracking-widest ${emailChangeStatus === 'error' ? 'text-red-400' : 'text-zinc-500'}`}>
+                {emailChangeMessage}
+              </p>
+            {/if}
+          {/if}
         </div>
         <div class="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
-          <p class="text-[10px] font-black uppercase tracking-[0.25em] text-zinc-500">PAYOUTS (EVERY WEDNESDAY)</p>
+          <p class="text-[11px] font-black uppercase tracking-[0.2em] text-zinc-500">Payouts</p>
           <div class="mt-4 space-y-4">
             <div>
-              <label for="payout-full-name" class="mb-1 block text-[10px] font-bold uppercase text-zinc-500">
+              <label for="payout-full-name" class="mb-1 block text-[11px] font-black uppercase tracking-[0.2em] text-white">
                 Full Name
               </label>
               <input
@@ -1110,7 +1223,7 @@
               />
             </div>
             <div>
-              <label for="payout-payid" class="mb-1 block text-[10px] font-bold uppercase text-zinc-500">
+              <label for="payout-payid" class="mb-1 block text-[11px] font-black uppercase tracking-[0.2em] text-white">
                 PayID
               </label>
               <input
@@ -1170,21 +1283,32 @@
           </div>
         </div>
         <div class="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
-          <p class="text-[10px] font-black uppercase tracking-[0.25em] text-zinc-500">Notifications (Email)</p>
+          <p class="text-[11px] font-black uppercase tracking-[0.2em] text-zinc-500">Notifications</p>
           <div class="mt-4 space-y-4">
-            <div class="flex items-center justify-between">
-              <div class="flex-1 pr-4">
-                <p class="text-[10px] font-black uppercase tracking-widest text-white">Approved claims</p>
+            <div>
+              <div class="flex items-center justify-between">
+                <div class="flex-1 pr-4">
+                  <p class="text-[11px] font-black uppercase tracking-[0.2em] text-white">Approved claims</p>
+                </div>
+                <button
+                  type="button"
+                  on:click={onRequestInstall}
+                  disabled={!isMobileScreen || isPwaInstalled}
+                  class="rounded-lg bg-zinc-200 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-black hover:bg-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isPwaInstalled ? 'Installed' : 'Install'}
+                </button>
               </div>
-              <label class="relative inline-flex cursor-pointer items-center">
-                <input type="checkbox" bind:checked={notifyApprovedClaims} on:change={saveNotificationPreferences} class="peer sr-only" />
-                <div class="h-5 w-9 rounded-full bg-zinc-800 transition-colors peer-checked:bg-orange-500 after:absolute after:left-[2px] after:top-[2px] after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-all peer-checked:after:translate-x-full"></div>
-              </label>
+              <p class="mt-0.5 text-[10px] font-black uppercase tracking-widest text-zinc-500">
+                Install the Kickback app to receive instant payout notifications
+              </p>
             </div>
+
+            <p class="text-[11px] font-black uppercase tracking-[0.2em] text-zinc-500">Email</p>
 
             <div class="flex items-center justify-between">
               <div class="flex-1 pr-4">
-                <p class="text-[10px] font-black uppercase tracking-widest text-white">Payout confirmation</p>
+                <p class="text-[11px] font-black uppercase tracking-[0.2em] text-white">Payout confirmation</p>
               </div>
               <label class="relative inline-flex cursor-pointer items-center">
                 <input type="checkbox" bind:checked={notifyPayoutConfirmation} on:change={saveNotificationPreferences} class="peer sr-only" />
@@ -1194,7 +1318,7 @@
 
             <div class="flex items-center justify-between opacity-50">
               <div class="flex-1 pr-4">
-                <p class="text-[10px] font-black uppercase tracking-widest text-white">Essential account & compliance</p>
+                <p class="text-[11px] font-black uppercase tracking-[0.2em] text-white">Essential account & compliance</p>
               </div>
               <label class="relative inline-flex cursor-not-allowed items-center">
                 <input type="checkbox" checked={notifyEssential} disabled class="peer sr-only" />
@@ -1204,11 +1328,11 @@
           </div>
         </div>
         <div class="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
-          <p class="text-[10px] font-black uppercase tracking-[0.25em] text-zinc-500">Actions</p>
+          <p class="text-[11px] font-black uppercase tracking-[0.2em] text-zinc-500">Actions</p>
           <button
             type="button"
             on:click={onLogout}
-            class="mt-3 w-full rounded-xl border border-zinc-700 px-4 py-3 text-xs font-black uppercase tracking-[0.2em] text-zinc-200 hover:border-zinc-500 transition-colors"
+            class="mt-3 w-full rounded-xl border border-zinc-700 px-4 py-3 text-[11px] font-black uppercase tracking-[0.2em] text-zinc-200 hover:border-zinc-500 transition-colors"
           >
             Log out
           </button>

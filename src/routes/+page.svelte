@@ -35,7 +35,11 @@
     isReferralCodeValid,
     normalizeReferralCode
   } from '$lib/referrals/code';
-  import { buildClaimInsert, validateClaimInput } from '$lib/claims/submit';
+  import {
+    buildClaimInsert,
+    isPurchaseTimeOlderThanMaxAge,
+    validateClaimInput
+  } from '$lib/claims/submit';
   import Dashboard from '$lib/components/Dashboard.svelte';
   import ClaimForm from '$lib/components/ClaimForm.svelte';
   import Landing from '$lib/components/Landing.svelte';
@@ -94,6 +98,7 @@
   let claimantCodes: Record<string, string> = {};
   let deferredInstallPrompt: any = null;
   let showInstallBanner = false;
+  let showIosInstallModal = false;
   const installPromptKey = 'kickback:install_prompt_shown';
   let installedHandlerAdded = false;
   let autoClaimBanner: { venue: string; daysLeft: number } | null = null;
@@ -103,6 +108,7 @@
 
   let amount: number | null = null;
   let amountInput = '';
+  let purchaseTimeTooOld = false;
 
   let showGuestWarning = false;
   let showAutoClaimWarning = false;
@@ -233,8 +239,11 @@
     !isSelfReferral &&
     referrerLookupStatus === 'valid' &&
     last4.length === 4 &&
-    purchaseTime.trim().length > 0
+    purchaseTime.trim().length > 0 &&
+    !purchaseTimeTooOld
   );
+  $: purchaseTimeTooOld =
+    purchaseTime.trim().length > 0 && isPurchaseTimeOlderThanMaxAge(purchaseTime);
   $: if (session && venue.trim()) {
     const lockedReferrer = getVenueLockedReferrer(venue);
     if (lockedReferrer) {
@@ -375,9 +384,17 @@
 
   async function ensureProfileRow(userId: string) {
     try {
+      const { data: existing, error: readError } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('id', userId)
+        .maybeSingle();
+      if (readError) throw readError;
+      if (existing?.id) return;
+
       const { error } = await supabase
         .from('profiles')
-        .upsert({ id: userId, updated_at: new Date().toISOString() });
+        .insert({ id: userId, notify_payout_confirmation: true, updated_at: new Date().toISOString() });
       if (error) throw error;
     } catch (error) {
       console.error('Error ensuring profile row:', error);
@@ -458,6 +475,27 @@
     return typeof window !== 'undefined' && Boolean(deferredInstallPrompt) && !localStorage.getItem(installPromptKey);
   }
 
+  function isStandaloneInstalled(): boolean {
+    if (typeof window === 'undefined') return false;
+    return (
+      (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
+      ((window.navigator as any)?.standalone === true)
+    );
+  }
+
+  function isMobileViewport(): boolean {
+    if (typeof window === 'undefined') return false;
+    return window.matchMedia ? window.matchMedia('(max-width: 767px)').matches : false;
+  }
+
+  function isIosDevice(): boolean {
+    if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
+    const ua = navigator.userAgent || '';
+    const isAppleMobile = /iPhone|iPad|iPod/i.test(ua);
+    const isIpadDesktopUA = /Macintosh/i.test(ua) && 'ontouchend' in document;
+    return isAppleMobile || isIpadDesktopUA;
+  }
+
   function markInstallPrompted() {
     if (typeof window === 'undefined') return;
     localStorage.setItem(installPromptKey, '1');
@@ -511,9 +549,17 @@
   }
 
   function triggerInstallBanner() {
+    if (!isMobileViewport() || isStandaloneInstalled()) return;
     if (canPromptInstall()) {
       showInstallBanner = true;
+      showIosInstallModal = false;
+    } else if (isIosDevice()) {
+      showIosInstallModal = true;
     }
+  }
+
+  function dismissIosInstallModal() {
+    showIosInstallModal = false;
   }
 
   async function hydrateClaimantCodes(claimList: Claim[]) {
@@ -675,6 +721,7 @@
           id: userId,
           email: session.user.email,
           role: 'member',
+          notify_payout_confirmation: true,
           updated_at: new Date().toISOString()
         };
         console.log('Creating profile:', profilePayload);
@@ -1278,7 +1325,9 @@
 </script>
 
 <main class="min-h-screen bg-black text-white">
-  {#if session === undefined || (!session && showLanding)}
+  {#if session === undefined}
+    <div class="w-full min-h-screen" aria-hidden="true"></div>
+  {:else if !session && showLanding}
     <div class="w-full">
       <Landing />
     </div>
@@ -1320,6 +1369,7 @@
         bind:purchaseTime
         bind:last4
         {maxPurchaseTime}
+        {purchaseTimeTooOld}
         {isVenueLocked}
         {isReferrerLocked}
         autoClaimsActive={autoClaimsActive}
@@ -1372,6 +1422,33 @@
       userId={userId}
       onClose={() => (showPayoutSetup = false)}
     />
+  {/if}
+
+  {#if showIosInstallModal}
+    <div class="fixed inset-0 z-[320] flex items-center justify-center px-6">
+      <button
+        type="button"
+        class="absolute inset-0 bg-black/80 backdrop-blur-sm"
+        on:click={dismissIosInstallModal}
+        aria-label="Close install instructions"
+      ></button>
+      <div class="relative w-full max-w-sm rounded-3xl border border-zinc-800 bg-zinc-950 p-6">
+        <p class="text-[10px] font-black uppercase tracking-[0.25em] text-zinc-500">Install Kickback</p>
+        <p class="mt-3 text-sm font-bold text-white">On iPhone, install from Safari:</p>
+        <ol class="mt-3 space-y-2 text-sm text-zinc-300">
+          <li>1. Tap the Share button in Safari.</li>
+          <li>2. Scroll and tap Add to Home Screen.</li>
+          <li>3. Tap Add.</li>
+        </ol>
+        <button
+          type="button"
+          on:click={dismissIosInstallModal}
+          class="mt-5 w-full rounded-xl bg-white px-4 py-3 text-xs font-black uppercase tracking-[0.2em] text-black hover:bg-zinc-200 transition-colors"
+        >
+          Close
+        </button>
+      </div>
+    </div>
   {/if}
 
   {#if autoClaimBanner}

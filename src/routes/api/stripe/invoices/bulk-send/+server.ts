@@ -10,6 +10,12 @@ function getStripeKey(): string | null {
 
 function appendStripeParams(params: URLSearchParams, prefix: string, value: unknown) {
   if (value === undefined || value === null || value === '') return;
+  if (Array.isArray(value)) {
+    value.forEach((inner, index) => {
+      appendStripeParams(params, `${prefix}[${index}]`, inner);
+    });
+    return;
+  }
   if (typeof value === 'object' && !Array.isArray(value)) {
     Object.entries(value as Record<string, unknown>).forEach(([key, inner]) => {
       appendStripeParams(params, `${prefix}[${key}]`, inner);
@@ -119,14 +125,9 @@ export async function POST({ request }) {
         continue;
       }
 
-      const referrerFee = total * 0.05;
-      const guestFee = total * 0.05;
-      const platformFee = total * 0.02;
-      const subtotal = referrerFee + guestFee + platformFee;
+      const subtotal = Number((total * 0.12).toFixed(2));
       const totalWithGst = subtotal;
-      const referrerCents = Math.round(referrerFee * 100);
-      const guestCents = Math.round(guestFee * 100);
-      const platformCents = Math.round(platformFee * 100);
+      const totalCents = Math.round(totalWithGst * 100);
 
       const range = ranges.get(venue.id);
       const startLabel =
@@ -141,30 +142,15 @@ export async function POST({ request }) {
           days_until_due: 7,
           auto_advance: false,
           description: `Kickback invoice (${startLabel} to ${endLabel})`,
+          custom_fields: [{ name: 'ABN', value: '55 657 240 315' }],
           metadata: { venue_id: venue.id, week_start: startLabel, week_end: endLabel }
         });
         await stripePost('invoiceitems', {
           customer: stripeCustomerId,
           invoice: invoice.id,
           currency: 'aud',
-          amount: referrerCents,
-          description: 'Referrer commission (5%)',
-          metadata: { venue_id: venue.id }
-        });
-        await stripePost('invoiceitems', {
-          customer: stripeCustomerId,
-          invoice: invoice.id,
-          currency: 'aud',
-          amount: guestCents,
-          description: 'New customer cashback (5%)',
-          metadata: { venue_id: venue.id }
-        });
-        await stripePost('invoiceitems', {
-          customer: stripeCustomerId,
-          invoice: invoice.id,
-          currency: 'aud',
-          amount: platformCents,
-          description: 'Kickback platform fee (2%)',
+          amount: totalCents,
+          description: 'Kickback Marketing & Referral Services',
           metadata: { venue_id: venue.id }
         });
 

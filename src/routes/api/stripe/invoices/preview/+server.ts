@@ -76,10 +76,7 @@ export async function POST({ request }) {
         continue;
       }
 
-      const referrerFee = total * 0.05;
-      const guestFee = total * 0.05;
-      const platformFee = total * 0.02;
-      const subtotal = referrerFee + guestFee + platformFee;
+      const subtotal = Number((total * 0.12).toFixed(2));
       const totalWithGst = subtotal;
 
       const range = ranges.get(venue.id);
@@ -91,11 +88,7 @@ export async function POST({ request }) {
       week_end = week_end ?? endLabel;
 
       const memo = `Kickback invoice ($${Number(total || 0).toFixed(2)} total referred revenue from ${startLabel} to ${endLabel})`;
-      const line_items = [
-        { amount: Number(referrerFee.toFixed(2)), description: 'Kickback Marketing & Referral Services - Referrer commission (5%)' },
-        { amount: Number(guestFee.toFixed(2)), description: 'Kickback Marketing & Referral Services - New customer cashback (5%)' },
-        { amount: Number(platformFee.toFixed(2)), description: 'Kickback Marketing & Referral Services - Platform fee (2%)' }
-      ];
+      const line_items = [{ amount: totalWithGst, description: 'Kickback Marketing & Referral Services' }];
 
       results.push({
         venue_id: venue.id,

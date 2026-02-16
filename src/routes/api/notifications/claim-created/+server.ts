@@ -1,53 +1,5 @@
 import { json } from '@sveltejs/kit';
-import { env } from '$env/dynamic/private';
 import { supabaseAdmin } from '$lib/server/supabaseAdmin';
-import nodemailer from 'nodemailer';
-
-function getSmtpConfig() {
-  const host = env.PRIVATE_SMTP_HOST || 'smtp.resend.com';
-  const port = Number(env.PRIVATE_SMTP_PORT || '465');
-  const user = env.PRIVATE_SMTP_USER || 'resend';
-  const pass = env.PRIVATE_SMTP_PASS ?? '';
-  const from = env.PRIVATE_SMTP_FROM || 'Kickback <notifications@kkbk.app>';
-  const secure = env.PRIVATE_SMTP_SECURE ? String(env.PRIVATE_SMTP_SECURE).toLowerCase() === 'true' : true;
-
-  if (!pass) {
-    console.warn('SMTP configuration: Missing PRIVATE_SMTP_PASS (API Key)');
-    return null;
-  }
-  return { host, port, user, pass, from, secure };
-}
-
-async function sendEmailNotification(to: string, subject: string, text: string, html?: string) {
-  const smtp = getSmtpConfig();
-  if (!smtp) {
-    console.warn('Email skipped: SMTP not configured');
-    return false;
-  }
-
-  try {
-    const transporter = nodemailer.createTransport({
-      host: smtp.host,
-      port: smtp.port,
-      secure: smtp.secure,
-      auth: { user: smtp.user, pass: smtp.pass }
-    });
-
-    console.log(`Attempting to send email to ${to} via ${smtp.host}`);
-    await transporter.sendMail({
-      from: smtp.from,
-      to,
-      subject,
-      text,
-      html
-    });
-    console.log(`Email sent successfully to ${to}`);
-    return true;
-  } catch (error) {
-    console.error(`Email notification failed for ${to}:`, error);
-    return false;
-  }
-}
 
 export async function POST({ request }) {
   try {
@@ -108,33 +60,12 @@ export async function POST({ request }) {
     const sentPush: string[] = [];
     const sentEmail: string[] = [];
     for (const t of targets) {
-      // 1. Fetch user profile for email and preferences
-      const { data: profile } = await supabaseAdmin
-        .from('profiles')
-        .select('email, notify_approved_claims')
-        .eq('id', t.userId)
-        .maybeSingle();
-
-      // 2. Try Email Notification
-      if (profile?.email && profile?.notify_approved_claims) {
-        const ok = await sendEmailNotification(
-          profile.email,
-          t.emailSubject,
-          t.emailText,
-          t.emailHtml
-        );
-        if (ok) sentEmail.push(t.userId);
-      } else {
-        console.log(`Email skipped for ${t.userId}:`, {
-          hasEmail: !!profile?.email,
-          notifyApproved: !!profile?.notify_approved_claims
-        });
-      }
-
-      // Browser push notifications are disabled.
+      // Approved-claim email notifications are intentionally disabled.
+      // App notifications (PWA push/native push) should be handled via a dedicated push pipeline.
+      void t;
     }
 
-    return json({ ok: true, sentPush, sentEmail });
+    return json({ ok: true, sentPush, sentEmail, skippedEmail: 'approved_claim_email_disabled' });
   } catch (error) {
     return json({ ok: false, error: 'failed_to_send' }, { status: 500 });
   }

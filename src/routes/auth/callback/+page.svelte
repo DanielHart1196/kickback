@@ -40,7 +40,7 @@
       const redirectTo = $page.url.searchParams.get('redirect_to') || '/';
       const { data: existingProfile } = await supabase
         .from('profiles')
-        .select('role')
+        .select('role, notify_payout_confirmation')
         .eq('id', session.user.id)
         .maybeSingle();
       const currentRole = existingProfile?.role ?? 'member';
@@ -101,12 +101,16 @@
         // Create/update profile for regular users
         const userEmail = session.user.email || $page.url.searchParams.get('email');
         if (userEmail) {
-          await supabase.from('profiles').upsert({
+          const profilePayload: Record<string, any> = {
             id: session.user.id,
             email: userEmail,
             role: isPrivilegedRole ? currentRole : 'member',
             updated_at: new Date().toISOString()
-          });
+          };
+          if (!existingProfile) {
+            profilePayload.notify_payout_confirmation = true;
+          }
+          await supabase.from('profiles').upsert(profilePayload);
         }
         await goto(redirectTo);
       }

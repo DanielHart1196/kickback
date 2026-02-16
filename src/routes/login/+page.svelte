@@ -247,7 +247,7 @@
     </div>
 
     <p class="text-center text-[10px] text-zinc-500 leading-snug">
-      By creating an account, you are agreeing to our
+      By signing in/creating an account, you are agreeing to our
       <a href="/terms" class="text-zinc-300 hover:text-white transition-colors">terms of service</a>
       and
       <a href="/privacy" class="text-zinc-300 hover:text-white transition-colors">privacy policy</a>.
