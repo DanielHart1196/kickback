@@ -113,20 +113,20 @@
         <div class="venue-marquee !my-8 [mask-image:_linear_gradient(to_right,transparent_0,_black_10%,_black_90%,transparent_100%)]">
           <div class="marquee-track">
             <div class="marquee-group">
-              <img src="/venues/platform3095-black.jpg" alt="platform3095" class="marquee-img" />
-              <img src="/venues/barpic-logo.jpg" alt="barpic" class="marquee-img" />
-              <img src="/venues/pro-bros.avif" alt="pro bros" class="marquee-img" />
-              <img src="/venues/platform3095-black.jpg" alt="platform3095" class="marquee-img" />
-              <img src="/venues/barpic-logo.jpg" alt="barpic" class="marquee-img" />
-              <img src="/venues/pro-bros.avif" alt="pro bros" class="marquee-img" />
+              <img src="/venues/platform3095-black.jpg" alt="platform3095" class="marquee-img" loading="lazy" decoding="async" />
+              <img src="/venues/barpic-logo.jpg" alt="barpic" class="marquee-img" loading="lazy" decoding="async" />
+              <img src="/venues/pro-bros.avif" alt="pro bros" class="marquee-img" loading="lazy" decoding="async" />
+              <img src="/venues/platform3095-black.jpg" alt="platform3095" class="marquee-img" loading="lazy" decoding="async" />
+              <img src="/venues/barpic-logo.jpg" alt="barpic" class="marquee-img" loading="lazy" decoding="async" />
+              <img src="/venues/pro-bros.avif" alt="pro bros" class="marquee-img" loading="lazy" decoding="async" />
             </div>
             <div class="marquee-group" aria-hidden="true">
-              <img src="/venues/platform3095-black.jpg" alt="platform3095" class="marquee-img" />
-              <img src="/venues/barpic-logo.jpg" alt="barpic" class="marquee-img" />
-              <img src="/venues/pro-bros.avif" alt="pro bros" class="marquee-img" />
-              <img src="/venues/platform3095-black.jpg" alt="platform3095" class="marquee-img" />
-              <img src="/venues/barpic-logo.jpg" alt="barpic" class="marquee-img" />
-              <img src="/venues/pro-bros.avif" alt="pro bros" class="marquee-img" />
+              <img src="/venues/platform3095-black.jpg" alt="platform3095" class="marquee-img" loading="lazy" decoding="async" />
+              <img src="/venues/barpic-logo.jpg" alt="barpic" class="marquee-img" loading="lazy" decoding="async" />
+              <img src="/venues/pro-bros.avif" alt="pro bros" class="marquee-img" loading="lazy" decoding="async" />
+              <img src="/venues/platform3095-black.jpg" alt="platform3095" class="marquee-img" loading="lazy" decoding="async" />
+              <img src="/venues/barpic-logo.jpg" alt="barpic" class="marquee-img" loading="lazy" decoding="async" />
+              <img src="/venues/pro-bros.avif" alt="pro bros" class="marquee-img" loading="lazy" decoding="async" />
             </div>
           </div>
         </div>

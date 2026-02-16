@@ -1,7 +1,11 @@
 import { json } from '@sveltejs/kit';
 import { supabaseAdmin } from '$lib/server/supabaseAdmin';
+import { addClaimsToUnpaidPayouts, type ClaimPayoutRow } from '$lib/server/payouts';
 
-type ClaimStatus = 'pending' | 'approved' | 'paid' | 'paidout' | 'denied';
+type ClaimStatus = 'pending' | 'approved' | 'paid' | 'guestpaid' | 'refpaid' | 'paidout' | 'denied';
+type ClaimStatusRow = ClaimPayoutRow & {
+  status: ClaimStatus | null;
+};
 
 export async function POST({ request }) {
   const authHeader = request.headers.get('authorization') ?? '';
@@ -31,14 +35,44 @@ export async function POST({ request }) {
 
   const body = await request.json().catch(() => null);
   const rawIds = Array.isArray(body?.claim_ids) ? body.claim_ids : [];
-  const claimIds = rawIds.map((v: unknown) => String(v)).filter((v) => v.length > 0);
+  const claimIds = rawIds.map((v: unknown) => String(v)).filter((v: string) => v.length > 0);
   const status: ClaimStatus | null =
-    typeof body?.status === 'string' && ['pending', 'approved', 'paid', 'paidout', 'denied'].includes(body.status)
+    typeof body?.status === 'string' && ['pending', 'approved', 'paid', 'guestpaid', 'refpaid', 'paidout', 'denied'].includes(body.status)
       ? body.status
       : null;
 
   if (!status || claimIds.length === 0) {
     return json({ ok: false, error: 'missing_params' }, { status: 400 });
+  }
+
+  let payoutsCreated = 0;
+  if (status === 'paid') {
+    const { data: claims, error: claimsError } = await supabaseAdmin
+      .from('claims')
+      .select('id, status, amount, kickback_guest_rate, kickback_referrer_rate, submitter_id, referrer_id')
+      .in('id', claimIds);
+    if (claimsError) {
+      return json({ ok: false, error: claimsError.message }, { status: 500 });
+    }
+
+    const payoutCandidates = ((claims ?? []) as ClaimStatusRow[])
+      .filter(
+        (claim) =>
+          !['paid', 'guestpaid', 'refpaid', 'paidout'].includes((claim.status ?? 'approved') as string)
+      )
+      .map((claim) => ({
+        id: String(claim.id),
+        amount: Number(claim.amount ?? 0),
+        kickback_guest_rate: claim.kickback_guest_rate ?? null,
+        kickback_referrer_rate: claim.kickback_referrer_rate ?? null,
+        submitter_id: claim.submitter_id ?? null,
+        referrer_id: claim.referrer_id ?? null
+      }));
+
+    if (payoutCandidates.length > 0) {
+      const payoutResult = await addClaimsToUnpaidPayouts(payoutCandidates);
+      payoutsCreated = payoutResult.rowsInserted + payoutResult.rowsUpdated;
+    }
   }
 
   const { error: updateError } = await supabaseAdmin
@@ -53,7 +87,7 @@ export async function POST({ request }) {
     try {
       const origin = new URL(request.url).origin;
       await Promise.all(
-        claimIds.map((id) =>
+        claimIds.map((id: string) =>
           fetch(`${origin}/api/notifications/claim-created`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -64,5 +98,5 @@ export async function POST({ request }) {
     } catch {}
   }
 
-  return json({ ok: true, updated: claimIds.length, status });
+  return json({ ok: true, updated: claimIds.length, status, payouts_created: payoutsCreated });
 }

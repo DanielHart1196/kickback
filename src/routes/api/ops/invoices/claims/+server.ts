@@ -1,7 +1,14 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { supabaseAdmin } from '$lib/server/supabaseAdmin';
+import { addClaimsToUnpaidPayouts, type ClaimPayoutRow } from '$lib/server/payouts';
 
-type ClaimStatus = 'pending' | 'approved' | 'paid' | 'denied' | null;
+type ClaimStatus = 'pending' | 'approved' | 'paid' | 'guestpaid' | 'refpaid' | 'paidout' | 'denied' | null;
+type InvoiceClaimRow = ClaimPayoutRow & {
+  status: ClaimStatus;
+  venue_id: string | null;
+  venue: string | null;
+  purchased_at: string | null;
+};
 
 function isMarkPaid(value: unknown): boolean {
   return value === true || value === 'true';
@@ -60,7 +67,7 @@ export const POST: RequestHandler = async ({ request }) => {
 
   const { data: claimsByRange, error: claimsError } = await supabaseAdmin
     .from('claims')
-    .select('id, status, venue_id, venue, purchased_at')
+    .select('id, status, venue_id, venue, purchased_at, amount, kickback_guest_rate, kickback_referrer_rate, submitter_id, referrer_id')
     .gte('purchased_at', weekStart)
     .lt('purchased_at', endNextIso);
   if (claimsError) {
@@ -70,23 +77,39 @@ export const POST: RequestHandler = async ({ request }) => {
   const { data: venue } = await supabaseAdmin.from('venues').select('name').eq('id', venueId).maybeSingle();
   const venueName = String(venue?.name ?? '').trim().toLowerCase();
 
-  const includedClaims = (claimsByRange ?? []).filter((claim) => {
+  const includedClaims = ((claimsByRange ?? []) as InvoiceClaimRow[]).filter((claim) => {
     const idMatch = String(claim?.venue_id ?? '') === venueId;
     const nameMatch = venueName.length > 0 && String(claim?.venue ?? '').trim().toLowerCase() === venueName;
     if (!idMatch && !nameMatch) return false;
     const status = (claim?.status ?? null) as ClaimStatus;
-    return status === null || status === 'approved' || status === 'paid';
+    return status === null || status === 'approved' || status === 'paid' || status === 'guestpaid' || status === 'refpaid' || status === 'paidout';
   });
 
   const claimIds = includedClaims.map((claim) => String(claim.id ?? '')).filter(Boolean);
-  const paidCount = includedClaims.filter((claim) => (claim.status ?? 'approved') === 'paid').length;
+  const paidStatuses = new Set(['paid', 'guestpaid', 'refpaid', 'paidout']);
+  const paidCount = includedClaims.filter((claim) => paidStatuses.has((claim.status ?? 'approved') as string)).length;
   const unpaidIds = includedClaims
-    .filter((claim) => (claim.status ?? 'approved') !== 'paid')
+    .filter((claim) => !paidStatuses.has((claim.status ?? 'approved') as string))
     .map((claim) => String(claim.id ?? ''))
     .filter(Boolean);
 
   let markedPaid = 0;
   if (markPaid && unpaidIds.length > 0) {
+    const claimsToAddToPayouts = includedClaims
+      .filter((claim) => unpaidIds.includes(String(claim.id ?? '')))
+      .map((claim) => ({
+        id: String(claim.id),
+        amount: Number(claim.amount ?? 0),
+        kickback_guest_rate: claim.kickback_guest_rate ?? null,
+        kickback_referrer_rate: claim.kickback_referrer_rate ?? null,
+        submitter_id: claim.submitter_id ?? null,
+        referrer_id: claim.referrer_id ?? null
+      }));
+
+    if (claimsToAddToPayouts.length > 0) {
+      await addClaimsToUnpaidPayouts(claimsToAddToPayouts);
+    }
+
     const { error: updateError } = await supabaseAdmin
       .from('claims')
       .update({ status: 'paid' })

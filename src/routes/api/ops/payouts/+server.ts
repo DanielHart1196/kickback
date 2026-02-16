@@ -1,39 +1,67 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { supabaseAdmin } from '$lib/server/supabaseAdmin';
 
-type PaidClaim = {
+type PayoutRow = {
   id: string;
-  amount: number;
-  kickback_guest_rate: number | null;
-  kickback_referrer_rate: number | null;
-  submitter_id: string | null;
-  referrer_id: string | null;
+  user_id: string | null;
+  amount: number | null;
+  currency: string | null;
+  claim_ids: string[] | null;
+  claim_count: number | null;
+  status: 'unpaid' | 'paid' | null;
+  created_at: string | null;
+  paid_at: string | null;
+  pay_id: string | null;
 };
 
 type Aggregate = {
   user_id: string;
   amount: number;
+  currency: string;
   claim_ids: Set<string>;
 };
 
-function addAmount(map: Map<string, Aggregate>, userId: string, amount: number, claimId: string) {
+type ClaimPayoutStatus = 'pending' | 'approved' | 'paid' | 'guestpaid' | 'refpaid' | 'paidout' | 'denied' | null;
+
+type ClaimSettleRow = {
+  id: string;
+  status: ClaimPayoutStatus;
+  submitter_id: string | null;
+  referrer_id: string | null;
+};
+
+function getNextClaimStatus(current: ClaimPayoutStatus, markGuestPaid: boolean, markRefPaid: boolean): ClaimPayoutStatus {
+  if (current === 'denied') return 'denied';
+  if (current === 'paidout') return 'paidout';
+
+  let guestPaid = current === 'guestpaid';
+  let refPaid = current === 'refpaid';
+
+  if (markGuestPaid) guestPaid = true;
+  if (markRefPaid) refPaid = true;
+
+  if (guestPaid && refPaid) return 'paidout';
+  if (guestPaid) return 'guestpaid';
+  if (refPaid) return 'refpaid';
+
+  return current ?? 'paid';
+}
+
+function addAmount(map: Map<string, Aggregate>, userId: string, amount: number, currency: string, claimIds: string[]) {
   const existing = map.get(userId);
   if (existing) {
     existing.amount += amount;
-    existing.claim_ids.add(claimId);
+    for (const claimId of claimIds) {
+      if (claimId) existing.claim_ids.add(claimId);
+    }
     return;
   }
-  map.set(userId, { user_id: userId, amount, claim_ids: new Set([claimId]) });
-}
-
-function calculateClaimSplit(claim: PaidClaim) {
-  const amount = Number(claim.amount ?? 0);
-  const guestRate = Number(claim.kickback_guest_rate ?? 5) / 100;
-  const refRate = Number(claim.kickback_referrer_rate ?? 5) / 100;
-  return {
-    guestAmount: Number((amount * guestRate).toFixed(2)),
-    refAmount: Number((amount * refRate).toFixed(2))
-  };
+  map.set(userId, {
+    user_id: userId,
+    amount,
+    currency,
+    claim_ids: new Set(claimIds.filter(Boolean))
+  });
 }
 
 export const POST: RequestHandler = async ({ request, fetch }) => {
@@ -64,24 +92,24 @@ export const POST: RequestHandler = async ({ request, fetch }) => {
   const action = typeof body?.action === 'string' ? body.action : 'calculate';
   const targetUserId = typeof body?.user_id === 'string' ? body.user_id : '';
 
-  const { data: paidClaims, error: claimsError } = await supabaseAdmin
-    .from('claims')
-    .select('id, amount, kickback_guest_rate, kickback_referrer_rate, submitter_id, referrer_id')
-    .eq('status', 'paid');
-  if (claimsError) {
-    return json({ ok: false, error: claimsError.message }, { status: 500 });
+  const { data: openRows, error: openRowsError } = await supabaseAdmin
+    .from('payouts')
+    .select('id, user_id, amount, currency, claim_ids, claim_count, status, created_at, paid_at, pay_id')
+    .eq('status', 'unpaid')
+    .order('created_at', { ascending: true });
+  if (openRowsError) {
+    return json({ ok: false, error: openRowsError.message }, { status: 500 });
   }
 
   const aggregates = new Map<string, Aggregate>();
-  for (const claim of (paidClaims ?? []) as PaidClaim[]) {
-    if (!claim?.id) continue;
-    const { guestAmount, refAmount } = calculateClaimSplit(claim);
-    if (claim.submitter_id && guestAmount > 0) {
-      addAmount(aggregates, String(claim.submitter_id), guestAmount, String(claim.id));
-    }
-    if (claim.referrer_id && refAmount > 0) {
-      addAmount(aggregates, String(claim.referrer_id), refAmount, String(claim.id));
-    }
+  for (const row of (openRows ?? []) as PayoutRow[]) {
+    const userId = String(row.user_id ?? '');
+    if (!userId) continue;
+    const amount = Number(row.amount ?? 0);
+    if (amount <= 0) continue;
+    const currency = String(row.currency ?? 'aud').toLowerCase();
+    const claimIds = (Array.isArray(row.claim_ids) ? row.claim_ids : []).map((id) => String(id));
+    addAmount(aggregates, userId, amount, currency, claimIds);
   }
 
   const userIds = Array.from(aggregates.keys());
@@ -104,9 +132,11 @@ export const POST: RequestHandler = async ({ request, fetch }) => {
       return {
         user_id: userId,
         referral_code: profile?.referral_code ?? null,
+        email: profile?.email ?? null,
         pay_id: payIdByUser.get(userId) ?? null,
         total_amount: Number(agg.amount.toFixed(2)),
         claim_ids: Array.from(agg.claim_ids),
+        currency: agg.currency,
         claim_count: agg.claim_ids.size
       };
     })
@@ -121,30 +151,72 @@ export const POST: RequestHandler = async ({ request, fetch }) => {
   }
 
   const aggregate = aggregates.get(targetUserId)!;
-  const claimIds = Array.from(aggregate.claim_ids);
+  const claimIds = Array.from(aggregate.claim_ids).filter(Boolean);
   const payoutAmount = Number(aggregate.amount.toFixed(2));
   const payoutPayId = payIdByUser.get(targetUserId) ?? '';
   const paidAt = new Date().toISOString();
-  const batchId = `payout_${Date.now()}_${targetUserId.slice(0, 8)}`;
+  const openRowIds = (openRows ?? [])
+    .map((row) => row as PayoutRow)
+    .filter((row) => String(row.user_id ?? '') === targetUserId)
+    .map((row) => row.id);
 
-  const { error: markClaimsError } = await supabaseAdmin
-    .from('claims')
-    .update({ status: 'paidout' })
-    .in('id', claimIds);
-  if (markClaimsError) {
-    return json({ ok: false, error: markClaimsError.message }, { status: 500 });
+  if (openRowIds.length === 0) {
+    return json({ ok: false, error: 'user_not_eligible' }, { status: 400 });
   }
 
-  await supabaseAdmin
-    .from('user_balances')
+  const { error: updatePayoutsError } = await supabaseAdmin
+    .from('payouts')
     .update({
-      status: 'paidout',
-      source_invoice_id: batchId,
-      source_charge_id: payoutPayId || null,
-      created_at: paidAt
+      status: 'paid',
+      pay_id: payoutPayId || null,
+      paid_at: paidAt,
+      updated_at: paidAt
     })
-    .eq('user_id', targetUserId)
-    .in('claim_id', claimIds);
+    .in('id', openRowIds);
+  if (updatePayoutsError) {
+    return json({ ok: false, error: updatePayoutsError.message }, { status: 500 });
+  }
+
+  let updatedClaimIds: string[] = [];
+  const claimUpdates: { id: string; status: string }[] = [];
+  if (claimIds.length > 0) {
+    const { data: claimRows, error: claimRowsError } = await supabaseAdmin
+      .from('claims')
+      .select('id, status, submitter_id, referrer_id')
+      .in('id', claimIds);
+    if (claimRowsError) {
+      return json({ ok: false, error: claimRowsError.message }, { status: 500 });
+    }
+
+    const byStatus = new Map<string, string[]>();
+    for (const claim of (claimRows ?? []) as ClaimSettleRow[]) {
+      const claimId = String(claim.id ?? '');
+      if (!claimId) continue;
+      const markGuestPaid = String(claim.submitter_id ?? '') === targetUserId;
+      const markRefPaid = String(claim.referrer_id ?? '') === targetUserId;
+      if (!markGuestPaid && !markRefPaid) continue;
+
+      const currentStatus = (claim.status ?? 'paid') as ClaimPayoutStatus;
+      const nextStatus = getNextClaimStatus(currentStatus, markGuestPaid, markRefPaid);
+      if (!nextStatus || nextStatus === currentStatus) continue;
+
+      const ids = byStatus.get(nextStatus) ?? [];
+      ids.push(claimId);
+      byStatus.set(nextStatus, ids);
+      claimUpdates.push({ id: claimId, status: nextStatus });
+    }
+
+    for (const [status, ids] of byStatus) {
+      const { error: updateClaimStatusError } = await supabaseAdmin
+        .from('claims')
+        .update({ status })
+        .in('id', ids);
+      if (updateClaimStatusError) {
+        return json({ ok: false, error: updateClaimStatusError.message }, { status: 500 });
+      }
+      updatedClaimIds = [...updatedClaimIds, ...ids];
+    }
+  }
 
   try {
     await fetch('/api/notifications/payout-confirmation', {
@@ -162,10 +234,12 @@ export const POST: RequestHandler = async ({ request, fetch }) => {
   return json({
     ok: true,
     marked_user_id: targetUserId,
-    marked_claims: claimIds.length,
+    marked_claims: updatedClaimIds.length,
     amount: payoutAmount,
+    currency: aggregate.currency,
     pay_id: payoutPayId || null,
     paid_at: paidAt,
-    claim_ids: claimIds
+    claim_ids: updatedClaimIds,
+    claim_updates: claimUpdates
   });
 };

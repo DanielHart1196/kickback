@@ -61,6 +61,7 @@ export async function POST({ request }) {
       subtotal?: number;
       total?: number;
       amount_due?: number;
+      memo?: string;
       line_items?: { amount: number; description: string | null }[];
     }[] = [];
 
@@ -89,10 +90,11 @@ export async function POST({ request }) {
       week_start = week_start ?? startLabel;
       week_end = week_end ?? endLabel;
 
+      const memo = `Kickback invoice ($${Number(total || 0).toFixed(2)} total referred revenue from ${startLabel} to ${endLabel})`;
       const line_items = [
-        { amount: Number(referrerFee.toFixed(2)), description: 'Referrer commission (5%)' },
-        { amount: Number(guestFee.toFixed(2)), description: 'New customer cashback (5%)' },
-        { amount: Number(platformFee.toFixed(2)), description: 'Kickback platform fee (2%)' }
+        { amount: Number(referrerFee.toFixed(2)), description: 'Kickback Marketing & Referral Services - Referrer commission (5%)' },
+        { amount: Number(guestFee.toFixed(2)), description: 'Kickback Marketing & Referral Services - New customer cashback (5%)' },
+        { amount: Number(platformFee.toFixed(2)), description: 'Kickback Marketing & Referral Services - Platform fee (2%)' }
       ];
 
       results.push({
@@ -101,7 +103,8 @@ export async function POST({ request }) {
         subtotal,
         total: totalWithGst,
         amount_due: totalWithGst,
-        line_items
+        line_items,
+        memo
       });
     }
 

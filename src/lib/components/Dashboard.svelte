@@ -25,13 +25,32 @@
   let lastHighlightKey: string | null = null;
   let pendingTotal = 0;
   let approvedTotal = 0;
-  let payoutHistory: { id: string; amount: number; currency: string; paid_at: string; pay_id: string }[] = [];
+  type PayoutHistoryItem = {
+    id: string;
+    amount: number;
+    currency: string;
+    paid_at: string;
+    pay_id: string;
+    claim_count?: number;
+    venue_totals?: { venue: string; total_amount: number }[];
+  };
+  type HistoryItem =
+    | { kind: 'payout'; key: string; timestamp: number; payout: PayoutHistoryItem }
+    | { kind: 'claim'; key: string; timestamp: number; claim: Claim };
+
+  let payoutHistory: PayoutHistoryItem[] = [];
+  let historyItems: HistoryItem[] = [];
+  let filterPayoutsOnly = false;
+  let hasClaimFilters = false;
   let filterStatus: Set<'pending' | 'approved' | 'paid' | 'denied'> = new Set();
-  let filterReferred: Set<'referred' | 'direct'> = new Set();
+  let filterReferred: Set<'referrer' | 'direct'> = new Set();
+  const statusOptions: Array<'approved' | 'pending' | 'paid' | 'denied'> = ['approved', 'pending', 'paid', 'denied'];
+  const referralOptions: Array<'referrer' | 'direct'> = ['referrer', 'direct'];
   let showFilterMenu = false;
   let listContainer: HTMLDivElement | null = null;
   let filterMenuEl: HTMLDivElement | null = null;
   let filterButtonEl: HTMLButtonElement | null = null;
+  let referButtonEl: HTMLButtonElement | null = null;
   let showSettings = false;
   let showDeleteWarning = false;
   let deleteStatus: 'idle' | 'loading' | 'error' = 'idle';
@@ -54,52 +73,16 @@
   let notifyApprovedClaims = false;
   let notifyPayoutConfirmation = false;
   let isPwaInstalled = false;
-  let notificationsEnabled = false;
-  let notificationMessage = '';
   let authProviderLabel = '';
   let payoutStripeOnboarded = false;
   const notifyEssential = true;
-  let notificationError = false;
-  async function ensurePushSubscription() {
-    try {
-      if (typeof window === 'undefined') return false;
-      if (!('serviceWorker' in navigator)) return false;
-      const { data } = await supabase.auth.getSession();
-      const token = data?.session?.access_token || '';
-      if (!token) return false;
-      let reg = await navigator.serviceWorker.getRegistration();
-      if (!reg) {
-        try {
-          await navigator.serviceWorker.register('/service-worker.js');
-          reg = await navigator.serviceWorker.getRegistration();
-        } catch {
-          return false;
-        }
-      }
-      if (!reg) return false;
-      const keyRes = await fetch('/api/notifications/vapid-key');
-      const keyPayload = await keyRes.json().catch(() => null);
-      const publicKey = keyPayload?.publicKey ?? '';
-      if (!publicKey) return false;
-      const existing = await reg.pushManager.getSubscription();
-      const subscription =
-        existing ??
-        (await reg.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: Uint8Array.from(atob(publicKey.replace(/-/g, '+').replace(/_/g, '/')), (c) =>
-            c.charCodeAt(0)
-          )
-        }));
-      const resp = await fetch('/api/notifications/subscribe', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ subscription })
-      });
-      return resp.ok;
-    } catch {
-      return false;
-    }
-  }
+  const REFER_BUTTON_GAP_PX = 32;
+  const REFER_BUTTON_HEIGHT_PX = 56;
+  const CLAIM_SLOT_HEIGHT_PX = 88;
+  const BASE_HISTORY_BOTTOM_PADDING_PX = REFER_BUTTON_HEIGHT_PX + REFER_BUTTON_GAP_PX * 2;
+  let filterMenuExtraPaddingPx = 0;
+  let historyPaddingBottomPx = BASE_HISTORY_BOTTOM_PADDING_PX;
+  let filterMenuWasOpen = false;
 
   $: if (userId && userId !== lastLoadedUserId) {
     console.log('Dashboard: userId changed, loading profile', userId);
@@ -136,10 +119,6 @@
         isPwaInstalled =
           (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
           ((window.navigator as any)?.standalone === true);
-        notificationsEnabled = typeof Notification !== 'undefined' && Notification.permission === 'granted';
-        if (notificationsEnabled) {
-          void ensurePushSubscription();
-        }
         window.addEventListener('appinstalled', () => {
           isPwaInstalled =
             (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
@@ -188,43 +167,6 @@
       document.removeEventListener('click', handleOutsideClick);
     };
   });
-
-  async function toggleNotifications() {
-    if (typeof Notification === 'undefined') {
-      notificationMessage = 'Notifications not supported';
-      notificationError = true;
-      return;
-    }
-    if (typeof window !== 'undefined' && !window.isSecureContext) {
-      notificationMessage = 'Requires HTTPS to enable';
-      notificationError = true;
-      return;
-    }
-    if (Notification.permission === 'granted') {
-      notificationsEnabled = !notificationsEnabled;
-      notificationMessage = '';
-      notificationError = false;
-      if (notificationsEnabled) {
-        const ok = await ensurePushSubscription();
-        if (!ok) {
-          notificationMessage = 'Failed to register push';
-          notificationError = true;
-        }
-      }
-      return;
-    }
-    const result = await Notification.requestPermission();
-    notificationsEnabled = result === 'granted';
-    notificationMessage = notificationsEnabled ? '' : 'Notifications blocked';
-    notificationError = !notificationsEnabled;
-    if (notificationsEnabled) {
-      const ok = await ensurePushSubscription();
-      if (!ok) {
-        notificationMessage = 'Failed to register push';
-        notificationError = true;
-      }
-    }
-  }
 
   async function loadPayoutHistory(token: string) {
     try {
@@ -599,13 +541,13 @@
     }, 0);
   }
 
-  function getClaimStatus(claim: Claim): 'pending' | 'approved' | 'paid' | 'paidout' | 'denied' {
+  function getClaimStatus(claim: Claim): 'pending' | 'approved' | 'paid' | 'guestpaid' | 'refpaid' | 'paidout' | 'denied' {
     return (claim.status as any) ?? 'approved';
   }
 
   function getDisplayStatus(claim: Claim): 'pending' | 'approved' | 'paid' | 'denied' {
     const status = getClaimStatus(claim);
-    if (status === 'paidout') return 'paid';
+    if (status === 'paidout' || status === 'guestpaid' || status === 'refpaid') return 'paid';
     return status;
   }
 
@@ -613,7 +555,7 @@
     return claims.reduce((sum, claim) => {
       const claimStatus = getClaimStatus(claim);
       if (status === 'pending' && claimStatus !== 'pending') return sum;
-      if (status === 'approved' && !(claimStatus === 'approved' || claimStatus === 'paid')) return sum;
+      if (status === 'approved' && !(claimStatus === 'approved' || claimStatus === 'paid' || claimStatus === 'guestpaid' || claimStatus === 'refpaid' || claimStatus === 'paidout')) return sum;
       return sum + getKickbackForClaim(claim);
     }, 0);
   }
@@ -634,6 +576,46 @@
       (filterReferred.has('direct') && !isReferred);
     return statusOk && referredOk;
   });
+  $: hasClaimFilters = filterStatus.size > 0 || filterReferred.size > 0;
+  $: historyPaddingBottomPx =
+    BASE_HISTORY_BOTTOM_PADDING_PX + (showFilterMenu ? filterMenuExtraPaddingPx : 0);
+  $: if (showFilterMenu && !filterMenuWasOpen) {
+    filterMenuWasOpen = true;
+    void ensureFilterMenuClearance(true);
+  }
+  $: if (showFilterMenu) {
+    filteredClaims.length;
+    filterPayoutsOnly;
+    void ensureFilterMenuClearance(false);
+  }
+  $: if (!showFilterMenu && filterMenuWasOpen) {
+    filterMenuWasOpen = false;
+    filterMenuExtraPaddingPx = 0;
+  }
+  $: historyItems = [
+    ...(
+      filterPayoutsOnly || !hasClaimFilters
+        ? payoutHistory.map((payout) => ({
+            kind: 'payout' as const,
+            key: `payout:${payout.id}`,
+            timestamp: new Date(payout.paid_at).getTime(),
+            payout
+          }))
+        : []
+    ),
+    ...(filterPayoutsOnly
+      ? []
+      : filteredClaims.map((claim) => ({
+          kind: 'claim' as const,
+          key: `claim:${claim.id ?? claim.created_at}`,
+          timestamp: new Date(claim.purchased_at).getTime(),
+          claim
+        })))
+  ].sort((a, b) => {
+    const at = Number.isFinite(a.timestamp) ? a.timestamp : 0;
+    const bt = Number.isFinite(b.timestamp) ? b.timestamp : 0;
+    return bt - at;
+  });
 
 
   function getStatusBadgeClass(status: 'pending' | 'approved' | 'paid' | 'denied'): string {
@@ -641,6 +623,44 @@
     if (status === 'paid') return 'border-blue-500/30 bg-blue-500/10 text-blue-300';
     if (status === 'denied') return 'border-red-500/30 bg-red-500/10 text-red-400';
     return 'border-zinc-700 bg-zinc-800 text-zinc-300';
+  }
+
+  async function ensureFilterMenuClearance(allowScroll: boolean) {
+    if (typeof window === 'undefined') return;
+    await tick();
+    if (!showFilterMenu || !filterMenuEl || !referButtonEl) {
+      if (filterMenuExtraPaddingPx !== 0) filterMenuExtraPaddingPx = 0;
+      return;
+    }
+
+    const visibleClaimCount = filterPayoutsOnly ? 0 : filteredClaims.length;
+    const cappedClaimCount = Math.min(visibleClaimCount, 4);
+    if (cappedClaimCount >= 4) {
+      if (filterMenuExtraPaddingPx !== 0) filterMenuExtraPaddingPx = 0;
+    } else {
+      const popupHeight = filterMenuEl.offsetHeight;
+      const requiredExtraPadding = Math.max(
+        0,
+        Math.ceil(popupHeight + REFER_BUTTON_GAP_PX - cappedClaimCount * CLAIM_SLOT_HEIGHT_PX)
+      );
+      if (requiredExtraPadding !== filterMenuExtraPaddingPx) {
+        filterMenuExtraPaddingPx = requiredExtraPadding;
+        await tick();
+      }
+    }
+
+    if (!allowScroll) return;
+    const menuBottom = filterMenuEl.getBoundingClientRect().bottom;
+    const referTop = referButtonEl.getBoundingClientRect().top;
+    const targetMenuBottom = referTop - REFER_BUTTON_GAP_PX;
+    const overlap = menuBottom - targetMenuBottom;
+    if (overlap > 0) {
+      const postPadScrollable =
+        document.documentElement.scrollHeight - window.innerHeight - window.scrollY;
+      if (postPadScrollable > 0) {
+        window.scrollBy({ top: Math.min(overlap + 4, postPadScrollable), behavior: 'auto' });
+      }
+    }
   }
 </script>
 
@@ -689,7 +709,7 @@
       </span>
     </p>
     <div class="flex items-center justify-center gap-3">
-      <h2 class="text-6xl font-black text-orange-500">${totalPending.toFixed(2)}</h2>
+      <h2 class="text-6xl font-black text-green-500">${totalPending.toFixed(2)}</h2>
     </div>
   </div>
 
@@ -700,7 +720,11 @@
     + New Claim
   </button>
 
-  <div class="space-y-4 mt-12" bind:this={listContainer}>
+  <div
+    class="space-y-4 mt-12"
+    style={`padding-bottom: calc(${historyPaddingBottomPx}px + env(safe-area-inset-bottom));`}
+    bind:this={listContainer}
+  >
     <div class="flex justify-between items-end border-b border-zinc-900 pb-4 relative">
       <h3 class="text-base font-black uppercase tracking-[0.18em] text-zinc-400">History</h3>
       <button
@@ -711,7 +735,7 @@
         aria-haspopup="true"
         aria-expanded={showFilterMenu}
       >
-        {filteredClaims.length} Claims
+        {filterPayoutsOnly ? `${payoutHistory.length} Payouts` : `${filteredClaims.length} Claims`}
         <svg viewBox="0 0 24 24" aria-hidden="true" class={`h-4 w-4 transition-transform ${showFilterMenu ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M6 9l6 6 6-6" />
         </svg>
@@ -719,14 +743,33 @@
       {#if showFilterMenu}
         <div bind:this={filterMenuEl} class="absolute right-0 top-full mt-2 w-56 bg-zinc-900 border border-zinc-800 rounded-2xl shadow-xl p-3 space-y-3 z-10">
           <div>
+            <div class="flex flex-col gap-2">
+              <button
+                type="button"
+                class={`px-3 py-2 rounded-full text-[10px] font-black uppercase tracking-widest border inline-flex items-center justify-center ${filterPayoutsOnly ? 'border-blue-500/30 bg-blue-500/10 text-blue-300' : 'border-zinc-800 bg-zinc-900 text-zinc-300 hover:border-zinc-700'}`}
+                on:click={() => {
+                  const nextValue = !filterPayoutsOnly;
+                  filterPayoutsOnly = nextValue;
+                  if (nextValue) {
+                    filterStatus = new Set();
+                    filterReferred = new Set();
+                  }
+                }}
+              >
+                Payouts
+              </button>
+            </div>
+          </div>
+          <div>
             <p class="text-[10px] font-black uppercase tracking-[0.25em] text-zinc-500 mb-2">Status</p>
             <div class="flex flex-col gap-2">
-              {#each ['approved','pending','paid','denied'] as status}
+              {#each statusOptions as status}
                 {#if status === 'approved'}
                   <button
                     type="button"
                     class={`px-3 py-2 rounded-full text-[10px] font-black uppercase tracking-widest border inline-flex items-center justify-center ${filterStatus.has(status) ? 'border-green-500/30 bg-green-500/10 text-green-400' : 'border-zinc-800 bg-zinc-900 text-zinc-300 hover:border-zinc-700'}`}
                     on:click={() => {
+                      if (filterPayoutsOnly) filterPayoutsOnly = false;
                       const next = new Set(filterStatus);
                       if (next.has(status)) {
                         next.delete(status);
@@ -743,6 +786,7 @@
                     type="button"
                     class={`px-3 py-2 rounded-full text-[10px] font-black uppercase tracking-widest border inline-flex items-center justify-center ${filterStatus.has(status) ? 'border-zinc-700 bg-zinc-800 text-zinc-200' : 'border-zinc-800 bg-zinc-900 text-zinc-300 hover:border-zinc-700'}`}
                     on:click={() => {
+                      if (filterPayoutsOnly) filterPayoutsOnly = false;
                       const next = new Set(filterStatus);
                       if (next.has(status)) {
                         next.delete(status);
@@ -759,6 +803,7 @@
                     type="button"
                     class={`px-3 py-2 rounded-full text-[10px] font-black uppercase tracking-widest border inline-flex items-center justify-center ${filterStatus.has(status) ? 'border-blue-500/30 bg-blue-500/10 text-blue-300' : 'border-zinc-800 bg-zinc-900 text-zinc-300 hover:border-zinc-700'}`}
                     on:click={() => {
+                      if (filterPayoutsOnly) filterPayoutsOnly = false;
                       const next = new Set(filterStatus);
                       if (next.has(status)) {
                         next.delete(status);
@@ -775,6 +820,7 @@
                     type="button"
                     class={`px-3 py-2 rounded-full text-[10px] font-black uppercase tracking-widest border inline-flex items-center justify-center ${filterStatus.has(status) ? 'border-red-500/30 bg-red-500/10 text-red-400' : 'border-zinc-800 bg-zinc-900 text-zinc-300 hover:border-zinc-700'}`}
                     on:click={() => {
+                      if (filterPayoutsOnly) filterPayoutsOnly = false;
                       const next = new Set(filterStatus);
                       if (next.has(status)) {
                         next.delete(status);
@@ -793,7 +839,7 @@
           <div>
             <p class="text-[10px] font-black uppercase tracking-[0.25em] text-zinc-500 mb-2">Referral</p>
             <div class="flex flex-col gap-2">
-              {#each ['referrer','direct'] as kind}
+              {#each referralOptions as kind}
                 <button
                   type="button"
                   class={`px-3 py-2 rounded-full text-[10px] font-black uppercase tracking-widest border inline-flex items-center justify-center ${
@@ -806,6 +852,7 @@
                         : 'border-zinc-800 bg-zinc-900 text-zinc-300 hover:border-zinc-700'
                   }`}
                   on:click={() => {
+                    if (filterPayoutsOnly) filterPayoutsOnly = false;
                     const next = new Set(filterReferred);
                     if (next.has(kind)) {
                       next.delete(kind);
@@ -824,36 +871,75 @@
       {/if}
     </div>
 
-    {#if filteredClaims.length === 0 && payoutHistory.length === 0}
+    {#if historyItems.length === 0}
       <div class="py-12 text-center border-2 border-dashed border-zinc-900 rounded-[2rem]" transition:fade|local={{ duration: 180 }}>
         <p class="text-zinc-600 text-xs font-bold uppercase tracking-widest">No activity yet</p>
       </div>
     {/if}
-    {#if payoutHistory.length > 0}
-      {#each payoutHistory as payout (payout.id)}
+    {#each historyItems as item (item.key)}
+      {#if item.kind === 'payout'}
         <div transition:slide|local={{ duration: 220 }}>
-          <div class="bg-blue-500/10 border border-blue-500/20 rounded-2xl p-5 mb-4">
-            <div class="flex items-center justify-between gap-3">
-              <p class="text-sm font-black uppercase tracking-widest text-blue-300">Payout</p>
-              <span class="border rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-widest border-blue-500/30 bg-blue-500/10 text-blue-300">
-                PAID
-              </span>
+          <details class="group bg-zinc-900/20 border border-zinc-900 rounded-2xl overflow-hidden">
+            <summary class="list-none p-5 flex items-center justify-between gap-4 cursor-pointer active:bg-zinc-900/50">
+              <div class="flex items-center justify-between flex-1 gap-4">
+                <div class="flex flex-col justify-center">
+                  <p class="text-xl font-black uppercase tracking-widest text-[#0D9CFF]">
+                    ${Number(item.payout.amount ?? 0).toFixed(2)}
+                  </p>
+                  <p class="text-zinc-300 uppercase tracking-tight text-sm font-bold">Payout</p>
+                </div>
+                <div class="flex items-center">
+                  <p class="text-zinc-500 text-sm font-bold whitespace-nowrap">
+                    {new Date(item.payout.paid_at).toLocaleDateString()} {new Date(item.payout.paid_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </p>
+                </div>
+              </div>
+              <div class="text-zinc-600 group-open:rotate-180 transition-transform">
+                <svg viewBox="0 0 24 24" aria-hidden="true" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M6 9l6 6 6-6" />
+                </svg>
+              </div>
+            </summary>
+
+            <div class="px-5 pb-6 pt-2 space-y-4">
+              <div class="grid grid-cols-1 gap-3 pt-2 border-t border-zinc-800/50">
+                <div class="flex items-center justify-between">
+                  <p class="text-xs font-black text-zinc-400 uppercase">PayID</p>
+                  <p class="text-sm font-bold text-white">{item.payout.pay_id || 'Not set'}</p>
+                </div>
+                <div class="flex items-center justify-between">
+                  <p class="text-xs font-black text-zinc-400 uppercase">Total Claims</p>
+                  <p class="text-sm font-bold text-white">{Number(item.payout.claim_count ?? 0)}</p>
+                </div>
+                <div class="flex items-center justify-between">
+                  <p class="text-xs font-black text-zinc-400 uppercase">Total Payout</p>
+                  <p class="text-sm font-bold text-[#0D9CFF]">${Number(item.payout.amount ?? 0).toFixed(2)} {String(item.payout.currency ?? 'aud').toUpperCase()}</p>
+                </div>
+              </div>
+
+              <div class="pt-2 border-t border-zinc-800/50">
+                <p class="text-xs font-black text-zinc-400 uppercase mb-2">Amount by Venue</p>
+                {#if item.payout.venue_totals && item.payout.venue_totals.length > 0}
+                  <div class="space-y-1">
+                    {#each item.payout.venue_totals as venueRow}
+                      <div class="flex items-center justify-between text-sm">
+                        <span class="text-zinc-300 uppercase tracking-tight">{venueRow.venue}</span>
+                        <span class="font-bold text-white">${Number(venueRow.total_amount ?? 0).toFixed(2)}</span>
+                      </div>
+                    {/each}
+                  </div>
+                {:else}
+                  <p class="text-sm text-zinc-500">No venue breakdown.</p>
+                {/if}
+              </div>
             </div>
-            <div class="mt-3 text-sm font-bold text-white">${Number(payout.amount ?? 0).toFixed(2)} {String(payout.currency ?? 'aud').toUpperCase()}</div>
-            <div class="mt-2 text-[10px] font-bold uppercase tracking-widest text-zinc-400">
-              {new Date(payout.paid_at).toLocaleDateString()} {new Date(payout.paid_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-            </div>
-            <div class="mt-1 text-[10px] font-bold uppercase tracking-widest text-zinc-500">
-              PayID: {payout.pay_id || 'Not set'}
-            </div>
-          </div>
+          </details>
         </div>
-      {/each}
-    {/if}
-    {#each filteredClaims as claim (claim.id ?? claim.created_at)}
+      {:else}
+        {@const claim = item.claim}
       <div transition:slide|local={{ duration: 220 }}>
         <details
-          class={`group bg-zinc-900/20 border border-zinc-900 rounded-2xl overflow-hidden mb-4 ${
+          class={`group bg-zinc-900/20 border border-zinc-900 rounded-2xl overflow-hidden ${
             (claim.id ?? claim.created_at) === highlightClaimKey
               ? 'ring-2 ring-orange-500/60 shadow-lg shadow-orange-500/20'
               : ''
@@ -918,13 +1004,13 @@
             <div class="flex items-center justify-between">
               <p class="text-sm font-black uppercase text-zinc-400 tracking-widest">30-day progress</p>
               <p class="text-sm font-black text-white">
-                {Math.max(GOAL_DAYS - getDaysAtVenueForUser(claims, claim.venue, claim.submitter_id), 0)} DAYS LEFT
+                {Math.max(GOAL_DAYS - getDaysAtVenueForUser(claims, claim.venue, claim.submitter_id ?? undefined), 0)} DAYS LEFT
               </p>
             </div>
             <div class="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden">
               <div
                 class="h-full bg-orange-500 transition-all duration-1000"
-                style="width: {(getDaysAtVenueForUser(claims, claim.venue, claim.submitter_id) / GOAL_DAYS) * 100}%"
+                style="width: {(getDaysAtVenueForUser(claims, claim.venue, claim.submitter_id ?? undefined) / GOAL_DAYS) * 100}%"
               ></div>
             </div>
           </div>
@@ -970,14 +1056,11 @@
         </div>
       </details>
       </div>
+      {/if}
     {/each}
     
     
 
-    {#if showFilterMenu}
-      <div class="h-16 w-full"></div>
-    {/if}
-    <div class="h-20 w-full"></div>
   </div>
 </div>
 
@@ -1192,8 +1275,9 @@
 
 <button 
   on:click={onOpenRefer}
-  class="fixed bottom-8 -translate-x-1/2 w-[calc(100%-3rem)] max-w-sm z-50 bg-zinc-900/80 backdrop-blur-xl border border-zinc-700 text-white font-black py-4 rounded-2xl flex items-center justify-center gap-3 shadow-2xl active:scale-95 transition-all uppercase text-xs tracking-[0.2em]"
-  style="left: calc(50% - (var(--scrollbar-width) / 2));"
+  bind:this={referButtonEl}
+  class="fixed h-14 -translate-x-1/2 w-[calc(100%-3rem)] max-w-sm z-50 bg-zinc-900/80 backdrop-blur-xl border border-zinc-700 text-white font-black rounded-2xl flex items-center justify-center gap-3 shadow-2xl active:scale-95 transition-all uppercase text-xs tracking-[0.2em]"
+  style="left: calc(50% - (var(--scrollbar-width) / 2)); bottom: calc(2rem + env(safe-area-inset-bottom));"
   in:fly={{ y: 100 }}
 >
   Refer a Friend

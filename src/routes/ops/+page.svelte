@@ -112,9 +112,25 @@
     | {
         user_id: string;
         referral_code: string | null;
+        email: string | null;
         pay_id: string | null;
         total_amount: number;
         claim_ids: string[];
+        claim_count: number;
+      }[]
+    | null = null;
+  let payoutHistoryStatus: 'idle' | 'loading' | 'error' | 'success' = 'idle';
+  let payoutHistoryError = '';
+  let payoutHistory:
+    | {
+        id: string;
+        user_id: string;
+        referral_code: string | null;
+        email: string | null;
+        pay_id: string | null;
+        amount: number;
+        currency: string;
+        paid_at: string;
         claim_count: number;
       }[]
     | null = null;
@@ -172,7 +188,7 @@
     }
     const { data, error } = await supabase
       .from('profiles')
-      .select('id,referral_code')
+      .select('id,referral_code,email')
       .in('id', ids);
     if (error) throw error;
     profiles = data ?? [];
@@ -215,12 +231,50 @@
         console.error('Square connection fetch failed:', error);
         squareConnections = new Map();
       }
+      try {
+        await loadPayoutHistory();
+      } catch (error) {
+        console.error('Payout history fetch failed:', error);
+      }
       buildMaps();
       if (errors.length > 0) {
         loadError = errors.join(' | ');
       }
     } finally {
       loading = false;
+    }
+  }
+
+  async function loadPayoutHistory() {
+    payoutHistoryStatus = 'loading';
+    payoutHistoryError = '';
+    try {
+      const { data, error } = await supabase.auth.getSession();
+      if (error || !data.session?.access_token) {
+        payoutHistoryStatus = 'error';
+        payoutHistoryError = 'Session expired. Please sign in again.';
+        payoutHistory = [];
+        return;
+      }
+      const response = await fetch('/api/ops/payouts/history', {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${data.session.access_token}`
+        }
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload?.ok) {
+        payoutHistoryStatus = 'error';
+        payoutHistoryError = payload?.error ?? 'Failed to load payout history';
+        payoutHistory = [];
+        return;
+      }
+      payoutHistory = Array.isArray(payload?.payouts) ? payload.payouts : [];
+      payoutHistoryStatus = 'success';
+    } catch (error) {
+      payoutHistoryStatus = 'error';
+      payoutHistoryError = error instanceof Error ? error.message : 'Failed to load payout history';
+      payoutHistory = [];
     }
   }
 
@@ -268,6 +322,8 @@
   function getStatusClass(status: ClaimStatus) {
     if (status === 'approved') return 'border-green-500/30 bg-green-500/10 text-green-300';
     if (status === 'paid') return 'border-blue-500/30 bg-blue-500/10 text-blue-300';
+    if (status === 'guestpaid') return 'border-purple-500/30 bg-purple-500/10 text-purple-300';
+    if (status === 'refpaid') return 'border-indigo-500/30 bg-indigo-500/10 text-indigo-300';
     if (status === 'paidout') return 'border-cyan-500/30 bg-cyan-500/10 text-cyan-300';
     if (status === 'denied') return 'border-red-500/30 bg-red-500/10 text-red-300';
     return 'border-yellow-500/30 bg-yellow-500/10 text-yellow-300';
@@ -355,7 +411,7 @@
 
   function canDeleteClaim(claim: Claim): boolean {
     const status = claim.status ?? 'approved';
-    return status !== 'paid' && status !== 'paidout';
+    return status !== 'paid' && status !== 'guestpaid' && status !== 'refpaid' && status !== 'paidout';
   }
 
   async function handleDeleteClaim(claim: Claim) {
@@ -433,6 +489,7 @@
       if (status === 'pending') totals.pending += earned;
       else if (status === 'approved') totals.approved += earned;
       else if (status === 'paid') totals.available += earned;
+      else if (status === 'guestpaid' || status === 'refpaid') totals.paidout += earned;
       else if (status === 'paidout') totals.paidout += earned;
     }
 
@@ -597,25 +654,6 @@
     selectedClaimIds = next;
   }
 
-  function getSelectableClaimIds(): string[] {
-    return pagedClaims.map((claim) => claim.id).filter(Boolean) as string[];
-  }
-
-  function toggleSelectAllClaims() {
-    const ids = getSelectableClaimIds();
-    if (ids.length === 0) return;
-    const allSelected = ids.every((id) => selectedClaimIds.has(id));
-    const next = new Set(selectedClaimIds);
-    for (const id of ids) {
-      if (allSelected) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-    }
-    selectedClaimIds = next;
-  }
-
   function getSelectedWeekRange(): { start: string; end: string } | null {
     const groups = groupClaimsByWeek(filteredClaims);
     const fullySelectedGroups = groups.filter((group) => {
@@ -675,6 +713,9 @@
         return;
       }
       claims = claims.map((claim) => (claim.id && ids.includes(claim.id) ? { ...claim, status: 'paid' } : claim));
+      if (Number(payload?.payouts_created ?? 0) > 0) {
+        payoutsMessage = `Updated payouts for ${payload.payouts_created} user row(s).`;
+      }
       selectedClaimIds = new Set();
     } catch (error) {
       alert('Failed to mark selected claims as paid');
@@ -792,10 +833,6 @@
         invoiceBulkError = 'No claims found for selection';
         return;
       }
-      const selectedTimes = claims
-        .filter((c) => c.id && selectedClaimIds.has(c.id))
-        .map((c) => new Date(c.purchased_at))
-        .filter((d) => !Number.isNaN(d.getTime()));
       const weekRange = getSelectedWeekRange();
       const rangeStart = weekRange?.start;
       const rangeEnd = weekRange?.end;
@@ -823,7 +860,8 @@
       invoiceBulkError = error instanceof Error ? error.message : 'Bulk invoice creation failed.';
     }
   }
-  async function sendBulkInvoices() {
+
+  async function createBulkInvoices(sendNow: boolean) {
     if (selectedClaimIds.size === 0) return;
     invoiceBulkStatus = 'running';
     invoiceBulkError = '';
@@ -835,30 +873,39 @@
             .map((c) => c.id as string)
         )
       );
+      if (claimIds.length === 0) {
+        invoiceBulkStatus = 'error';
+        invoiceBulkError = 'No claims found for selection';
+        return;
+      }
       const weekRange = getSelectedWeekRange();
       const rangeStart = weekRange?.start;
       const rangeEnd = weekRange?.end;
       if (!rangeStart || !rangeEnd) {
         invoiceBulkStatus = 'error';
-        invoiceBulkError = 'Select exactly one full week to send invoices';
+        invoiceBulkError = 'Select exactly one full week to generate invoices';
         return;
       }
-      const response = await fetch('/api/stripe/invoices/bulk-send', {
+
+      const endpoint = sendNow ? '/api/stripe/invoices/bulk-send' : '/api/stripe/invoices/bulk-create';
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ claim_ids: claimIds, range_start: rangeStart, range_end: rangeEnd })
       });
       const payload = await response.json().catch(() => null);
-      if (!response.ok) {
+      if (!response.ok || !payload?.ok) {
         invoiceBulkStatus = 'error';
-        invoiceBulkError = payload?.error ?? 'Bulk send failed.';
+        invoiceBulkError = payload?.error ?? (sendNow ? 'Bulk send failed.' : 'Bulk create failed.');
         return;
       }
-      invoiceBulkStatus = 'success';
+
       invoiceBulkResults = payload?.results ?? [];
+      invoiceBulkStatus = 'success';
+      invoiceBulkError = '';
     } catch (error) {
       invoiceBulkStatus = 'error';
-      invoiceBulkError = error instanceof Error ? error.message : 'Bulk send failed.';
+      invoiceBulkError = error instanceof Error ? error.message : sendNow ? 'Bulk send failed.' : 'Bulk create failed.';
     }
   }
 
@@ -1131,14 +1178,24 @@
         payoutsError = payload?.error ?? 'Failed to mark user paid';
         return;
       }
-      const paidClaimIds = new Set<string>((payload?.claim_ids ?? []).map((id: string) => String(id)));
+      const claimUpdates = new Map<string, ClaimStatus>();
+      for (const entry of (payload?.claim_updates ?? []) as { id?: string; status?: string }[]) {
+        const id = String(entry.id ?? '');
+        const status = String(entry.status ?? '');
+        if (!id) continue;
+        if (!['pending', 'approved', 'paid', 'guestpaid', 'refpaid', 'paidout', 'denied'].includes(status)) {
+          continue;
+        }
+        claimUpdates.set(id, status as ClaimStatus);
+      }
       claims = claims.map((claim) => {
-        if (!claim.id || !paidClaimIds.has(claim.id)) return claim;
-        return { ...claim, status: 'paidout' as ClaimStatus };
+        if (!claim.id || !claimUpdates.has(claim.id)) return claim;
+        return { ...claim, status: claimUpdates.get(claim.id) ?? claim.status };
       });
       payoutsStatus = 'success';
-      payoutsMessage = `Marked ${payload?.marked_claims ?? 0} claims paid out.`;
+      payoutsMessage = `Updated payout status for ${payload?.marked_claims ?? 0} claims.`;
       await calculatePayouts();
+      await loadPayoutHistory();
     } catch (error) {
       payoutsStatus = 'error';
       payoutsError = error instanceof Error ? error.message : 'Failed to mark user paid';
@@ -1311,13 +1368,6 @@
                       Selected: {selectedClaimIds.size}
                     </div>
                     <div class="flex items-center gap-2">
-                      <button
-                        type="button"
-                        class="px-3 py-1 rounded-lg bg-zinc-700 text-white text-xs font-black uppercase tracking-widest"
-                        on:click={toggleSelectAllClaims}
-                      >
-                        {getSelectableClaimIds().every((id) => selectedClaimIds.has(id)) ? 'Clear Page' : 'Select Page'}
-                      </button>
                       {#if selectedClaimIds.size > 0}
                         <button
                           type="button"
@@ -1370,15 +1420,6 @@
                             title="Preview invoices for selected week"
                           >
                             {invoiceBulkStatus === 'running' ? 'Generating...' : 'Preview Invoices'}
-                          </button>
-                          <button
-                            type="button"
-                            class="px-3 py-1 rounded-lg bg-orange-500 text-black text-xs font-black uppercase tracking-widest disabled:opacity-50"
-                            on:click={sendBulkInvoices}
-                            disabled={invoiceBulkStatus === 'running'}
-                            title="Create and send invoices for selected week"
-                          >
-                            {invoiceBulkStatus === 'running' ? 'Sending...' : 'Send Invoices'}
                           </button>
                         {/if}
                         <button
@@ -1548,6 +1589,27 @@
         {#if invoiceBulkResults}
           <section class="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-5">
             <p class="text-xs font-black uppercase tracking-widest text-zinc-500">Invoice Preview</p>
+            <div class="mt-3 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                class="px-3 py-1 rounded-lg bg-blue-600 text-black text-xs font-black uppercase tracking-widest disabled:opacity-50"
+                on:click={() => createBulkInvoices(false)}
+                disabled={invoiceBulkStatus === 'running'}
+              >
+                {invoiceBulkStatus === 'running' ? 'Working...' : 'Create Invoices'}
+              </button>
+              <button
+                type="button"
+                class="px-3 py-1 rounded-lg bg-green-500 text-black text-xs font-black uppercase tracking-widest disabled:opacity-50"
+                on:click={() => createBulkInvoices(true)}
+                disabled={invoiceBulkStatus === 'running'}
+              >
+                {invoiceBulkStatus === 'running' ? 'Working...' : 'Create + Send'}
+              </button>
+            </div>
+            <p class="mt-2 text-[10px] text-zinc-500 normal-case tracking-normal">
+              Preview does not create invoices. Use Create Invoices, then Send on each row if needed.
+            </p>
             <div class="mt-3 space-y-1 text-[10px] text-zinc-300 normal-case tracking-normal">
               {#each invoiceBulkResults as result}
                 <div class="flex items-center justify-between gap-2">
@@ -1572,10 +1634,10 @@
                   <div class="ml-3 mt-2">
                     <button
                       type="button"
-                      class="px-3 py-1 rounded-lg bg-orange-500 text-black text-xs font-black uppercase tracking-widest"
+                      class="text-[10px] font-black uppercase tracking-widest text-orange-400 underline underline-offset-2 hover:text-orange-300"
                       on:click={() => sendInvoice(result.invoice_id)}
                     >
-                      Send Invoice
+                      Send
                     </button>
                     {#if result.invoice_url}
                       <a
@@ -1757,6 +1819,61 @@
           {/if}
         </section>
 
+      </div>
+    </section>
+
+    <section class="bg-zinc-900/50 border border-zinc-800 rounded-2xl overflow-hidden">
+      <div class="px-5 py-4 border-b border-zinc-800 flex items-center justify-between">
+        <p class="text-xs font-black uppercase tracking-widest text-zinc-500">Payout History</p>
+        <button
+          type="button"
+          class="px-3 py-1 rounded-lg border border-zinc-700 text-white text-xs font-black uppercase tracking-widest disabled:opacity-50"
+          on:click={loadPayoutHistory}
+          disabled={payoutHistoryStatus === 'loading'}
+        >
+          {payoutHistoryStatus === 'loading' ? 'Refreshing...' : 'Refresh'}
+        </button>
+      </div>
+      {#if payoutHistoryError}
+        <p class="px-5 pt-3 text-[10px] font-bold uppercase tracking-widest text-red-400">{payoutHistoryError}</p>
+      {/if}
+      <div class="overflow-x-auto">
+        <table class="min-w-[900px] w-full text-left border-collapse">
+          <thead>
+            <tr class="bg-zinc-900/80 text-zinc-400 text-xs uppercase">
+              <th class="px-4 py-3 font-semibold">Paid At</th>
+              <th class="px-4 py-3 font-semibold">User</th>
+              <th class="px-4 py-3 font-semibold">Email</th>
+              <th class="px-4 py-3 font-semibold">PayID</th>
+              <th class="px-4 py-3 font-semibold text-right">Claims</th>
+              <th class="px-4 py-3 font-semibold text-right">Amount</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-zinc-800">
+            {#if !payoutHistory || payoutHistory.length === 0}
+              <tr>
+                <td colspan="6" class="px-4 py-6 text-sm text-zinc-500">No payout history yet.</td>
+              </tr>
+            {:else}
+              {#each payoutHistory as row}
+                <tr class="hover:bg-zinc-800/30 transition-colors">
+                  <td class="px-4 py-3 text-sm text-zinc-300">
+                    {new Date(row.paid_at).toLocaleDateString()} {new Date(row.paid_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </td>
+                  <td class="px-4 py-3 text-sm text-zinc-200">
+                    {row.referral_code ?? row.user_id}
+                  </td>
+                  <td class="px-4 py-3 text-sm text-zinc-300">{row.email ?? 'Unknown'}</td>
+                  <td class="px-4 py-3 text-sm text-zinc-300">{row.pay_id ?? 'Not set'}</td>
+                  <td class="px-4 py-3 text-sm text-right text-zinc-300">{row.claim_count}</td>
+                  <td class="px-4 py-3 text-sm text-right font-mono text-cyan-300">
+                    ${row.amount.toFixed(2)} {row.currency.toUpperCase()}
+                  </td>
+                </tr>
+              {/each}
+            {/if}
+          </tbody>
+        </table>
       </div>
     </section>
   </div>

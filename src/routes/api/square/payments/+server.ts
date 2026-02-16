@@ -34,7 +34,7 @@ export async function GET({ url }) {
 
   if (!paymentsResult.ok) {
     return json(
-      { payments: [], error: paymentsResult.payload?.message ?? 'square_payments_failed' },
+      { payments: [], error: 'square_payments_failed' },
       { status: 502 }
     );
   }

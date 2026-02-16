@@ -7,7 +7,7 @@
   src: url('/fonts/roboto/Roboto-Medium.ttf') format('truetype');
   font-weight: 500;
   font-style: normal;
-  font-display: block;
+  font-display: swap;
 }
 
 @font-face {
@@ -15,7 +15,7 @@
   src: url('/fonts/montserrat/Montserrat-VariableFont_wght.ttf') format('truetype');
   font-weight: 100 900;
   font-style: normal;
-  font-display: block;
+  font-display: swap;
 }
 
 @font-face {
@@ -23,7 +23,7 @@
   src: url('/fonts/kickback/kickback-black-italic.ttf') format('opentype');
   font-weight: 900;
   font-style: italic;
-  font-display: block;
+  font-display: swap;
 }
 
 @layer base {

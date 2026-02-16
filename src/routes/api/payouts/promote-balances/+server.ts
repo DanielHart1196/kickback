@@ -15,27 +15,27 @@ export async function POST({ request }) {
     let approvedToAvailable = 0;
 
     if (action === 'pending_to_approved' || action === 'all') {
-      const { error: upErr, count } = await supabaseAdmin
+      const { error: upErr, data } = await supabaseAdmin
         .from('user_balances')
         .update({ status: 'approved', created_at: new Date().toISOString() })
         .eq('status', 'pending')
-        .select('id', { count: 'exact', head: true });
+        .select('id');
       if (upErr) {
         return json({ ok: false, error: upErr.message }, { status: 500 });
       }
-      pendingToApproved = count ?? 0;
+      pendingToApproved = data?.length ?? 0;
     }
 
     if (action === 'approved_to_available' || action === 'all') {
-      const { error: upErr, count } = await supabaseAdmin
+      const { error: upErr, data } = await supabaseAdmin
         .from('user_balances')
         .update({ status: 'available', created_at: new Date().toISOString() })
         .eq('status', 'approved')
-        .select('id', { count: 'exact', head: true });
+        .select('id');
       if (upErr) {
         return json({ ok: false, error: upErr.message }, { status: 500 });
       }
-      approvedToAvailable = count ?? 0;
+      approvedToAvailable = data?.length ?? 0;
     }
 
     return json({ ok: true, pending_to_approved: pendingToApproved, approved_to_available: approvedToAvailable });

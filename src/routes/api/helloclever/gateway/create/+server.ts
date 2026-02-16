@@ -167,7 +167,7 @@ export async function POST({ request, url }) {
   const { data: venue, error: venueError } = await supabaseAdmin
     .from('venues')
     .select(
-      'id, name, billing_email, billing_contact_first_name, billing_contact_last_name, billing_phone, billing_company, billing_country_code, billing_state, billing_postal_code, billing_city, billing_address'
+      'id, name, logo_url, billing_email, billing_contact_first_name, billing_contact_last_name, billing_phone, billing_company, billing_country_code, billing_state, billing_postal_code, billing_city, billing_address'
     )
     .eq('id', venueId)
     .maybeSingle();

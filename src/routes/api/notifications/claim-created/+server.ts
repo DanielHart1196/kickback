@@ -49,36 +49,8 @@ async function sendEmailNotification(to: string, subject: string, text: string, 
   }
 }
 
-async function getWebPush() {
-  try {
-    const mod = await import('web-push');
-    return (mod as any)?.default ?? mod;
-  } catch {
-    return null;
-  }
-}
-
-function initWebPush(webpush: any) {
-  const publicKey = env.PRIVATE_VAPID_PUBLIC_KEY || '';
-  const privateKey = env.PRIVATE_VAPID_PRIVATE_KEY || '';
-  const subject = env.PRIVATE_VAPID_SUBJECT || 'mailto:support@kkbk.app';
-  if (!publicKey || !privateKey) {
-    return false;
-  }
-  webpush.setVapidDetails(subject, publicKey, privateKey);
-  return true;
-}
-
 export async function POST({ request }) {
   try {
-    const webpush = await getWebPush();
-    if (!webpush) {
-      return json({ ok: false, error: 'web_push_unavailable' }, { status: 500 });
-    }
-    const ok = initWebPush(webpush);
-    if (!ok) {
-      return json({ ok: false, error: 'missing_vapid_keys' }, { status: 500 });
-    }
     const body = await request.json().catch(() => null);
     const claimId = body?.claim_id as string | undefined;
     if (!claimId) {
@@ -106,9 +78,6 @@ export async function POST({ request }) {
 
     const targets: {
       userId: string;
-      title: string;
-      body: string;
-      isSubmitter: boolean;
       emailSubject: string;
       emailText: string;
       emailHtml?: string;
@@ -119,9 +88,6 @@ export async function POST({ request }) {
       const detailText = `from ${venueName}`;
       targets.push({
         userId: submitterId,
-        title: earnedText,
-        body: detailText,
-        isSubmitter: true,
         emailSubject: earnedText,
         emailText: `${earnedText}\n${detailText}\n\nView your dashboard at https://kkbk.app/`,
         emailHtml: `${earnedText}<br>${detailText}<br><br>View your dashboard at https://kkbk.app/`
@@ -133,9 +99,6 @@ export async function POST({ request }) {
       const detailText = `${codeUsed} used your code at ${venueName}`;
       targets.push({
         userId: referrerId,
-        title: `+$${earned.toFixed(2)} ${codeUsed} used your code`,
-        body: `at ${venueName}`,
-        isSubmitter: false,
         emailSubject: earnedText,
         emailText: `${earnedText}\n${detailText}\n\nView your dashboard at https://kkbk.app/`,
         emailHtml: `${earnedText}<br>${detailText}<br><br>View your dashboard at https://kkbk.app/`
@@ -168,30 +131,7 @@ export async function POST({ request }) {
         });
       }
 
-      // 3. Try Web Push Notification
-      const { data: sub, error: subError } = await supabaseAdmin
-        .from('push_subscriptions')
-        .select('endpoint,p256dh,auth')
-        .eq('user_id', t.userId)
-        .maybeSingle();
-      if (subError || !sub?.endpoint) continue;
-      try {
-        await webpush.sendNotification(
-          {
-            endpoint: sub.endpoint,
-            keys: { p256dh: sub.p256dh, auth: sub.auth }
-          } as any,
-          JSON.stringify({
-            title: t.title,
-            body: t.body,
-            icon: '/favicon.png',
-            badge: '/favicon.png'
-          })
-        );
-        sentPush.push(t.userId);
-      } catch (error) {
-        // ignore individual push failures
-      }
+      // Browser push notifications are disabled.
     }
 
     return json({ ok: true, sentPush, sentEmail });

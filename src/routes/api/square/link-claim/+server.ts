@@ -68,7 +68,7 @@ export async function POST({ request }) {
   });
   if (!paymentsResult.ok) {
     return json(
-      { ok: false, error: paymentsResult.payload?.message ?? 'square_payments_failed' },
+      { ok: false, error: 'square_payments_failed' },
       { status: 502 }
     );
   }

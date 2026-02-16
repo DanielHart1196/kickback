@@ -10,6 +10,12 @@ function getStripeKey(): string | null {
 
 function appendStripeParams(params: URLSearchParams, prefix: string, value: unknown) {
   if (value === undefined || value === null || value === '') return;
+  if (Array.isArray(value)) {
+    value.forEach((inner, index) => {
+      appendStripeParams(params, `${prefix}[${index}]`, inner);
+    });
+    return;
+  }
   if (typeof value === 'object' && !Array.isArray(value)) {
     Object.entries(value as Record<string, unknown>).forEach(([key, inner]) => {
       appendStripeParams(params, `${prefix}[${key}]`, inner);
@@ -17,6 +23,10 @@ function appendStripeParams(params: URLSearchParams, prefix: string, value: unkn
     return;
   }
   params.append(prefix, String(value));
+}
+
+function formatMoney(amount: number): string {
+  return Number(amount || 0).toFixed(2);
 }
 
 async function stripeRequest(path: string, payload: Record<string, unknown> = {}) {
@@ -178,21 +188,19 @@ export async function POST({ request }) {
         const platformFee = total * 0.02;
         const subtotal = referrerFee + guestFee + platformFee;
         const totalWithGst = subtotal;
-        const referrerCents = Math.round(referrerFee * 100);
-        const guestCents = Math.round(guestFee * 100);
-        const platformCents = Math.round(platformFee * 100);
 
         const range = ranges.get(venue.id);
         const startLabel =
           rangeStartBody ??
           (range ? new Date(range.min).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10));
         const endLabel = rangeEndBody ?? (range ? new Date(range.max).toISOString().slice(0, 10) : startLabel);
+        const memo = `Kickback invoice ($${formatMoney(total)} total referred revenue from ${startLabel} to ${endLabel})`;
         const invoice = await stripeRequest('invoices', {
           customer: stripeCustomerId,
           collection_method: 'send_invoice',
           days_until_due: 7,
           auto_advance: false,
-          description: `Kickback invoice (${startLabel} to ${endLabel})`,
+          description: memo,
           metadata: { venue_id: venue.id }
         });
 
@@ -200,8 +208,8 @@ export async function POST({ request }) {
           customer: stripeCustomerId,
           invoice: invoice.id,
           currency: 'aud',
-          amount: referrerCents,
-          description: 'Referrer commission (5%)',
+          amount: Math.round(referrerFee * 100),
+          description: 'Kickback Marketing & Referral Services - Referrer commission (5%)',
           metadata: { venue_id: venue.id }
         });
 
@@ -209,8 +217,8 @@ export async function POST({ request }) {
           customer: stripeCustomerId,
           invoice: invoice.id,
           currency: 'aud',
-          amount: guestCents,
-          description: 'New customer cashback (5%)',
+          amount: Math.round(guestFee * 100),
+          description: 'Kickback Marketing & Referral Services - New customer cashback (5%)',
           metadata: { venue_id: venue.id }
         });
 
@@ -218,8 +226,8 @@ export async function POST({ request }) {
           customer: stripeCustomerId,
           invoice: invoice.id,
           currency: 'aud',
-          amount: platformCents,
-          description: 'Kickback platform fee (2%)',
+          amount: Math.round(platformFee * 100),
+          description: 'Kickback Marketing & Referral Services - Platform fee (2%)',
           metadata: { venue_id: venue.id }
         });
 
@@ -246,7 +254,7 @@ export async function POST({ request }) {
               stripe_invoice_url: invoiceUrl,
               status: finalized?.status ?? invoice?.status ?? null
             },
-            { onConflict: 'stripe_invoice_id' }
+            { onConflict: 'venue_id,week_start' }
           );
 
         results.push({

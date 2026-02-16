@@ -1365,7 +1365,8 @@
   }
 
   function getClaimStatus(claim: Claim): ClaimStatus {
-    return claim.status === 'paidout' ? 'paid' : (claim.status ?? 'approved');
+    if (claim.status === 'paidout' || claim.status === 'guestpaid' || claim.status === 'refpaid') return 'paid';
+    return claim.status ?? 'approved';
   }
 
   function getStatusBadgeClass(status: ClaimStatus): string {
