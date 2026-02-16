@@ -2,6 +2,17 @@ import { json } from '@sveltejs/kit';
 import { supabaseAdmin } from '$lib/server/supabaseAdmin';
 import { fetchSquarePayment, type SquarePayment } from '$lib/server/square/payments';
 import { matchSquareSignature } from '$lib/server/square/webhook';
+import { GOAL_DAYS } from '$lib/claims/constants';
+
+const dayMs = 24 * 60 * 60 * 1000;
+
+function isWithinAutoClaimWindow(firstPurchasedAt: string, paymentPurchasedAt: string): boolean {
+  const firstTime = new Date(firstPurchasedAt).getTime();
+  const paymentTime = new Date(paymentPurchasedAt).getTime();
+  if (!Number.isFinite(firstTime) || !Number.isFinite(paymentTime)) return false;
+  const diffInDays = Math.floor((paymentTime - firstTime) / dayMs);
+  return diffInDays >= 0 && diffInDays < GOAL_DAYS;
+}
 
 export async function POST({ request }) {
   const signature = request.headers.get('x-square-signature') ?? '';
@@ -131,27 +142,71 @@ export async function POST({ request }) {
     return json({ ok: true, ignored: true });
   }
 
-  const { data: fingerprintClaims, error: fingerprintError } = await supabaseAdmin
-    .from('claims')
-    .select('square_card_fingerprint,submitter_id,venue_id,purchased_at')
+  const { data: bindings, error: bindingsError } = await supabaseAdmin
+    .from('square_card_bindings')
+    .select('venue_id,user_id,first_purchased_at')
     .in('venue_id', candidateVenues)
-    .eq('square_card_fingerprint', fingerprint)
-    .order('purchased_at', { ascending: true });
+    .eq('card_fingerprint', fingerprint);
 
-  if (fingerprintError) {
-    return json({ ok: false, error: fingerprintError.message }, { status: 500 });
+  if (bindingsError) {
+    return json({ ok: false, error: bindingsError.message }, { status: 500 });
   }
 
-  const fingerprintClaim = (fingerprintClaims ?? []).find((claim) =>
-    candidateVenues.includes(claim.venue_id ?? '')
-  );
+  let venueId: string | null = null;
+  let submitterId: string | null = null;
+  let firstPurchasedAt: string | null = null;
 
-  if (!fingerprintClaim?.submitter_id || !fingerprintClaim.venue_id) {
-    return json({ ok: true, ignored: true });
+  for (const candidateVenue of candidateVenues) {
+    const match = (bindings ?? []).find((row) => row.venue_id === candidateVenue);
+    if (match?.user_id) {
+      venueId = candidateVenue;
+      submitterId = match.user_id;
+      firstPurchasedAt = match.first_purchased_at ?? null;
+      break;
+    }
   }
 
-  const venueId = fingerprintClaim.venue_id;
-  const submitterId = fingerprintClaim.submitter_id;
+  if (!venueId || !submitterId) {
+    const { data: fingerprintClaims, error: fingerprintError } = await supabaseAdmin
+      .from('claims')
+      .select('submitter_id,venue_id,purchased_at')
+      .in('venue_id', candidateVenues)
+      .eq('square_card_fingerprint', fingerprint)
+      .order('purchased_at', { ascending: true });
+
+    if (fingerprintError) {
+      return json({ ok: false, error: fingerprintError.message }, { status: 500 });
+    }
+
+    const fingerprintClaim = (fingerprintClaims ?? []).find(
+      (claim) => claim.submitter_id && claim.venue_id && candidateVenues.includes(claim.venue_id)
+    );
+
+    if (!fingerprintClaim?.submitter_id || !fingerprintClaim.venue_id) {
+      return json({ ok: true, ignored: true });
+    }
+
+    venueId = fingerprintClaim.venue_id;
+    submitterId = fingerprintClaim.submitter_id;
+    firstPurchasedAt = fingerprintClaim.purchased_at ?? null;
+
+    const { error: seedBindingError } = await supabaseAdmin
+      .from('square_card_bindings')
+      .upsert(
+        {
+          venue_id: venueId,
+          card_fingerprint: fingerprint,
+          user_id: submitterId,
+          first_claim_id: null,
+          first_purchased_at: firstPurchasedAt,
+          updated_at: new Date().toISOString()
+        },
+        { onConflict: 'venue_id,card_fingerprint', ignoreDuplicates: true }
+      );
+    if (seedBindingError) {
+      return json({ ok: false, error: seedBindingError.message }, { status: 500 });
+    }
+  }
 
   const { data: venue, error: venueError } = await supabaseAdmin
     .from('venues')
@@ -165,7 +220,7 @@ export async function POST({ request }) {
 
   const { data: userClaims, error: userClaimsError } = await supabaseAdmin
     .from('claims')
-    .select('referrer_id,referrer')
+    .select('referrer_id,referrer,purchased_at')
     .eq('venue_id', venueId)
     .eq('submitter_id', submitterId)
     .order('purchased_at', { ascending: true })
@@ -176,27 +231,42 @@ export async function POST({ request }) {
   }
 
   const referrer = userClaims?.[0] ?? { referrer_id: null, referrer: null };
+  const windowStart = firstPurchasedAt ?? userClaims?.[0]?.purchased_at ?? null;
+  if (!windowStart || !isWithinAutoClaimWindow(windowStart, purchasedAt)) {
+    return json({ ok: true, ignored: true });
+  }
 
-  const { data: created, error: insertError } = await supabaseAdmin.from('claims').insert({
-    venue: venue.name,
-    venue_id: venueId,
-    submitter_id: submitterId,
-    referrer_id: referrer.referrer_id ?? null,
-    referrer: referrer.referrer ?? null,
-    amount: amount / 100,
-    last_4: last4,
-    purchased_at: purchasedAt,
-    created_at: new Date().toISOString(),
-    status: 'approved',
-    kickback_guest_rate: venue.kickback_guest ?? null,
-    kickback_referrer_rate: venue.kickback_referrer ?? null,
-    square_payment_id: payment.id,
-    square_card_fingerprint: fingerprint,
-    square_location_id: payment.location_id ?? null
-  }).select('id').single();
+  const { data: created, error: insertError } = await supabaseAdmin
+    .from('claims')
+    .upsert(
+      {
+        venue: venue.name,
+        venue_id: venueId,
+        submitter_id: submitterId,
+        referrer_id: referrer.referrer_id ?? null,
+        referrer: referrer.referrer ?? null,
+        amount: amount / 100,
+        last_4: last4,
+        purchased_at: purchasedAt,
+        created_at: new Date().toISOString(),
+        status: 'approved',
+        kickback_guest_rate: venue.kickback_guest ?? null,
+        kickback_referrer_rate: venue.kickback_referrer ?? null,
+        square_payment_id: payment.id,
+        square_card_fingerprint: fingerprint,
+        square_location_id: payment.location_id ?? null
+      },
+      { onConflict: 'square_payment_id', ignoreDuplicates: true }
+    )
+    .select('id')
+    .maybeSingle();
 
   if (insertError) {
     return json({ ok: false, error: insertError.message }, { status: 500 });
+  }
+
+  if (!created?.id) {
+    return json({ ok: true, already_linked: true });
   }
 
   try {

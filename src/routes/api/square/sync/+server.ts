@@ -1,9 +1,19 @@
 import { json } from '@sveltejs/kit';
 import { supabaseAdmin } from '$lib/server/supabaseAdmin';
 import { getSquareApiBase, squareVersion, type SquarePayment } from '$lib/server/square/payments';
+import { GOAL_DAYS } from '$lib/claims/constants';
 const defaultSyncHours = 24;
 const overlapMinutes = 10;
 const pageLimit = 200;
+const dayMs = 24 * 60 * 60 * 1000;
+
+function isWithinAutoClaimWindow(firstPurchasedAt: string, paymentPurchasedAt: string): boolean {
+  const firstTime = new Date(firstPurchasedAt).getTime();
+  const paymentTime = new Date(paymentPurchasedAt).getTime();
+  if (!Number.isFinite(firstTime) || !Number.isFinite(paymentTime)) return false;
+  const diffInDays = Math.floor((paymentTime - firstTime) / dayMs);
+  return diffInDays >= 0 && diffInDays < GOAL_DAYS;
+}
 
 export async function POST({ request }) {
   const body = await request.json().catch(() => null);
@@ -148,22 +158,64 @@ export async function POST({ request }) {
     return json({ ok: true, created: 0 });
   }
 
-  const { data: fingerprintClaims, error: fingerprintError } = await supabaseAdmin
-    .from('claims')
-    .select('square_card_fingerprint,submitter_id,purchased_at')
+  const { data: bindings, error: bindingsError } = await supabaseAdmin
+    .from('square_card_bindings')
+    .select('card_fingerprint,user_id,first_purchased_at')
     .eq('venue_id', venueId)
-    .in('square_card_fingerprint', fingerprints)
-    .order('purchased_at', { ascending: true });
+    .in('card_fingerprint', fingerprints);
 
-  if (fingerprintError) {
-    return json({ ok: false, error: fingerprintError.message }, { status: 500 });
+  if (bindingsError) {
+    return json({ ok: false, error: bindingsError.message }, { status: 500 });
   }
 
   const fingerprintToUser = new Map<string, string>();
-  for (const claim of fingerprintClaims ?? []) {
-    if (!claim.square_card_fingerprint || !claim.submitter_id) continue;
-    if (!fingerprintToUser.has(claim.square_card_fingerprint)) {
+  const fingerprintToFirstPurchasedAt = new Map<string, string>();
+  for (const binding of bindings ?? []) {
+    if (!binding.card_fingerprint || !binding.user_id) continue;
+    fingerprintToUser.set(binding.card_fingerprint, binding.user_id);
+    if (binding.first_purchased_at) {
+      fingerprintToFirstPurchasedAt.set(binding.card_fingerprint, binding.first_purchased_at);
+    }
+  }
+
+  const missingFingerprints = fingerprints.filter((fingerprint) => !fingerprintToUser.has(fingerprint));
+  if (missingFingerprints.length > 0) {
+    const { data: legacyFingerprintClaims, error: legacyFingerprintError } = await supabaseAdmin
+      .from('claims')
+      .select('square_card_fingerprint,submitter_id,purchased_at,id')
+      .eq('venue_id', venueId)
+      .in('square_card_fingerprint', missingFingerprints)
+      .order('purchased_at', { ascending: true });
+
+    if (legacyFingerprintError) {
+      return json({ ok: false, error: legacyFingerprintError.message }, { status: 500 });
+    }
+
+    const bindingsToSeed: Array<Record<string, unknown>> = [];
+    for (const claim of legacyFingerprintClaims ?? []) {
+      if (!claim.square_card_fingerprint || !claim.submitter_id) continue;
+      if (fingerprintToUser.has(claim.square_card_fingerprint)) continue;
       fingerprintToUser.set(claim.square_card_fingerprint, claim.submitter_id);
+      if (claim.purchased_at) {
+        fingerprintToFirstPurchasedAt.set(claim.square_card_fingerprint, claim.purchased_at);
+      }
+      bindingsToSeed.push({
+        venue_id: venueId,
+        card_fingerprint: claim.square_card_fingerprint,
+        user_id: claim.submitter_id,
+        first_claim_id: claim.id ?? null,
+        first_purchased_at: claim.purchased_at ?? null,
+        updated_at: new Date().toISOString()
+      });
+    }
+
+    if (bindingsToSeed.length > 0) {
+      const { error: seedBindingsError } = await supabaseAdmin
+        .from('square_card_bindings')
+        .upsert(bindingsToSeed, { onConflict: 'venue_id,card_fingerprint', ignoreDuplicates: true });
+      if (seedBindingsError) {
+        return json({ ok: false, error: seedBindingsError.message }, { status: 500 });
+      }
     }
   }
 
@@ -206,7 +258,16 @@ export async function POST({ request }) {
       if (!submitterId) return null;
       const referrer = userToReferrer.get(submitterId) ?? { referrer_id: null, referrer: null };
       const amount = payment.amount_money?.amount != null ? payment.amount_money.amount / 100 : null;
-      if (amount == null || !payment.card_details?.card?.last_4 || !payment.created_at) return null;
+      const firstPurchasedAt = fingerprint ? fingerprintToFirstPurchasedAt.get(fingerprint) ?? null : null;
+      if (
+        amount == null ||
+        !payment.card_details?.card?.last_4 ||
+        !payment.created_at ||
+        !firstPurchasedAt ||
+        !isWithinAutoClaimWindow(firstPurchasedAt, payment.created_at)
+      ) {
+        return null;
+      }
       return {
         venue: venue.name,
         venue_id: venueId,
@@ -230,7 +291,7 @@ export async function POST({ request }) {
   if (claimsToInsert.length > 0) {
     const { data: inserted, error: insertError } = await supabaseAdmin
       .from('claims')
-      .insert(claimsToInsert)
+      .upsert(claimsToInsert, { onConflict: 'square_payment_id', ignoreDuplicates: true })
       .select('id');
     if (insertError) {
       return json({ ok: false, error: insertError.message }, { status: 500 });

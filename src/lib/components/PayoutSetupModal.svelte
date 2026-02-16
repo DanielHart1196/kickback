@@ -70,11 +70,8 @@
       status = 'success';
       successMessage = 'Payout details saved';
       setTimeout(() => {
+        onSuccess();
         onClose();
-        // Force a page refresh to ensure data is reloaded
-        if (typeof window !== 'undefined') {
-          window.location.reload();
-        }
       }, 1500);
     } catch (error: any) {
       status = 'error';

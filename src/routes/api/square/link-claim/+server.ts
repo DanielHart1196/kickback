@@ -106,6 +106,60 @@ export async function POST({ request }) {
     return json({ ok: true, linked: false });
   }
 
+  const { data: existingByPayment, error: existingByPaymentError } = await supabaseAdmin
+    .from('claims')
+    .select('id,submitter_id')
+    .eq('square_payment_id', bestMatch.payment.id)
+    .limit(1);
+
+  if (existingByPaymentError) {
+    return json({ ok: false, error: existingByPaymentError.message }, { status: 500 });
+  }
+
+  const alreadyLinkedClaim = existingByPayment?.[0] ?? null;
+  if (alreadyLinkedClaim && alreadyLinkedClaim.id !== claim.id) {
+    return json({
+      ok: true,
+      linked: false,
+      duplicate: true,
+      by_same_user: (alreadyLinkedClaim.submitter_id ?? null) === (claim.submitter_id ?? null)
+    });
+  }
+
+  const { data: binding, error: bindingError } = await supabaseAdmin
+    .from('square_card_bindings')
+    .select('user_id')
+    .eq('venue_id', claim.venue_id)
+    .eq('card_fingerprint', bestMatch.fingerprint)
+    .maybeSingle();
+
+  if (bindingError) {
+    return json({ ok: false, error: bindingError.message }, { status: 500 });
+  }
+
+  if (binding?.user_id && binding.user_id !== claim.submitter_id) {
+    return json({ ok: false, error: 'card_bound_to_other_user' }, { status: 409 });
+  }
+
+  if (!binding?.user_id) {
+    const { error: createBindingError } = await supabaseAdmin
+      .from('square_card_bindings')
+      .upsert(
+        {
+          venue_id: claim.venue_id,
+          card_fingerprint: bestMatch.fingerprint,
+          user_id: claim.submitter_id,
+          first_claim_id: claim.id,
+          first_purchased_at: claim.purchased_at,
+          updated_at: new Date().toISOString()
+        },
+        { onConflict: 'venue_id,card_fingerprint', ignoreDuplicates: true }
+      );
+    if (createBindingError) {
+      return json({ ok: false, error: createBindingError.message }, { status: 500 });
+    }
+  }
+
   const { error: updateError } = await supabaseAdmin
     .from('claims')
     .update({
@@ -117,6 +171,9 @@ export async function POST({ request }) {
     .eq('id', claim.id);
 
   if (updateError) {
+    if (String(updateError.message ?? '').toLowerCase().includes('duplicate key')) {
+      return json({ ok: true, linked: false, duplicate: true, by_same_user: false });
+    }
     return json({ ok: false, error: updateError.message }, { status: 500 });
   }
 

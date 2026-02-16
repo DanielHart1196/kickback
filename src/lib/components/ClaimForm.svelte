@@ -472,7 +472,7 @@
               style={last4TooltipStyle}
             >
               <p class="font-semibold uppercase">WHY WE NEED THIS</p>
-              <p class="mt-1 text-zinc-400">We use the last 4 digits to match your purchase with the venue. We never see the full card number and never charge your card.</p>
+              <p class="mt-1 text-zinc-400">We use the last 4 digits to verify your purchase with the venue. We never see the full card number and never charge your card.</p>
               <p class="mt-2 text-zinc-500">Apple Pay and Google Pay can show a different card number than the one on your physical card. Please enter the last 4 shown in your wallet app.</p>
             </div>
           {/if}

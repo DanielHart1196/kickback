@@ -6,8 +6,15 @@
   let message = '';
   let magicLinkEmail = '';
   let magicLinkLoading = false;
+  let adminSignupCode = '';
+  let showAdminSignupCode = false;
+  const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
   async function handleGoogleOAuth() {
+    if (showAdminSignupCode && adminSignupCode.trim() !== '3095') {
+      message = 'Please enter a valid admin sign-up code';
+      return;
+    }
     loading = true;
     message = '';
 
@@ -15,7 +22,7 @@
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: `${window.location.origin}/auth/callback?redirect_to=${encodeURIComponent(window.location.origin + '/admin')}`
+          redirectTo: `${window.location.origin}/auth/callback?redirect_to=${encodeURIComponent(window.location.origin + '/admin')}&admin_code=${encodeURIComponent(adminSignupCode)}`
         }
       });
 
@@ -34,22 +41,45 @@
       message = 'Please enter your email address';
       return;
     }
+    if (!emailPattern.test(magicLinkEmail.trim())) {
+      message = 'Please enter a valid email address';
+      return;
+    }
 
     magicLinkLoading = true;
     message = '';
 
     try {
+      const accessCheckRes = await fetch('/api/admin/access-check', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: magicLinkEmail })
+      });
+      const accessCheck = await accessCheckRes.json().catch(() => null);
+      if (!accessCheckRes.ok || !accessCheck?.ok) {
+        message = accessCheck?.error ?? 'Unable to verify admin access';
+        return;
+      }
+
+      if (accessCheck.requires_code) {
+        showAdminSignupCode = true;
+        if (adminSignupCode.trim() !== '3095') {
+          message = 'Enter admin sign-up code to continue';
+          return;
+        }
+      }
+
       const { data, error } = await supabase.auth.signInWithOtp({
         email: magicLinkEmail,
         options: {
-          emailRedirectTo: `${window.location.origin}/auth/callback?redirect_to=${encodeURIComponent(window.location.origin + '/admin')}&email=${encodeURIComponent(magicLinkEmail)}`
+          emailRedirectTo: `${window.location.origin}/auth/callback?redirect_to=${encodeURIComponent(window.location.origin + '/admin')}&email=${encodeURIComponent(magicLinkEmail)}&admin_code=${encodeURIComponent(adminSignupCode)}`
         }
       });
 
       if (error) {
         message = error.message;
       } else {
-        message = 'Check your email for the magic link!';
+        message = 'MAGIC LINK SENT, CHECK YOUR INBOX';
       }
     } catch (error) {
       message = error instanceof Error ? error.message : 'Failed to send magic link';
@@ -59,6 +89,12 @@
   }
 
   onMount(async () => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('error') === 'admin_code_required') {
+      message = 'Valid admin sign-up code required for new owner access';
+      showAdminSignupCode = true;
+    }
+
     const { data: sessionData } = await supabase.auth.getSession();
     const session = sessionData.session;
     if (!session?.user) return;
@@ -115,13 +151,22 @@
         on:keydown={(e) => e.key === 'Enter' && handleMagicLink()}
         class="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-xl text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-white focus:border-transparent"
       />
+      {#if showAdminSignupCode}
+        <input
+          type="text"
+          bind:value={adminSignupCode}
+          placeholder="Admin sign-up code"
+          disabled={loading || magicLinkLoading}
+          class="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-xl text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-white focus:border-transparent"
+        />
+      {/if}
       <button
         type="button"
         on:click={handleMagicLink}
         disabled={magicLinkLoading}
         class="w-full h-10 rounded-full bg-orange-500 text-black text-[14px] leading-[20px] font-black inline-flex items-center justify-center active:scale-95 transition-all disabled:opacity-50 hover:bg-orange-600"
       >
-        {magicLinkLoading ? 'Sending...' : 'SEND MAGIC LINK'}
+        {magicLinkLoading ? 'SENDING...' : 'SEND MAGIC LINK'}
       </button>
 
       {#if message}

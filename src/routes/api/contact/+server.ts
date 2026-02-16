@@ -4,6 +4,7 @@ import { env } from '$env/dynamic/private';
 import { supabaseAdmin } from '$lib/server/supabaseAdmin';
 
 const SUPPORT_TO = 'support@kkbk.app';
+const MAX_CONTACT_MESSAGE_LENGTH = 500;
 
 function getSmtpConfig() {
   const host = env.PRIVATE_SMTP_HOST || 'smtp.resend.com';
@@ -34,6 +35,9 @@ export async function POST({ request }) {
   }
   if (!venue) {
     return json({ message: 'Venue name is required' }, { status: 400 });
+  }
+  if (message && message.length > MAX_CONTACT_MESSAGE_LENGTH) {
+    return json({ message: `Message must be ${MAX_CONTACT_MESSAGE_LENGTH} characters or fewer` }, { status: 400 });
   }
 
   const ua = request.headers.get('user-agent') ?? null;

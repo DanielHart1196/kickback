@@ -3,7 +3,7 @@
   import { onMount, tick } from 'svelte';
   import { flip } from 'svelte/animate';
   import { GOAL_DAYS, KICKBACK_RATE } from '$lib/claims/constants';
-  import { calculateKickbackWithRate, getDaysAtVenue, getDaysAtVenueForUser, isClaimDenied } from '$lib/claims/utils';
+  import { calculateKickbackWithRate, isClaimDenied } from '$lib/claims/utils';
   import { supabase } from '$lib/supabase';
   import type { Claim } from '$lib/claims/types';
   import type { Venue } from '$lib/venues/types';
@@ -70,6 +70,11 @@
   let payoutStripeAccountStatus: 'pending' | 'verified' | 'rejected' | null = null;
   let payoutStripeAccountLink = '';
   let payoutStripeRequirements: any[] = [];
+  const SUPPORT_MESSAGE_MAX_LENGTH = 500;
+  let supportMessageInput = '';
+  let supportSubmitting = false;
+  let supportStatus: 'idle' | 'success' | 'error' = 'idle';
+  let supportStatusMessage = '';
   let notifyApprovedClaims = false;
   let notifyPayoutConfirmation = false;
   let isPwaInstalled = false;
@@ -421,6 +426,58 @@
     }
   }
 
+  async function sendSupportMessage() {
+    const message = String(supportMessageInput || '').trim();
+    const email = String(userEmail || '').trim();
+    if (!message) return;
+    if (message.length > SUPPORT_MESSAGE_MAX_LENGTH) {
+      supportStatus = 'error';
+      supportStatusMessage = `Message must be ${SUPPORT_MESSAGE_MAX_LENGTH} characters or fewer.`;
+      return;
+    }
+    if (!email) {
+      supportStatus = 'error';
+      supportStatusMessage = 'Signed-in email is required.';
+      return;
+    }
+
+    supportSubmitting = true;
+    supportStatus = 'idle';
+    supportStatusMessage = '';
+    try {
+      const response = await fetch('/api/contact', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email,
+          venue: 'User Dashboard',
+          message
+        })
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.message ?? 'Failed to send support message');
+      }
+      supportStatus = 'success';
+      supportStatusMessage = "Thanks - we've received your message.";
+      supportMessageInput = '';
+    } catch (error) {
+      supportStatus = 'error';
+      supportStatusMessage = error instanceof Error ? error.message : 'Failed to send support message';
+    } finally {
+      supportSubmitting = false;
+    }
+  }
+
+  function handleSupportMessageInput(event: Event & { currentTarget: HTMLTextAreaElement }) {
+    const next = String(event.currentTarget.value ?? '');
+    supportMessageInput = next.slice(0, SUPPORT_MESSAGE_MAX_LENGTH);
+    if (supportStatus !== 'idle') {
+      supportStatus = 'idle';
+      supportStatusMessage = '';
+    }
+  }
+
   /*
   async function connectStripe() {
     if (!userId) return;
@@ -598,6 +655,33 @@
 
       return sum;
     }, 0);
+  }
+
+  function getDaysLeftAtVenueForUser(venueName: string, submitterId: string | undefined): number {
+    if (!submitterId) return GOAL_DAYS;
+
+    const normalizedVenue = venueName.trim().toLowerCase();
+    const userVenueClaims = claims.filter((c) => {
+      if (isClaimDenied(c)) return false;
+      if (c.submitter_id !== submitterId) return false;
+      return c.venue.trim().toLowerCase() === normalizedVenue;
+    });
+
+    if (userVenueClaims.length === 0) return GOAL_DAYS;
+
+    const firstClaimAt = Math.min(
+      ...userVenueClaims.map((c) => new Date(c.purchased_at).getTime()).filter((time) => Number.isFinite(time))
+    );
+    if (!Number.isFinite(firstClaimAt)) return GOAL_DAYS;
+
+    const diffInDays = Math.floor((Date.now() - firstClaimAt) / (1000 * 60 * 60 * 24));
+    return Math.max(GOAL_DAYS - diffInDays, 0);
+  }
+
+  function getProgressPercentAtVenueForUser(venueName: string, submitterId: string | undefined): number {
+    const daysLeft = getDaysLeftAtVenueForUser(venueName, submitterId);
+    const elapsedDays = Math.min(Math.max(GOAL_DAYS - daysLeft, 0), GOAL_DAYS);
+    return (elapsedDays / GOAL_DAYS) * 100;
   }
 
   function getClaimStatus(claim: Claim): 'pending' | 'approved' | 'paid' | 'guestpaid' | 'refpaid' | 'paidout' | 'denied' {
@@ -998,9 +1082,9 @@
         {@const claim = item.claim}
       <div transition:slide|local={{ duration: 220 }}>
         <details
-          class={`group bg-zinc-900/20 border border-zinc-900 rounded-2xl overflow-hidden ${
+          class={`group bg-zinc-900/20 border border-zinc-900 rounded-2xl overflow-hidden transition-[border-color,box-shadow] duration-1000 ease-out ${
             (claim.id ?? claim.created_at) === highlightClaimKey
-              ? 'ring-2 ring-orange-500/60 shadow-lg shadow-orange-500/20'
+              ? 'border-orange-500/70 shadow-lg shadow-orange-500/20'
               : ''
           }`}
           data-claim-key={claim.id ?? claim.created_at}
@@ -1063,13 +1147,13 @@
             <div class="flex items-center justify-between">
               <p class="text-sm font-black uppercase text-zinc-400 tracking-widest">30-day progress</p>
               <p class="text-sm font-black text-white">
-                {Math.max(GOAL_DAYS - getDaysAtVenueForUser(claims, claim.venue, claim.submitter_id ?? undefined), 0)} DAYS LEFT
+                {getDaysLeftAtVenueForUser(claim.venue, claim.submitter_id ?? undefined)} DAYS LEFT
               </p>
             </div>
             <div class="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden">
               <div
                 class="h-full bg-orange-500 transition-all duration-1000"
-                style="width: {(getDaysAtVenueForUser(claims, claim.venue, claim.submitter_id ?? undefined) / GOAL_DAYS) * 100}%"
+                style="width: {getProgressPercentAtVenueForUser(claim.venue, claim.submitter_id ?? undefined)}%"
               ></div>
             </div>
           </div>
@@ -1328,6 +1412,47 @@
           </div>
         </div>
         <div class="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
+          <p class="text-[11px] font-black uppercase tracking-[0.2em] text-zinc-500">Contact Support</p>
+          <div class="mt-3 flex items-center justify-between gap-3">
+            <a
+              href="mailto:support@kkbk.app"
+              target="_blank"
+              rel="noreferrer noopener"
+              class="inline-block text-[11px] font-black uppercase tracking-[0.2em] text-orange-400 hover:text-orange-300"
+            >
+              support@kkbk.app
+            </a>
+            {#if supportMessageInput.length > 0}
+              <p class="text-[10px] font-bold text-zinc-500 whitespace-nowrap">
+                {supportMessageInput.length}/{SUPPORT_MESSAGE_MAX_LENGTH}
+              </p>
+            {/if}
+          </div>
+          <div class="mt-3 space-y-3">
+            <textarea
+              bind:value={supportMessageInput}
+              rows="2"
+              maxlength={SUPPORT_MESSAGE_MAX_LENGTH}
+              placeholder="Your message..."
+              on:input={handleSupportMessageInput}
+              class="w-full resize-none rounded-xl border border-zinc-800 bg-black/40 px-4 py-3 text-sm text-white placeholder-zinc-600 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500 transition-all"
+            ></textarea>
+            <button
+              type="button"
+              on:click={sendSupportMessage}
+              disabled={supportSubmitting || !supportMessageInput.trim()}
+              class="w-full rounded-xl bg-white px-4 py-3 text-xs font-black uppercase tracking-[0.2em] text-black hover:bg-zinc-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {supportSubmitting ? 'Sending...' : 'Send'}
+            </button>
+          </div>
+          {#if supportStatusMessage}
+            <p class={`mt-2 text-[10px] font-bold uppercase tracking-widest ${supportStatus === 'error' ? 'text-red-400' : 'text-zinc-500'}`}>
+              {supportStatusMessage}
+            </p>
+          {/if}
+        </div>
+        <div class="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
           <p class="text-[11px] font-black uppercase tracking-[0.2em] text-zinc-500">Actions</p>
           <button
             type="button"
@@ -1357,6 +1482,7 @@
   .custom-scrollbar::-webkit-scrollbar {
     display: none; /* Chrome, Safari, Opera */
   }
+
 </style>
 
 {#if showDeleteWarning}

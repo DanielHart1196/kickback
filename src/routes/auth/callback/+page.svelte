@@ -38,6 +38,8 @@
 
     if (session) {
       const redirectTo = $page.url.searchParams.get('redirect_to') || '/';
+      const adminCode = ($page.url.searchParams.get('admin_code') || '').trim();
+      const hasValidAdminCode = adminCode === '3095';
       const { data: existingProfile } = await supabase
         .from('profiles')
         .select('role, notify_payout_confirmation')
@@ -56,7 +58,11 @@
           }
           const isAdmin = target.pathname.includes('/admin');
           if (isAdmin) {
-            if (currentRole !== 'admin' && currentRole !== 'owner') {
+            if (currentRole !== 'admin' && currentRole !== 'owner' && !hasValidAdminCode) {
+              await goto('/admin/login?error=admin_code_required');
+              return;
+            }
+            if (currentRole !== 'admin' && currentRole !== 'owner' && hasValidAdminCode) {
               await supabase.from('profiles').upsert({
                 id: session.user.id,
                 role: 'owner',
@@ -85,7 +91,11 @@
       }
       const isAdmin = redirectTo.includes('/admin');
       if (isAdmin) {
-        if (currentRole !== 'admin' && currentRole !== 'owner') {
+        if (currentRole !== 'admin' && currentRole !== 'owner' && !hasValidAdminCode) {
+          await goto('/admin/login?error=admin_code_required');
+          return;
+        }
+        if (currentRole !== 'admin' && currentRole !== 'owner' && hasValidAdminCode) {
           await supabase.from('profiles').upsert({
             id: session.user.id,
             role: 'owner',

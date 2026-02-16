@@ -911,12 +911,22 @@
             })
           });
           const precheck = await precheckRes.json().catch(() => null);
-          if (precheckRes.ok && precheck?.ok && precheck.duplicate && precheck.by_same_user) {
-            const venueName = getVenueNameById(venueId) || venueId;
-            const daysLeft = getAutoClaimDaysLeft(venueId, venueName) ?? 0;
-            autoClaimWarningVenue = venueName;
-            autoClaimWarningDaysLeft = daysLeft;
-            showAutoClaimWarning = true;
+          if (precheckRes.ok && precheck?.ok && precheck.bound_to_other_user) {
+            status = 'error';
+            errorMessage = 'This card is already linked to another account at this venue';
+            return false;
+          }
+          if (precheckRes.ok && precheck?.ok && precheck.duplicate) {
+            if (precheck.by_same_user) {
+              const venueName = getVenueNameById(venueId) || venueId;
+              const daysLeft = getAutoClaimDaysLeft(venueId, venueName) ?? 0;
+              autoClaimWarningVenue = venueName;
+              autoClaimWarningDaysLeft = daysLeft;
+              showAutoClaimWarning = true;
+              return false;
+            }
+            status = 'error';
+            errorMessage = 'This transaction has already been claimed';
             return false;
           }
         } catch (err) {
@@ -981,7 +991,7 @@
         if (highlightClaimKey) {
           setTimeout(() => {
             if (highlightClaimKey) highlightClaimKey = null;
-          }, 2000);
+          }, 3000);
         }
         if (shouldShowInstallBanner()) {
           showInstallBanner = true;
@@ -1420,6 +1430,10 @@
   {#if showPayoutSetup && userId}
     <PayoutSetupModal
       userId={userId}
+      onSuccess={async () => {
+        await fetchDashboardData();
+        refreshDashboardPayoutProfile();
+      }}
       onClose={() => (showPayoutSetup = false)}
     />
   {/if}

@@ -83,6 +83,29 @@ export async function POST({ request }) {
     return json({ ok: true, connected: true, duplicate: false });
   }
 
+  if (submitterId) {
+    const { data: binding, error: bindingError } = await supabaseAdmin
+      .from('square_card_bindings')
+      .select('user_id')
+      .eq('venue_id', venueId)
+      .eq('card_fingerprint', matched.fingerprint)
+      .maybeSingle();
+
+    if (bindingError) {
+      return json({ ok: false, error: bindingError.message }, { status: 500 });
+    }
+
+    if (binding?.user_id && binding.user_id !== submitterId) {
+      return json({
+        ok: true,
+        connected: true,
+        duplicate: false,
+        by_same_user: false,
+        bound_to_other_user: true
+      });
+    }
+  }
+
   const { data: existing, error: existError } = await supabaseAdmin
     .from('claims')
     .select('id,submitter_id')
@@ -100,6 +123,7 @@ export async function POST({ request }) {
     ok: true,
     connected: true,
     duplicate: alreadyLinked,
-    by_same_user: bySameUser
+    by_same_user: bySameUser,
+    bound_to_other_user: false
   });
 }
