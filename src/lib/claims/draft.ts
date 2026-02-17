@@ -9,7 +9,8 @@ export function buildDraftFromParams(params: URLSearchParams): ClaimDraft {
     venueId: params.get('venue_id') || '',
     venueCode: params.get('venue') || '',
     ref: params.get('ref') || '',
-    last4: params.get('last4') || ''
+    last4: params.get('last4') || '',
+    purchaseTime: params.get('purchase_time') || ''
   };
 }
 
@@ -53,6 +54,7 @@ export function draftToQuery(draft: ClaimDraft): string {
   else if (draft.venueId) params.set('venue_id', draft.venueId);
   if (draft.ref) params.set('ref', draft.ref);
   if (draft.last4) params.set('last4', draft.last4);
+  if (draft.purchaseTime) params.set('purchase_time', draft.purchaseTime);
 
   return params.toString();
 }

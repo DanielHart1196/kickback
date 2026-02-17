@@ -521,7 +521,8 @@
                   venueId: selectedVenue?.id ?? '',
                   venueCode: selectedVenue?.short_code ?? undefined,
                   ref: typeof referrer === 'string' ? referrer : '',
-                  last4: typeof last4 === 'string' ? last4 : ''
+                  last4: typeof last4 === 'string' ? last4 : '',
+                  purchaseTime: typeof purchaseTime === 'string' ? purchaseTime : ''
                 };
                 try {
                   saveDraftToStorage(localStorage, draft);
@@ -535,7 +536,8 @@
                   venueId: selectedVenue?.id ?? '',
                   venueCode: selectedVenue?.short_code ?? undefined,
                   ref: typeof referrer === 'string' ? referrer : '',
-                  last4: typeof last4 === 'string' ? last4 : ''
+                  last4: typeof last4 === 'string' ? last4 : '',
+                  purchaseTime: typeof purchaseTime === 'string' ? purchaseTime : ''
                 };
                 try {
                   saveDraftToStorage(localStorage, draft);

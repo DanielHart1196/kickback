@@ -88,11 +88,15 @@
     }
 
     fromClaimFlow = Boolean(
-      urlDraft ||
-      storedDraft ||
       params.has('ref') ||
       params.has('amount') ||
-      params.has('last4')
+      params.has('last4') ||
+      String(urlDraft?.ref ?? '').trim() ||
+      String(urlDraft?.amount ?? '').trim() ||
+      String(urlDraft?.last4 ?? '').trim() ||
+      String(storedDraft?.ref ?? '').trim() ||
+      String(storedDraft?.amount ?? '').trim() ||
+      String(storedDraft?.last4 ?? '').trim()
     );
     if (hasOnlyVenue) {
       const venueParam = params.get('venue_id') || params.get('venue') || '';
@@ -251,23 +255,18 @@
       window.location.href = '/';
       return;
     }
-    const before = window.location.href;
-    if (window.history.length > 1) {
-      window.history.back();
-      setTimeout(() => {
-        if (window.location.href === before) {
-          window.location.href = '/';
-        }
-      }, 600);
-    } else {
-      window.location.href = '/';
-    }
+    const params = new URLSearchParams(window.location.search);
+    const draftFromUrl = getDraftFromUrl(window.location.search);
+    const draftFromStorage = getDraftFromStorage(localStorage);
+    const draft = draftFromUrl ?? draftFromStorage;
+    const query = draft ? draftToQuery(draft) : params.toString();
+    window.location.href = query ? `/?${query}` : '/';
   }
 </script>
 
 <main class="min-h-screen bg-black text-white flex flex-col items-center p-6">
   <div class={`w-full max-w-sm space-y-5`}>
-    <div class="text-center pt-16 pb-16">
+    <div class={`text-center pt-16 ${venuePromo ? 'pb-0' : 'pb-16'}`}>
       <div class="min-h-[44px] flex items-center justify-center">
         <h1 class="text-3xl font-black uppercase tracking-tighter leading-none whitespace-normal md:whitespace-nowrap">
           Welcome to <span class="sm:hidden"><br /></span><span class="kickback-wordmark"><span class="text-white">Kick</span><span class="text-orange-500">back</span></span>
@@ -283,14 +282,14 @@
               class="h-48 w-auto max-w-full object-contain rounded-2xl border-2 transition-opacity duration-200 {promoLogoLoaded ? 'border-orange-500/80 opacity-100' : 'border-transparent opacity-0'}"
             />
           {/if}
-          <p class="text-xs text-zinc-300 font-semibold text-center">
+          <p class="text-sm text-zinc-300 font-semibold text-center">
             Bring a mate to {venuePromo.name} and you'll both get {venuePromo.rate_pct}% cash back on their spend for 30 days
           </p>
         </div>
       {/if}
       {#if pendingKickback}
-        <div class="mt-0">
-          <p class="text-orange-500 text-xs font-black uppercase">Sign in to claim your ${pendingKickback} kickback</p>
+        <div class="mt-5">
+          <p class="text-sm text-zinc-300 font-semibold text-center">Sign in to claim your ${pendingKickback} kickback</p>
         </div>
       {/if}
     </div>
@@ -348,16 +347,6 @@
           {magicLinkLoading ? 'SENDING...' : 'SEND MAGIC LINK'}
         {/if}
       </button>
-      {#if usePassword}
-        <button
-          type="button"
-          on:click={handleForgotPassword}
-          disabled={passwordAuthLoading || magicLinkLoading}
-          class="text-xs font-semibold text-zinc-500 hover:text-zinc-300 transition-colors disabled:opacity-50"
-        >
-          Forgot password?
-        </button>
-      {/if}
       <button
         type="button"
         on:click={() => {
@@ -370,6 +359,16 @@
       >
         {usePassword ? 'Use magic link instead' : 'Use a password instead'}
       </button>
+      {#if usePassword}
+        <button
+          type="button"
+          on:click={handleForgotPassword}
+          disabled={passwordAuthLoading || magicLinkLoading}
+          class="text-xs font-semibold text-zinc-500 hover:text-zinc-300 transition-colors disabled:opacity-50"
+        >
+          Forgot password?
+        </button>
+      {/if}
 
       {#if message}
         <p transition:fade class="text-center text-xs font-bold text-zinc-400 uppercase">{message}</p>

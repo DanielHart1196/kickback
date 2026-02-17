@@ -29,4 +29,5 @@ export type ClaimDraft = {
   venueCode?: string;
   ref: string;
   last4: string;
+  purchaseTime?: string;
 };

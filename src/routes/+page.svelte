@@ -145,7 +145,8 @@
       venueId: String(urlDraft?.venueId ?? storedDraft?.venueId ?? '').trim(),
       venueCode: String(urlDraft?.venueCode ?? storedDraft?.venueCode ?? '').trim() || undefined,
       ref: String(urlDraft?.ref ?? storedDraft?.ref ?? '').trim(),
-      last4: String(urlDraft?.last4 ?? storedDraft?.last4 ?? '').trim()
+      last4: String(urlDraft?.last4 ?? storedDraft?.last4 ?? '').trim(),
+      purchaseTime: String(urlDraft?.purchaseTime ?? storedDraft?.purchaseTime ?? '').trim()
     };
   }
 
@@ -839,6 +840,12 @@
       }
       referrer = draft.ref || '';
       last4 = draft.last4 || '';
+      if (draft.purchaseTime) {
+        const parsedPurchase = new Date(draft.purchaseTime);
+        if (Number.isFinite(parsedPurchase.getTime())) {
+          purchaseTime = draft.purchaseTime;
+        }
+      }
 
       isReferrerLocked = Boolean(referrer);
       isVenueLocked = Boolean(getVenueIdByName(venue));
@@ -1131,7 +1138,8 @@
     draftVenue: string,
     draftVenueId: string,
     draftReferrer: string,
-    draftLast4: string
+    draftLast4: string,
+    draftPurchaseTime: string
   ) {
     const venueCode = getVenueCodeById(draftVenueId);
     const query = draftToQuery({
@@ -1140,12 +1148,13 @@
       venueId: draftVenueId,
       venueCode,
       ref: draftReferrer,
-      last4: draftLast4
+      last4: draftLast4,
+      purchaseTime: draftPurchaseTime
     });
     return query ? `/login?${query}` : '/login';
   }
 
-  $: loginUrl = buildLoginUrl(amount, venue, venueId, referrer, last4);
+  $: loginUrl = buildLoginUrl(amount, venue, venueId, referrer, last4, purchaseTime);
   $: autoClaimsActive = Boolean(
     getAutoClaimDaysLeft(venueId, getVenueNameById(venueId) || venue)
   );
