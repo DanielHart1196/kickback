@@ -51,11 +51,6 @@
       if (isAbsolute) {
         try {
           const target = new URL(redirectTo);
-          const isSameOrigin = target.origin === window.location.origin;
-          if (isPrivilegedRole && isSameOrigin && (target.pathname === '/' || target.pathname === '')) {
-            window.location.replace('/admin');
-            return;
-          }
           const isAdmin = target.pathname.includes('/admin');
           if (isAdmin) {
             if (currentRole !== 'admin' && currentRole !== 'owner' && !hasValidAdminCode) {
@@ -104,10 +99,6 @@
         }
         await goto('/admin');
       } else {
-        if (isPrivilegedRole && (redirectTo === '/' || redirectTo === '')) {
-          await goto('/admin');
-          return;
-        }
         // Create/update profile for regular users
         const userEmail = session.user.email || $page.url.searchParams.get('email');
         if (userEmail) {

@@ -75,6 +75,7 @@
   let supportSubmitting = false;
   let supportStatus: 'idle' | 'success' | 'error' = 'idle';
   let supportStatusMessage = '';
+  let supportSuccessTimer: ReturnType<typeof setTimeout> | null = null;
   let notifyApprovedClaims = false;
   let notifyPayoutConfirmation = false;
   let isPwaInstalled = false;
@@ -486,6 +487,10 @@
     }
 
     supportSubmitting = true;
+    if (supportSuccessTimer) {
+      clearTimeout(supportSuccessTimer);
+      supportSuccessTimer = null;
+    }
     supportStatus = 'idle';
     supportStatusMessage = '';
     try {
@@ -503,8 +508,15 @@
         throw new Error(payload?.message ?? 'Failed to send support message');
       }
       supportStatus = 'success';
-      supportStatusMessage = "Thanks - we've received your message.";
+      supportStatusMessage = 'thanks - message received';
       supportMessageInput = '';
+      supportSuccessTimer = setTimeout(() => {
+        if (supportStatus === 'success') {
+          supportStatus = 'idle';
+          supportStatusMessage = '';
+        }
+        supportSuccessTimer = null;
+      }, 3000);
     } catch (error) {
       supportStatus = 'error';
       supportStatusMessage = error instanceof Error ? error.message : 'Failed to send support message';
@@ -519,6 +531,10 @@
     if (supportStatus !== 'idle') {
       supportStatus = 'idle';
       supportStatusMessage = '';
+    }
+    if (supportSuccessTimer) {
+      clearTimeout(supportSuccessTimer);
+      supportSuccessTimer = null;
     }
   }
 

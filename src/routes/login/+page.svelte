@@ -27,6 +27,7 @@
   let passwordAuthLoading = false;
   let venuePromo: { name: string; logo_url: string | null; rate_pct: number } | null = null;
   let promoLogoLoaded = false;
+  let fromClaimFlow = false;
   $: hasPromoOrKickback = !!venuePromo || !!pendingKickback;
 
   pendingKickback = data?.pendingKickback ?? null;
@@ -65,6 +66,14 @@
     }
 
     const params = new URLSearchParams(window.location.search);
+    const storedDraft = getDraftFromStorage(localStorage);
+    fromClaimFlow = Boolean(
+      urlDraft ||
+      storedDraft ||
+      params.has('ref') ||
+      params.has('amount') ||
+      params.has('last4')
+    );
     const hasVenueParam = params.has('venue') || params.has('venue_id');
     const hasOnlyVenue =
       hasVenueParam &&
@@ -88,13 +97,7 @@
     
     const { data } = await supabase.auth.getSession();
     if (data?.session?.user) {
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('role')
-        .eq('id', data.session.user.id)
-        .maybeSingle();
-      const role = profile?.role ?? 'member';
-      window.location.href = role === 'admin' || role === 'owner' ? '/admin' : '/';
+      window.location.href = '/';
       return;
     }
   });
@@ -236,6 +239,10 @@
   }
   
   function handleGoBack() {
+    if (!fromClaimFlow) {
+      window.location.href = '/';
+      return;
+    }
     const before = window.location.href;
     if (window.history.length > 1) {
       window.history.back();
@@ -369,7 +376,7 @@
     </p>
 
     <button on:click={handleGoBack} class="w-full text-zinc-600 text-xs font-bold uppercase">
-      Go Back
+      {fromClaimFlow ? 'Go Back' : 'Go Home'}
     </button>
   </div>
 </main>
