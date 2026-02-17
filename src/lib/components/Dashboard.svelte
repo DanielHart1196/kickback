@@ -349,6 +349,26 @@
     }
   }
 
+  async function handleApprovedClaimsToggle(event: Event & { currentTarget: HTMLInputElement }) {
+    const nextValue = event.currentTarget.checked;
+    if (nextValue && typeof window !== 'undefined' && 'Notification' in window) {
+      if (Notification.permission === 'default') {
+        const permission = await Notification.requestPermission();
+        if (permission !== 'granted') {
+          notifyApprovedClaims = false;
+          await saveNotificationPreferences();
+          return;
+        }
+      } else if (Notification.permission === 'denied') {
+        notifyApprovedClaims = false;
+        await saveNotificationPreferences();
+        return;
+      }
+    }
+    notifyApprovedClaims = nextValue;
+    await saveNotificationPreferences();
+  }
+
   function beginEmailEdit() {
     emailDraft = String(userEmail || '').trim();
     emailChangeStatus = 'idle';
@@ -1504,18 +1524,32 @@
                 <div class="flex-1 pr-4">
                   <p class="text-[11px] font-black uppercase tracking-[0.2em] text-white">Approved claims</p>
                 </div>
-                <button
-                  type="button"
-                  on:click={onRequestInstall}
-                  disabled={!isMobileScreen || isPwaInstalled}
-                  class="rounded-lg bg-zinc-200 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-black hover:bg-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {isPwaInstalled ? 'Installed' : 'Install'}
-                </button>
+                {#if isPwaInstalled}
+                  <label class="relative inline-flex cursor-pointer items-center">
+                    <input
+                      type="checkbox"
+                      checked={notifyApprovedClaims}
+                      on:change={handleApprovedClaimsToggle}
+                      class="peer sr-only"
+                    />
+                    <div class="h-5 w-9 rounded-full bg-zinc-800 transition-colors peer-checked:bg-orange-500 after:absolute after:left-[2px] after:top-[2px] after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-all peer-checked:after:translate-x-full"></div>
+                  </label>
+                {:else}
+                  <button
+                    type="button"
+                    on:click={onRequestInstall}
+                    disabled={!isMobileScreen}
+                    class="rounded-lg bg-zinc-200 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-black hover:bg-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Install
+                  </button>
+                {/if}
               </div>
-              <p class="mt-0.5 text-[10px] font-black uppercase tracking-widest text-zinc-500">
-                Install the Kickback app to receive instant payout notifications
-              </p>
+              {#if !isPwaInstalled}
+                <p class="mt-0.5 text-[10px] font-black uppercase tracking-widest text-zinc-500">
+                  Install the Kickback app to receive instant payout notifications
+                </p>
+              {/if}
             </div>
 
             <p class="text-[11px] font-black uppercase tracking-[0.2em] text-zinc-500">Email</p>
