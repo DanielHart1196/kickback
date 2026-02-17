@@ -210,7 +210,7 @@ export async function POST({ request }) {
 
   const { data: venue, error: venueError } = await supabaseAdmin
     .from('venues')
-    .select('name,kickback_guest,kickback_referrer')
+    .select('name,kickback_guest,kickback_referrer,square_public')
     .eq('id', venueId)
     .maybeSingle();
 
@@ -236,6 +236,8 @@ export async function POST({ request }) {
     return json({ ok: true, ignored: true });
   }
 
+  const autoClaimStatus = venue.square_public === false ? 'pending' : 'approved';
+
   const { data: created, error: insertError } = await supabaseAdmin
     .from('claims')
     .upsert(
@@ -249,7 +251,7 @@ export async function POST({ request }) {
         last_4: last4,
         purchased_at: purchasedAt,
         created_at: new Date().toISOString(),
-        status: 'approved',
+        status: autoClaimStatus,
         kickback_guest_rate: venue.kickback_guest ?? null,
         kickback_referrer_rate: venue.kickback_referrer ?? null,
         square_payment_id: payment.id,

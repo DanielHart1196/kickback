@@ -14,13 +14,17 @@
     saveDraftToStorage
   } from '$lib/claims/draft';
   export let data: { pendingKickback: string | null };
+  const MIN_PASSWORD_LENGTH = 6;
 
   let loading = false;
   let message = '';
   let pendingKickback: string | null = null;
   let venueRates: { id: string; name: string; short_code?: string | null; kickback_guest?: number | null; logo_url?: string | null }[] = [];
   let email = '';
+  let password = '';
+  let usePassword = false;
   let magicLinkLoading = false;
+  let passwordAuthLoading = false;
   let venuePromo: { name: string; logo_url: string | null; rate_pct: number } | null = null;
   let promoLogoLoaded = false;
   $: hasPromoOrKickback = !!venuePromo || !!pendingKickback;
@@ -156,6 +160,80 @@
       magicLinkLoading = false;
     }
   }
+
+  async function handlePasswordAuth() {
+    if (!email) {
+      message = 'Please enter your email address';
+      return;
+    }
+    if (!password) {
+      message = 'Please enter your password';
+      return;
+    }
+    if (password.length < MIN_PASSWORD_LENGTH) {
+      message = `Password must be at least ${MIN_PASSWORD_LENGTH} characters`;
+      return;
+    }
+
+    passwordAuthLoading = true;
+    message = '';
+
+    try {
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email,
+        password
+      });
+
+      if (!signInError) {
+        window.location.href = '/';
+        return;
+      }
+
+      // If the user doesn't exist yet, create one with the same credentials.
+      const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+        email,
+        password
+      });
+
+      if (signUpError) {
+        message = signUpError.message;
+      } else if (signUpData?.session) {
+        window.location.href = '/';
+      } else {
+        message = 'CHECK YOUR EMAIL TO CONFIRM YOUR ACCOUNT';
+      }
+    } catch (error) {
+      message = error instanceof Error ? error.message : 'Failed to sign in';
+    } finally {
+      passwordAuthLoading = false;
+    }
+  }
+
+  async function handleForgotPassword() {
+    if (!email) {
+      message = 'Enter your email first';
+      return;
+    }
+
+    passwordAuthLoading = true;
+    message = '';
+
+    try {
+      const resetRedirectTo = `${window.location.origin}/auth/callback?redirect_to=${encodeURIComponent(window.location.origin + '/reset-password')}`;
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: resetRedirectTo
+      });
+      if (error) {
+        message = error.message;
+      } else {
+        message = "IF AN ACCOUNT EXISTS FOR THAT EMAIL, WE'LL SEND A RESET LINK";
+      }
+    } catch (error) {
+      message = error instanceof Error ? error.message : 'Failed to send password reset email';
+    } finally {
+      passwordAuthLoading = false;
+    }
+  }
   
   function handleGoBack() {
     const before = window.location.href;
@@ -228,17 +306,54 @@
         type="email"
         bind:value={email}
         placeholder="Enter your email"
-        disabled={magicLinkLoading}
-        on:keydown={(e) => e.key === 'Enter' && handleMagicLink()}
+        disabled={magicLinkLoading || passwordAuthLoading}
+        on:keydown={(e) =>
+          e.key === 'Enter' && (usePassword ? handlePasswordAuth() : handleMagicLink())}
         class="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-xl text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
       />
+      {#if usePassword}
+        <input
+          type="password"
+          bind:value={password}
+          placeholder="Enter your password"
+          disabled={passwordAuthLoading}
+          on:keydown={(e) => e.key === 'Enter' && handlePasswordAuth()}
+          class="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-xl text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+        />
+      {/if}
       <button
         type="button"
-        on:click={handleMagicLink}
-        disabled={magicLinkLoading}
+        on:click={usePassword ? handlePasswordAuth : handleMagicLink}
+        disabled={magicLinkLoading || passwordAuthLoading}
         class="w-full h-10 rounded-full bg-orange-500 text-black text-[14px] leading-[20px] font-black inline-flex items-center justify-center active:scale-95 transition-all disabled:opacity-50 hover:bg-orange-600"
       >
-        {magicLinkLoading ? 'SENDING...' : 'SEND MAGIC LINK'}
+        {#if usePassword}
+          {passwordAuthLoading ? 'SIGNING IN...' : 'SIGN IN / UP'}
+        {:else}
+          {magicLinkLoading ? 'SENDING...' : 'SEND MAGIC LINK'}
+        {/if}
+      </button>
+      {#if usePassword}
+        <button
+          type="button"
+          on:click={handleForgotPassword}
+          disabled={passwordAuthLoading || magicLinkLoading}
+          class="text-xs font-semibold text-zinc-500 hover:text-zinc-300 transition-colors disabled:opacity-50"
+        >
+          Forgot password?
+        </button>
+      {/if}
+      <button
+        type="button"
+        on:click={() => {
+          usePassword = !usePassword;
+          message = '';
+          if (!usePassword) password = '';
+        }}
+        disabled={magicLinkLoading || passwordAuthLoading}
+        class="text-xs font-semibold text-zinc-400 hover:text-zinc-200 transition-colors disabled:opacity-50"
+      >
+        {usePassword ? 'Use magic link instead' : 'Use a password instead'}
       </button>
 
       {#if message}

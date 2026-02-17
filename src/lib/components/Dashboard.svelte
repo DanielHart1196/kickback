@@ -85,6 +85,12 @@
   let emailDraft = '';
   let emailChangeStatus: 'idle' | 'saving' | 'success' | 'error' = 'idle';
   let emailChangeMessage = '';
+  const MIN_PASSWORD_LENGTH = 6;
+  let passwordDraft = '';
+  let passwordConfirmDraft = '';
+  let passwordChangeStatus: 'idle' | 'saving' | 'success' | 'error' = 'idle';
+  let passwordChangeMessage = '';
+  let showPasswordChange = false;
   let payoutStripeOnboarded = false;
   const notifyEssential = true;
   const REFER_BUTTON_GAP_PX = 32;
@@ -166,7 +172,7 @@
         provider = String(provider || '').toLowerCase();
         canEditAuthEmail = provider === 'email';
         if (provider === 'email') {
-          authProviderLabel = 'Signed up with Magic Link';
+          authProviderLabel = 'Signed in with Email';
         } else if (provider) {
           authProviderLabel = 'Signed up with ' + (provider.charAt(0).toUpperCase() + provider.slice(1));
         } else {
@@ -356,6 +362,48 @@
     } catch (error) {
       emailChangeStatus = 'error';
       emailChangeMessage = error instanceof Error ? error.message : 'Failed to update email.';
+    }
+  }
+
+  async function savePasswordChange() {
+    if (!passwordDraft) {
+      passwordChangeStatus = 'error';
+      passwordChangeMessage = 'Enter a new password.';
+      return;
+    }
+    if (passwordDraft.length < MIN_PASSWORD_LENGTH) {
+      passwordChangeStatus = 'error';
+      passwordChangeMessage = `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`;
+      return;
+    }
+    if (passwordDraft !== passwordConfirmDraft) {
+      passwordChangeStatus = 'error';
+      passwordChangeMessage = 'Passwords do not match.';
+      return;
+    }
+
+    passwordChangeStatus = 'saving';
+    passwordChangeMessage = '';
+    try {
+      const { error } = await supabase.auth.updateUser({ password: passwordDraft });
+      if (error) throw error;
+      passwordChangeStatus = 'success';
+      passwordChangeMessage = 'Password updated.';
+      passwordDraft = '';
+      passwordConfirmDraft = '';
+    } catch (error) {
+      passwordChangeStatus = 'error';
+      passwordChangeMessage = error instanceof Error ? error.message : 'Failed to update password.';
+    }
+  }
+
+  function togglePasswordChange() {
+    showPasswordChange = !showPasswordChange;
+    if (!showPasswordChange) {
+      passwordDraft = '';
+      passwordConfirmDraft = '';
+      passwordChangeStatus = 'idle';
+      passwordChangeMessage = '';
     }
   }
 
@@ -1288,6 +1336,44 @@
               <p class={`mt-2 text-[10px] font-bold uppercase tracking-widest ${emailChangeStatus === 'error' ? 'text-red-400' : 'text-zinc-500'}`}>
                 {emailChangeMessage}
               </p>
+            {/if}
+            <div class="mt-4">
+              <button
+                type="button"
+                on:click={togglePasswordChange}
+                class="text-[11px] font-black uppercase tracking-[0.2em] text-orange-400 hover:text-orange-300 transition-colors"
+              >
+                {showPasswordChange ? 'Hide password update' : 'Change password'}
+              </button>
+            </div>
+            {#if showPasswordChange}
+              <div class="mt-3 space-y-2">
+                <input
+                  type="password"
+                  bind:value={passwordDraft}
+                  placeholder="New password"
+                  class="w-full rounded-xl border border-zinc-800 bg-black/40 px-3 py-2 text-sm text-white placeholder-zinc-600 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500 transition-all"
+                />
+                <input
+                  type="password"
+                  bind:value={passwordConfirmDraft}
+                  placeholder="Confirm new password"
+                  class="w-full rounded-xl border border-zinc-800 bg-black/40 px-3 py-2 text-sm text-white placeholder-zinc-600 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500 transition-all"
+                />
+                <button
+                  type="button"
+                  on:click={savePasswordChange}
+                  disabled={passwordChangeStatus === 'saving'}
+                  class="w-full rounded-xl bg-white px-4 py-3 text-xs font-black uppercase tracking-[0.2em] text-black hover:bg-zinc-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {passwordChangeStatus === 'saving' ? 'Updating...' : 'Update'}
+                </button>
+                {#if passwordChangeMessage}
+                  <p class={`text-[10px] font-bold uppercase tracking-widest ${passwordChangeStatus === 'error' ? 'text-red-400' : 'text-zinc-500'}`}>
+                    {passwordChangeMessage}
+                  </p>
+                {/if}
+              </div>
             {/if}
           {/if}
         </div>

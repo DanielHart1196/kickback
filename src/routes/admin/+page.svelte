@@ -36,7 +36,21 @@
   let billingCity = 'Eltham';
   let billingAddress = '';
   let abn = '';
+  const MIN_KICKBACK_RATE = 5;
+  const MAX_KICKBACK_RATE = 20;
   let authProviderLabel = '';
+  let canEditAuthEmail = false;
+  let showMoreSettings = false;
+  let pauseClaims = false;
+  let emailEditMode = false;
+  let emailDraft = '';
+  let emailChangeStatus: 'idle' | 'saving' | 'success' | 'error' = 'idle';
+  let emailChangeMessage = '';
+  let passwordDraft = '';
+  let passwordConfirmDraft = '';
+  let passwordChangeStatus: 'idle' | 'saving' | 'success' | 'error' = 'idle';
+  let passwordChangeMessage = '';
+  let showPasswordChange = false;
   let deletingAccount = false;
   let deleteAccountError = '';
   let paymentMethods: string[] = ['gateway'];
@@ -759,8 +773,10 @@
       .filter(Boolean);
         const metaProvider = String(u?.app_metadata?.provider || '').toLowerCase();
     let provider = metaProvider || identityProviders.find((p: string) => p && p !== 'email') || identityProviders[0] || '';
+        provider = String(provider || '').toLowerCase();
+        canEditAuthEmail = provider === 'email';
         if (provider === 'email') {
-          authProviderLabel = 'Signed in with Magic Link';
+          authProviderLabel = 'Signed in with Email';
         } else if (provider) {
           authProviderLabel = 'Signed in with ' + (provider.charAt(0).toUpperCase() + provider.slice(1));
         } else {
@@ -774,7 +790,7 @@
       const { data: directVenues, error: directError } = await supabase
       .from('venues')
       .select(
-        'id, name, short_code, logo_url, kickback_guest, kickback_referrer, payment_methods, billing_email, billing_contact_first_name, billing_contact_last_name, billing_phone, billing_company, billing_country_code, billing_state, billing_postal_code, billing_city, billing_address, billing_abn, active, created_by'
+        'id, name, short_code, logo_url, kickback_guest, kickback_referrer, payment_methods, square_public, billing_email, billing_contact_first_name, billing_contact_last_name, billing_phone, billing_company, billing_country_code, billing_state, billing_postal_code, billing_city, billing_address, billing_abn, active, created_by'
       )
       .eq('created_by', user.id)
       .limit(1);
@@ -800,7 +816,7 @@
         const { data: linkedVenues, error: linkedError } = await supabase
           .from('venues')
         .select(
-          'id, name, short_code, logo_url, kickback_guest, kickback_referrer, payment_methods, billing_email, billing_contact_first_name, billing_contact_last_name, billing_phone, billing_company, billing_country_code, billing_state, billing_postal_code, billing_city, billing_address, billing_abn, active, created_by'
+          'id, name, short_code, logo_url, kickback_guest, kickback_referrer, payment_methods, square_public, billing_email, billing_contact_first_name, billing_contact_last_name, billing_phone, billing_company, billing_country_code, billing_state, billing_postal_code, billing_city, billing_address, billing_abn, active, created_by'
         )
         .in('id', venueIds)
         .limit(1);
@@ -817,6 +833,7 @@
       venueCode = venue?.short_code ?? '';
       guestRate = venue?.kickback_guest != null ? String(venue.kickback_guest) : '5';
     referrerRate = venue?.kickback_referrer != null ? String(venue.kickback_referrer) : '5';
+    pauseClaims = venue?.square_public === false;
     paymentMethods = ['gateway'];
     selectedPaymentMethod = 'gateway';
     billingEmail = venue?.billing_email ?? userEmail ?? '';
@@ -830,7 +847,16 @@
       billingCity = venue?.billing_city ?? 'Eltham';
       billingAddress = venue?.billing_address ?? '';
       abn = venue?.billing_abn ?? '';
+      emailDraft = String(userEmail || '').trim();
     }
+
+  function parseRate(raw: string, label: string): number {
+    const value = Number(raw);
+    if (!Number.isFinite(value) || value < MIN_KICKBACK_RATE || value > MAX_KICKBACK_RATE) {
+      throw new Error(`${label} must be between ${MIN_KICKBACK_RATE}% and ${MAX_KICKBACK_RATE}%.`);
+    }
+    return value;
+  }
 
   async function createVenue() {
     savingVenue = true;
@@ -850,10 +876,11 @@
       const payload = {
         name: venueName.trim(),
         created_by: user.id,
-        kickback_guest: Number(guestRate),
-        kickback_referrer: Number(referrerRate),
+        kickback_guest: parseRate(guestRate, 'Guest %'),
+        kickback_referrer: parseRate(referrerRate, 'Referrer %'),
         short_code: shortCode,
         payment_methods: paymentMethods,
+        square_public: !pauseClaims,
         billing_email: billingEmail.trim() || user.email,
         billing_contact_first_name: billingFirstName.trim() || null,
         billing_contact_last_name: billingLastName.trim() || null,
@@ -906,10 +933,11 @@
       }
       const payload = {
         name: trimmedName,
-        kickback_guest: Number(guestRate),
-        kickback_referrer: Number(referrerRate),
+        kickback_guest: parseRate(guestRate, 'Guest %'),
+        kickback_referrer: parseRate(referrerRate, 'Referrer %'),
         short_code: shortCode,
         payment_methods: paymentMethods,
+        square_public: !pauseClaims && squareConnected,
         billing_email: billingEmail.trim() || null,
         billing_contact_first_name: billingFirstName.trim() || null,
         billing_contact_last_name: billingLastName.trim() || null,
@@ -932,6 +960,94 @@
         savingError = 'Failed to save venue.';
       } finally {
       savingVenue = false;
+    }
+  }
+
+  function beginEmailEdit() {
+    emailDraft = String(userEmail || '').trim();
+    emailChangeStatus = 'idle';
+    emailChangeMessage = '';
+    emailEditMode = true;
+  }
+
+  function cancelEmailEdit() {
+    emailEditMode = false;
+    emailChangeStatus = 'idle';
+    emailChangeMessage = '';
+  }
+
+  async function saveEmailChange() {
+    const nextEmail = String(emailDraft || '').trim().toLowerCase();
+    const currentEmail = String(userEmail || '').trim().toLowerCase();
+    if (!nextEmail) {
+      emailChangeStatus = 'error';
+      emailChangeMessage = 'Enter an email address.';
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(nextEmail)) {
+      emailChangeStatus = 'error';
+      emailChangeMessage = 'Enter a valid email address.';
+      return;
+    }
+    if (nextEmail === currentEmail) {
+      emailChangeStatus = 'error';
+      emailChangeMessage = 'Use a different email address.';
+      return;
+    }
+
+    emailChangeStatus = 'saving';
+    emailChangeMessage = '';
+    try {
+      const { error } = await supabase.auth.updateUser({ email: nextEmail });
+      if (error) throw error;
+      emailChangeStatus = 'success';
+      emailChangeMessage = 'Check your inbox to confirm your new email.';
+      emailEditMode = false;
+    } catch (error) {
+      emailChangeStatus = 'error';
+      emailChangeMessage = error instanceof Error ? error.message : 'Failed to update email.';
+    }
+  }
+
+  function togglePasswordChange() {
+    showPasswordChange = !showPasswordChange;
+    if (!showPasswordChange) {
+      passwordDraft = '';
+      passwordConfirmDraft = '';
+      passwordChangeStatus = 'idle';
+      passwordChangeMessage = '';
+    }
+  }
+
+  async function savePasswordChange() {
+    if (!passwordDraft) {
+      passwordChangeStatus = 'error';
+      passwordChangeMessage = 'Enter a new password.';
+      return;
+    }
+    if (passwordDraft.length < 6) {
+      passwordChangeStatus = 'error';
+      passwordChangeMessage = 'Password must be at least 6 characters.';
+      return;
+    }
+    if (passwordDraft !== passwordConfirmDraft) {
+      passwordChangeStatus = 'error';
+      passwordChangeMessage = 'Passwords do not match.';
+      return;
+    }
+
+    passwordChangeStatus = 'saving';
+    passwordChangeMessage = '';
+    try {
+      const { error } = await supabase.auth.updateUser({ password: passwordDraft });
+      if (error) throw error;
+      passwordChangeStatus = 'success';
+      passwordChangeMessage = 'Password updated.';
+      passwordDraft = '';
+      passwordConfirmDraft = '';
+    } catch (error) {
+      passwordChangeStatus = 'error';
+      passwordChangeMessage = error instanceof Error ? error.message : 'Failed to update password.';
     }
   }
 
@@ -2031,154 +2147,77 @@
     </div>
   {/if}
   <section class="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-6 md:p-8">
-      <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
-        <div class="flex items-center gap-5">
-          <div class="relative logo-wrap">
-            <button
-              type="button"
-              on:click={triggerLogoUpload}
-              class="w-40 h-40 rounded-2xl bg-zinc-800 border border-zinc-700 flex items-center justify-center text-zinc-400 text-xs font-black uppercase tracking-widest hover:text-white transition-colors text-center"
-              class:overflow-hidden={Boolean(venue?.logo_url)}
-              disabled={logoDeleting}
-            >
-              {#if venue?.logo_url}
-                <img src={venue.logo_url} alt={venue.name} class="w-full h-full object-cover" />
-              {:else if logoUploading}
-                <span class="loading-dots" aria-label="Uploading">
-                  <span class="dot" aria-hidden="true"></span>
-                  <span class="dot" aria-hidden="true"></span>
-                  <span class="dot" aria-hidden="true"></span>
-                </span>
-              {:else}
-                <span class="flex flex-col items-center justify-center leading-tight -translate-y-0.5">
-                  <span class="block text-lg">+</span>
-                  <span class="block">Logo</span>
-                </span>
-              {/if}
-            </button>
-            {#if venue?.logo_url}
+      <div class="flex flex-col gap-6">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
+          <div class="flex items-center gap-5">
+            <div class="relative logo-wrap">
               <button
                 type="button"
-                on:click={handleLogoDelete}
+                on:click={triggerLogoUpload}
+                class="w-40 h-40 rounded-2xl bg-zinc-800 border border-zinc-700 flex items-center justify-center text-zinc-400 text-xs font-black uppercase tracking-widest hover:text-white transition-colors text-center"
+                class:overflow-hidden={Boolean(venue?.logo_url)}
                 disabled={logoDeleting}
-                class="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-zinc-900 border border-zinc-700 text-zinc-300 text-xs font-black flex items-center justify-center hover:text-white transition-colors logo-delete"
-                aria-label="Remove logo"
               >
-                {logoDeleting ? '…' : 'X'}
+                {#if venue?.logo_url}
+                  <img src={venue.logo_url} alt={venue.name} class="w-full h-full object-cover" />
+                {:else if logoUploading}
+                  <span class="loading-dots" aria-label="Uploading">
+                    <span class="dot" aria-hidden="true"></span>
+                    <span class="dot" aria-hidden="true"></span>
+                    <span class="dot" aria-hidden="true"></span>
+                  </span>
+                {:else}
+                  <span class="flex flex-col items-center justify-center leading-tight -translate-y-0.5">
+                    <span class="block text-lg">+</span>
+                    <span class="block">Logo</span>
+                  </span>
+                {/if}
               </button>
-            {/if}
-          </div>
-          <div class="space-y-2">
-            <p class="text-xs font-black uppercase tracking-widest text-zinc-500">Venue</p>
-            <input
-              type="text"
-              bind:value={venueName}
-              placeholder="Venue name"
-              class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-lg font-bold text-white w-full md:w-72 font-mont"
-            />
-            <label class="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-zinc-500 mt-2">
-              <span>Venue Code</span>
-              <span class="relative inline-flex items-center">
+              {#if venue?.logo_url}
                 <button
                   type="button"
-                  class="inline-flex h-4 w-4 items-center justify-center rounded-full border border-zinc-600 text-[10px] leading-none text-zinc-400"
-                  aria-label="Venue code info"
-                  on:mouseenter={() => (showVenueCodeTip = true)}
-                  on:mouseleave={() => (showVenueCodeTip = false)}
-                  on:focus={() => (showVenueCodeTip = true)}
-                  on:blur={() => (showVenueCodeTip = false)}
-                  class:text-white={showVenueCodeTip}
-                  class:border-zinc-400={showVenueCodeTip}
+                  on:click={handleLogoDelete}
+                  disabled={logoDeleting}
+                  class="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-zinc-900 border border-zinc-700 text-zinc-300 text-xs font-black flex items-center justify-center hover:text-white transition-colors logo-delete"
+                  aria-label="Remove logo"
                 >
-                  i
+                  {logoDeleting ? '...' : 'X'}
                 </button>
-                <span class={`absolute left-1/2 top-full mt-2 -translate-x-1/2 whitespace-nowrap bg-zinc-900 border border-zinc-700 text-zinc-300 text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded-lg pointer-events-none z-10 ${showVenueCodeTip ? 'opacity-100' : 'opacity-0'}`}>
-                  We'll show your full venue name throughout the website, this code is just used in URLs
-                </span>
-              </span>
-            </label>
-            <input
-              type="text"
-              bind:value={venueCode}
-              autocapitalize="characters"
-              on:input={() => {
-                venueCode = normalizeVenueCode(venueCode);
-                venueCodeDirty = true;
-                checkVenueCode();
-              }}
-              placeholder="e.g. ELTHAMBAR"
-              class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-lg font-black text-white w-full md:w-72 uppercase tracking-widest"
-            />
-            {#if venueCodeChecking}
-              <p class="text-[10px] font-black uppercase tracking-widest text-zinc-500">Checking code…</p>
-            {:else if venueCodeDirty && venueCode.trim().length > 0 && venueCode.trim().length < 4}
-              <p class="text-[10px] font-black uppercase tracking-widest text-orange-500/70">Use 4–12 letters or numbers</p>
-            {:else if venueCodeDirty && venueCodeAvailable === false}
-              <p class="text-[10px] font-black uppercase tracking-widest text-red-400">Code is taken</p>
-            {:else if venueCodeDirty && venueCodeAvailable === true}
-              <p class="text-[10px] font-black uppercase tracking-widest text-green-400">Code is available</p>
-            {/if}
-            <p class="text-[10px] font-bold uppercase tracking-widest text-zinc-500">
-              {authProviderLabel}{userEmail ? ` — ${userEmail}` : ''}
-            </p>
-          </div>
-        </div>
-        <div class="flex flex-col gap-3 w-full md:w-auto">
-          <div class="flex flex-col md:flex-row gap-3">
-            <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
-              Guest %
+              {/if}
+            </div>
+            <div class="space-y-2 min-w-0">
+              <p class="text-xs font-black uppercase tracking-widest text-zinc-500">Venue</p>
               <input
-                type="number"
-                min="0"
-                max="100"
-                step="0.1"
-                bind:value={guestRate}
-                class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-base font-bold text-white w-full md:w-40 font-mont"
+                type="text"
+                bind:value={venueName}
+                placeholder="Venue name"
+                class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-lg font-bold text-white w-full md:w-72 font-mont"
               />
-            </label>
-            <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
-              Referrer %
-              <input
-                type="number"
-                min="0"
-                max="100"
-                step="0.1"
-                bind:value={referrerRate}
-                class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-base font-bold text-white w-full md:w-40 font-mont"
-              />
-            </label>
+              <p class="text-[10px] font-bold uppercase tracking-widest text-zinc-500">
+                {authProviderLabel}{userEmail ? ` - ${userEmail}` : ''}
+              </p>
+            </div>
           </div>
-          <div class="flex flex-wrap items-center gap-3">
+          <div class="flex flex-col gap-3 w-full md:w-72 md:self-center">
             {#if venue}
-                <div class="flex flex-wrap items-center gap-3">
-                  <button
-                    type="button"
-                    on:click={saveVenue}
-                    disabled={savingVenue || !venueName.trim()}
-                    class="bg-white text-black font-black px-6 py-3 rounded-xl uppercase tracking-tight disabled:opacity-50"
-                  >
-                    {savingVenue ? 'Saving...' : 'Save Changes'}
-                  </button>
-                {#if squareConnected}
-                  <button
-                    type="button"
-                    on:click={disconnectSquare}
-                    disabled={squareSyncing}
-                    class="bg-orange-500 text-black font-black px-6 py-3 rounded-xl uppercase tracking-tight disabled:opacity-50"
-                  >
-                    {squareSyncing ? 'Disconnecting...' : 'Disconnect Square'}
-                  </button>
-                {:else}
-                  <button
-                    type="button"
-                    on:click={connectSquare}
-                    disabled={squareConnecting}
-                    class="bg-orange-500 text-black font-black px-6 py-3 rounded-xl uppercase tracking-tight disabled:opacity-50"
-                  >
-                    {squareConnecting ? 'Connecting...' : 'Connect Square'}
-                  </button>
-                {/if}
+              <div class="rounded-xl border border-zinc-800 bg-zinc-950/70 px-4 py-3 flex items-center justify-between gap-4">
+                <div class="min-w-0">
+                  <p class="text-[11px] font-black uppercase tracking-[0.2em] text-zinc-400">Pause claims</p>
+                  <p class="text-[10px] font-bold uppercase tracking-widest text-zinc-600">New auto-matched claims stay pending</p>
+                </div>
+                <label class="relative inline-flex cursor-pointer items-center">
+                  <input type="checkbox" bind:checked={pauseClaims} class="peer sr-only" />
+                  <div class="h-5 w-9 rounded-full bg-zinc-800 transition-colors peer-checked:bg-orange-500 after:absolute after:left-[2px] after:top-[2px] after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-all peer-checked:after:translate-x-full"></div>
+                </label>
               </div>
+              <button
+                type="button"
+                on:click={saveVenue}
+                disabled={savingVenue || !venueName.trim()}
+                class="bg-white text-black font-black px-6 py-3 rounded-xl uppercase tracking-tight disabled:opacity-50"
+              >
+                {savingVenue ? 'Saving...' : 'Save'}
+              </button>
             {:else}
               <button
                 type="button"
@@ -2199,56 +2238,254 @@
               <span class="text-xs font-bold uppercase tracking-widest text-red-400">{logoError}</span>
             {/if}
           </div>
-            {#if squareConnected && squareLocationsLoaded && !squareLocationsError && squareLocations.length !== 1}
-              <div class="mt-2 bg-zinc-950 border border-zinc-800 rounded-xl p-4 w-full">
-                <div class="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                  <p class="text-xs font-black uppercase tracking-widest text-zinc-500">Square Locations</p>
-                  <p class="text-[10px] font-black uppercase tracking-widest text-zinc-600 mt-1">
-                    Leave unchecked to allow all locations
-                  </p>
+        </div>
+
+        {#if venue}
+          <div>
+            <button
+              type="button"
+              on:click={() => (showMoreSettings = !showMoreSettings)}
+              class="text-[11px] font-black uppercase tracking-[0.2em] text-orange-400 hover:text-orange-300 transition-colors"
+            >
+              {showMoreSettings ? 'Less settings' : 'More settings'}
+            </button>
+          </div>
+          {#if showMoreSettings}
+            <div transition:slide class="rounded-2xl border border-zinc-800 bg-zinc-950/60 p-4 space-y-4">
+              <div class="grid gap-3 md:grid-cols-[minmax(0,1fr)_10rem_10rem] items-end">
+                <div>
+                  <label class="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
+                    <span>Venue Code</span>
+                    <span class="relative inline-flex items-center">
+                      <button
+                        type="button"
+                        class="inline-flex h-4 w-4 items-center justify-center rounded-full border border-zinc-600 text-[10px] leading-none text-zinc-400"
+                        aria-label="Venue code info"
+                        on:mouseenter={() => (showVenueCodeTip = true)}
+                        on:mouseleave={() => (showVenueCodeTip = false)}
+                        on:focus={() => (showVenueCodeTip = true)}
+                        on:blur={() => (showVenueCodeTip = false)}
+                        class:text-white={showVenueCodeTip}
+                        class:border-zinc-400={showVenueCodeTip}
+                      >
+                        i
+                      </button>
+                      <span class={`absolute left-1/2 top-full mt-2 -translate-x-1/2 whitespace-nowrap bg-zinc-900 border border-zinc-700 text-zinc-300 text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded-lg pointer-events-none z-10 ${showVenueCodeTip ? 'opacity-100' : 'opacity-0'}`}>
+                        We'll show your full venue name throughout the website, this code is just used in URLs
+                      </span>
+                    </span>
+                  </label>
+                  <input
+                    type="text"
+                    bind:value={venueCode}
+                    autocapitalize="characters"
+                    on:input={() => {
+                      venueCode = normalizeVenueCode(venueCode);
+                      venueCodeDirty = true;
+                      checkVenueCode();
+                    }}
+                    placeholder="e.g. ELTHAMBAR"
+                    class="mt-2 bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-lg font-black text-white w-full uppercase tracking-widest"
+                  />
                 </div>
-                <button
-                  type="button"
-                  on:click={saveSquareLocations}
-                  disabled={squareLocationsSaving || squareLocationsLoading}
-                  class="bg-white text-black font-black px-4 py-2 rounded-xl uppercase tracking-tight text-xs disabled:opacity-50"
-                >
-                  {squareLocationsSaving ? 'Saving...' : 'Save Locations'}
-                </button>
+                <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
+                  Guest %
+                  <input
+                    type="number"
+                    min={MIN_KICKBACK_RATE}
+                    max={MAX_KICKBACK_RATE}
+                    step="0.1"
+                    bind:value={guestRate}
+                    class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-base font-bold text-white w-full font-mont"
+                  />
+                </label>
+                <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
+                  Referrer %
+                  <input
+                    type="number"
+                    min={MIN_KICKBACK_RATE}
+                    max={MAX_KICKBACK_RATE}
+                    step="0.1"
+                    bind:value={referrerRate}
+                    class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-base font-bold text-white w-full font-mont"
+                  />
+                </label>
               </div>
-              {#if squareLocationsError}
-                <p class="text-xs font-bold uppercase tracking-widest text-red-400 mt-3">
-                  {squareLocationsError}
-                </p>
+              {#if venueCodeChecking}
+                <p class="text-[10px] font-black uppercase tracking-widest text-zinc-500">Checking code...</p>
+              {:else if venueCodeDirty && venueCode.trim().length > 0 && venueCode.trim().length < 4}
+                <p class="text-[10px] font-black uppercase tracking-widest text-orange-500/70">Use 4-12 letters or numbers</p>
+              {:else if venueCodeDirty && venueCodeAvailable === false}
+                <p class="text-[10px] font-black uppercase tracking-widest text-red-400">Code is taken</p>
+              {:else if venueCodeDirty && venueCodeAvailable === true}
+                <p class="text-[10px] font-black uppercase tracking-widest text-green-400">Code is available</p>
               {/if}
-              {#if squareLocationsLoading}
-                <p class="text-xs font-bold uppercase tracking-widest text-zinc-500 mt-3">Loading...</p>
-              {:else if squareLocations.length === 0}
-                <p class="text-xs font-bold uppercase tracking-widest text-zinc-500 mt-3">
-                  No Square locations found.
-                </p>
-              {:else}
-                <div class="mt-3 grid gap-2">
-                  {#each squareLocations as location}
-                    <label class="flex items-center gap-3 text-xs font-bold uppercase tracking-widest text-zinc-300">
-                      <input
-                        type="checkbox"
-                        checked={squareLocationIds.has(location.id)}
-                        on:change={() => toggleSquareLocation(location.id)}
-                        class="h-3.5 w-3.5 accent-blue-500"
-                      />
-                      <span class="min-w-0 truncate">{location.name}</span>
-                      {#if location.status}
-                        <span class="text-[10px] text-zinc-500">{location.status}</span>
+
+              <div class="rounded-xl border border-zinc-800 bg-black/30 p-4">
+                <p class="text-[11px] font-black uppercase tracking-[0.2em] text-zinc-500">Account</p>
+                <div class="mt-3 grid gap-4 md:grid-cols-2">
+                  <div>
+                    {#if canEditAuthEmail}
+                      {#if emailEditMode}
+                        <div>
+                          <input
+                            type="email"
+                            bind:value={emailDraft}
+                            placeholder="new@email.com"
+                            class="w-full rounded-xl border border-zinc-800 bg-black/40 px-3 py-2 text-sm text-white placeholder-zinc-600 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500 transition-all"
+                          />
+                          <div class="mt-3 flex items-center gap-2">
+                            <button
+                              type="button"
+                              on:click={saveEmailChange}
+                              disabled={emailChangeStatus === 'saving'}
+                              class="rounded-lg bg-white px-3 py-1 text-[10px] font-black uppercase tracking-widest text-black hover:bg-zinc-200 transition-colors disabled:opacity-50"
+                            >
+                              {emailChangeStatus === 'saving' ? 'Saving...' : 'Save'}
+                            </button>
+                            <button
+                              type="button"
+                              on:click={cancelEmailEdit}
+                              disabled={emailChangeStatus === 'saving'}
+                              class="rounded-lg border border-zinc-700 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-zinc-300 hover:text-white hover:border-zinc-500 transition-colors disabled:opacity-50"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      {:else}
+                        <button
+                          type="button"
+                          on:click={beginEmailEdit}
+                          class="text-[11px] font-black uppercase tracking-[0.2em] text-orange-400 hover:text-orange-300 transition-colors"
+                        >
+                          Update email
+                        </button>
                       {/if}
-                    </label>
-                  {/each}
+                      {#if emailChangeMessage}
+                        <p class={`mt-2 text-[10px] font-bold uppercase tracking-widest ${emailChangeStatus === 'error' ? 'text-red-400' : 'text-zinc-500'}`}>
+                          {emailChangeMessage}
+                        </p>
+                      {/if}
+
+                      <div class="mt-4">
+                        <button
+                          type="button"
+                          on:click={togglePasswordChange}
+                          class="text-[11px] font-black uppercase tracking-[0.2em] text-orange-400 hover:text-orange-300 transition-colors"
+                        >
+                          {showPasswordChange ? 'Hide password update' : 'Change password'}
+                        </button>
+                      </div>
+                      {#if showPasswordChange}
+                        <div class="mt-3 space-y-2">
+                          <input
+                            type="password"
+                            bind:value={passwordDraft}
+                            placeholder="New password"
+                            class="w-full rounded-xl border border-zinc-800 bg-black/40 px-3 py-2 text-sm text-white placeholder-zinc-600 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500 transition-all"
+                          />
+                          <input
+                            type="password"
+                            bind:value={passwordConfirmDraft}
+                            placeholder="Confirm new password"
+                            class="w-full rounded-xl border border-zinc-800 bg-black/40 px-3 py-2 text-sm text-white placeholder-zinc-600 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500 transition-all"
+                          />
+                          <button
+                            type="button"
+                            on:click={savePasswordChange}
+                            disabled={passwordChangeStatus === 'saving'}
+                            class="w-full rounded-xl bg-white px-4 py-3 text-xs font-black uppercase tracking-[0.2em] text-black hover:bg-zinc-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {passwordChangeStatus === 'saving' ? 'Updating...' : 'Update'}
+                          </button>
+                          {#if passwordChangeMessage}
+                            <p class={`text-[10px] font-bold uppercase tracking-widest ${passwordChangeStatus === 'error' ? 'text-red-400' : 'text-zinc-500'}`}>
+                              {passwordChangeMessage}
+                            </p>
+                          {/if}
+                        </div>
+                      {/if}
+                    {:else}
+                      <p class="text-[10px] font-bold uppercase tracking-widest text-zinc-500">{authProviderLabel}</p>
+                    {/if}
+                  </div>
+                  <div class="flex md:justify-end md:items-start">
+                    {#if squareConnected}
+                      <button
+                        type="button"
+                        on:click={disconnectSquare}
+                        disabled={squareSyncing}
+                        class="bg-orange-500 text-black font-black px-6 py-3 rounded-xl uppercase tracking-tight disabled:opacity-50"
+                      >
+                        {squareSyncing ? 'Disconnecting...' : 'Disconnect Square'}
+                      </button>
+                    {:else}
+                      <button
+                        type="button"
+                        on:click={connectSquare}
+                        disabled={squareConnecting}
+                        class="bg-orange-500 text-black font-black px-6 py-3 rounded-xl uppercase tracking-tight disabled:opacity-50"
+                      >
+                        {squareConnecting ? 'Connecting...' : 'Connect Square'}
+                      </button>
+                    {/if}
+                  </div>
+                </div>
+              </div>
+
+              {#if squareConnected && squareLocationsLoaded && !squareLocationsError && squareLocations.length !== 1}
+                <div class="bg-zinc-950 border border-zinc-800 rounded-xl p-4 w-full">
+                  <div class="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p class="text-xs font-black uppercase tracking-widest text-zinc-500">Square Locations</p>
+                      <p class="text-[10px] font-black uppercase tracking-widest text-zinc-600 mt-1">
+                        Leave unchecked to allow all locations
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      on:click={saveSquareLocations}
+                      disabled={squareLocationsSaving || squareLocationsLoading}
+                      class="bg-white text-black font-black px-4 py-2 rounded-xl uppercase tracking-tight text-xs disabled:opacity-50"
+                    >
+                      {squareLocationsSaving ? 'Saving...' : 'Save Locations'}
+                    </button>
+                  </div>
+                  {#if squareLocationsError}
+                    <p class="text-xs font-bold uppercase tracking-widest text-red-400 mt-3">
+                      {squareLocationsError}
+                    </p>
+                  {/if}
+                  {#if squareLocationsLoading}
+                    <p class="text-xs font-bold uppercase tracking-widest text-zinc-500 mt-3">Loading...</p>
+                  {:else if squareLocations.length === 0}
+                    <p class="text-xs font-bold uppercase tracking-widest text-zinc-500 mt-3">
+                      No Square locations found.
+                    </p>
+                  {:else}
+                    <div class="mt-3 grid gap-2">
+                      {#each squareLocations as location}
+                        <label class="flex items-center gap-3 text-xs font-bold uppercase tracking-widest text-zinc-300">
+                          <input
+                            type="checkbox"
+                            checked={squareLocationIds.has(location.id)}
+                            on:change={() => toggleSquareLocation(location.id)}
+                            class="h-3.5 w-3.5 accent-blue-500"
+                          />
+                          <span class="min-w-0 truncate">{location.name}</span>
+                          {#if location.status}
+                            <span class="text-[10px] text-zinc-500">{location.status}</span>
+                          {/if}
+                        </label>
+                      {/each}
+                    </div>
+                  {/if}
                 </div>
               {/if}
             </div>
           {/if}
-        </div>
+        {/if}
       </div>
       <input
         bind:this={logoInput}

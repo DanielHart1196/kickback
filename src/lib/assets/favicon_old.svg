@@ -1,9 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
-  <title>Kickback favicon</title>
-  <rect width="256" height="256" fill="#1b1b1b" rx="32"/>
-  <rect x="48" y="40" width="40" height="176" fill="#ffffff" rx="6"/>
-  <!-- Outer orange chevron -->
-  <polygon points="236,44 148,128 236,212 192,212 112,128 192,44" fill="#f97316"/>
-  <!-- Inner cut to create the chevron thickness -->
-  <polygon points="216,76 164,128 216,180 196,180 144,128 196,76" fill="#1b1b1b"/>
-</svg>

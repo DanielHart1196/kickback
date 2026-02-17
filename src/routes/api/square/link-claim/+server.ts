@@ -160,10 +160,22 @@ export async function POST({ request }) {
     }
   }
 
+  const { data: venue, error: venueError } = await supabaseAdmin
+    .from('venues')
+    .select('square_public')
+    .eq('id', claim.venue_id)
+    .maybeSingle();
+
+  if (venueError) {
+    return json({ ok: false, error: venueError.message }, { status: 500 });
+  }
+
+  const autoClaimStatus = venue?.square_public === false ? 'pending' : 'approved';
+
   const { error: updateError } = await supabaseAdmin
     .from('claims')
     .update({
-      status: 'approved',
+      status: autoClaimStatus,
       square_payment_id: bestMatch.payment.id,
       square_card_fingerprint: bestMatch.fingerprint,
       square_location_id: bestMatch.payment.location_id ?? null

@@ -102,7 +102,7 @@
                   Cash
                 </p>
                 <p class="text-sm text-zinc-400">
-                  No points. No credits. <br class="sm:hidden" />Just cash.
+                  No points. No credits. <br class="sm:hidden" />Real money sent to your bank account every week.
                 </p>
               </div>
             </div>
