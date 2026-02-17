@@ -71,6 +71,7 @@
   let showReferModal = false;
   let showPayoutSetup = false;
   let showLanding = false;
+  let showAndroidInstallModal = false;
   let referralPresetVenueId = '';
   let referralPresetVenueName = '';
   let shouldOpenReferFromUrl = false;
@@ -105,6 +106,7 @@
   let autoClaimBannerTimer: ReturnType<typeof setTimeout> | null = null;
   let canAutosave = false;
   let claimsChannel: any = null;
+  let initialDashboardLoadPromise: Promise<void> | null = null;
 
   let amount: number | null = null;
   let amountInput = '';
@@ -559,16 +561,28 @@
 
   function triggerInstallBanner() {
     if (!isMobileViewport() || isStandaloneInstalled()) return;
-    if (canPromptInstall()) {
-      showInstallBanner = true;
+    if (deferredInstallPrompt) {
+      showInstallBanner = false;
       showIosInstallModal = false;
-    } else if (isIosDevice()) {
+      showAndroidInstallModal = false;
+      void handleInstall();
+      return;
+    }
+    if (isIosDevice()) {
       showIosInstallModal = true;
+      showAndroidInstallModal = false;
+    } else {
+      showAndroidInstallModal = true;
+      showIosInstallModal = false;
     }
   }
 
   function dismissIosInstallModal() {
     showIosInstallModal = false;
+  }
+
+  function dismissAndroidInstallModal() {
+    showAndroidInstallModal = false;
   }
 
   async function hydrateClaimantCodes(claimList: Claim[]) {
@@ -741,6 +755,10 @@
       
     }
 
+    if (session && !hasRefAndVenue && !hasVenueOnly && !hasRefOnly) {
+      initialDashboardLoadPromise = fetchDashboardData();
+    }
+
     if (!session) {
       if (hasVenueOnly) {
         window.location.href = `/login?${urlParams?.toString() ?? ''}`;
@@ -820,7 +838,7 @@
     }
 
     if (session) {
-      const dashboardLoadPromise = fetchDashboardData();
+      const dashboardLoadPromise = initialDashboardLoadPromise ?? fetchDashboardData();
       const profileBootstrapPromise = (async () => {
         if (!last4) {
           const { data: profile } = await supabase
@@ -861,6 +879,7 @@
         console.error('Profile bootstrap failed:', error);
       });
     }
+    initialDashboardLoadPromise = null;
     canAutosave = true;
   });
 
@@ -1464,6 +1483,33 @@
         <button
           type="button"
           on:click={dismissIosInstallModal}
+          class="mt-5 w-full rounded-xl bg-white px-4 py-3 text-xs font-black uppercase tracking-[0.2em] text-black hover:bg-zinc-200 transition-colors"
+        >
+          Close
+        </button>
+      </div>
+    </div>
+  {/if}
+
+  {#if showAndroidInstallModal}
+    <div class="fixed inset-0 z-[320] flex items-center justify-center px-6">
+      <button
+        type="button"
+        class="absolute inset-0 bg-black/80 backdrop-blur-sm"
+        on:click={dismissAndroidInstallModal}
+        aria-label="Close install instructions"
+      ></button>
+      <div class="relative w-full max-w-sm rounded-3xl border border-zinc-800 bg-zinc-950 p-6">
+        <p class="text-[10px] font-black uppercase tracking-[0.25em] text-zinc-500">Install Kickback</p>
+        <p class="mt-3 text-sm font-bold text-white">Install from your browser menu:</p>
+        <ol class="mt-3 space-y-2 text-sm text-zinc-300">
+          <li>1. Tap the browser menu (three dots).</li>
+          <li>2. Tap Install app or Add to Home screen.</li>
+          <li>3. Confirm Install.</li>
+        </ol>
+        <button
+          type="button"
+          on:click={dismissAndroidInstallModal}
           class="mt-5 w-full rounded-xl bg-white px-4 py-3 text-xs font-black uppercase tracking-[0.2em] text-black hover:bg-zinc-200 transition-colors"
         >
           Close
