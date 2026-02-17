@@ -32,6 +32,10 @@
     paid_at: string;
     pay_id: string;
     claim_count?: number;
+    period_start: string;
+    period_end: string;
+    referral_rewards: number;
+    cashback: number;
     venue_totals?: { venue: string; total_amount: number }[];
   };
   type HistoryItem =
@@ -59,11 +63,17 @@
   let payoutFullName = '';
   let payoutDob = '';
   let payoutAddress = '';
+  let payoutAbn = '';
   let payoutIsHobbyist = false;
+  let payoutHobbyistInteracted = false;
   let payoutHobbyistConfirmedAt: string | null = null;
   let payoutStatus: 'idle' | 'loading' | 'saving' | 'error' | 'success' = 'idle';
   let payoutError = '';
   let payoutMessage = '';
+  let payoutProfileLoaded = false;
+  let payoutProfileLoading = false;
+  let payoutProfileLoadPromise: Promise<void> | null = null;
+  let payoutProfilePrefetchTimer: ReturnType<typeof setTimeout> | null = null;
   let lastLoadedUserId: string | null = null;
   let payoutStripeAccountId = '';
   let payoutStripeStatusLoaded = false;
@@ -105,6 +115,30 @@
 
   $: if (userId && userId !== lastLoadedUserId) {
     lastLoadedUserId = userId;
+    payoutProfileLoaded = false;
+    payoutProfileLoadPromise = null;
+    schedulePayoutProfilePrefetch();
+  }
+
+  function schedulePayoutProfilePrefetch() {
+    if (typeof window === 'undefined') {
+      void ensurePayoutProfileLoaded(true);
+      return;
+    }
+    if (payoutProfilePrefetchTimer) {
+      clearTimeout(payoutProfilePrefetchTimer);
+      payoutProfilePrefetchTimer = null;
+    }
+    const runPrefetch = () => {
+      payoutProfilePrefetchTimer = null;
+      void ensurePayoutProfileLoaded(true);
+    };
+    const requestIdle = (window as any).requestIdleCallback;
+    if (typeof requestIdle === 'function') {
+      requestIdle(runPrefetch, { timeout: 800 });
+      return;
+    }
+    payoutProfilePrefetchTimer = setTimeout(runPrefetch, 120);
   }
 
   async function ensureProfileEmail() {
@@ -213,6 +247,10 @@
     }
     return () => {
       document.removeEventListener('click', handleOutsideClick);
+      if (payoutProfilePrefetchTimer) {
+        clearTimeout(payoutProfilePrefetchTimer);
+        payoutProfilePrefetchTimer = null;
+      }
       if (typeof window !== 'undefined') {
         window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt as EventListener);
         window.removeEventListener('appinstalled', handleInstalled);
@@ -247,23 +285,39 @@
 
   function openSettings() {
     showSettings = true;
-    loadPayoutProfileInternal();
+    void ensurePayoutProfileLoaded();
   }
   function closeSettings() {
     showSettings = false;
   }
 
-  async function loadPayoutProfileInternal() {
+  async function ensurePayoutProfileLoaded(background = false) {
     if (!userId) return;
-    payoutStatus = 'loading';
-    payoutError = '';
-    payoutMessage = '';
+    if (payoutProfileLoaded) return;
+    if (payoutProfileLoadPromise) {
+      await payoutProfileLoadPromise;
+      return;
+    }
+    payoutProfileLoadPromise = loadPayoutProfileInternal(background).finally(() => {
+      payoutProfileLoadPromise = null;
+    });
+    await payoutProfileLoadPromise;
+  }
+
+  async function loadPayoutProfileInternal(background = false) {
+    if (!userId) return;
+    payoutProfileLoading = true;
+    if (!background) {
+      payoutStatus = 'loading';
+      payoutError = '';
+      payoutMessage = '';
+    }
     payoutStripeStatusLoaded = false;
     try {
       // Load payout profile data
       const { data: payoutData, error: payoutErrorData } = await supabase
         .from('payout_profiles')
-        .select('pay_id, full_name, dob, address, is_hobbyist, hobbyist_confirmed_at')
+        .select('pay_id, full_name, dob, address, abn, is_hobbyist, hobbyist_confirmed_at')
         .eq('user_id', userId)
         .maybeSingle();
       
@@ -273,8 +327,11 @@
       payoutFullName = payoutData?.full_name ?? '';
       payoutDob = payoutData?.dob ?? '';
       payoutAddress = payoutData?.address ?? '';
+      payoutAbn = payoutData?.abn ?? '';
       payoutIsHobbyist = payoutData?.is_hobbyist ?? false;
       payoutHobbyistConfirmedAt = payoutData?.hobbyist_confirmed_at ?? null;
+      payoutHobbyistInteracted = Boolean(payoutData);
+      payoutProfileLoaded = true;
 
       // Load notification preferences from profiles
       const { data: profileData, error: profileError } = await supabase
@@ -325,9 +382,17 @@
         payoutStripeStatusLoaded = true;
       }
       */
-      payoutStatus = 'idle';
+      if (!background) {
+        payoutStatus = 'idle';
+      }
     } catch (error) {
-      payoutStatus = 'idle';
+      payoutProfileLoaded = true;
+      if (!background) {
+        payoutStatus = 'error';
+        payoutError = error instanceof Error ? error.message : 'Failed to load payout details.';
+      }
+    } finally {
+      payoutProfileLoading = false;
     }
   }
 
@@ -496,6 +561,7 @@
         full_name: payoutFullName.trim() || null,
         dob: payoutDob || null,
         address: payoutAddress.trim() || null,
+        abn: payoutAbn.trim() || null,
         is_hobbyist: payoutIsHobbyist,
         hobbyist_confirmed_at: payoutHobbyistConfirmedAt,
         stripe_account_id: payoutStripeAccountId || null,
@@ -880,6 +946,25 @@
     return 'border-zinc-700 bg-zinc-800 text-zinc-300';
   }
 
+  function formatDateDdMmYyyy(value: string): string {
+    if (!value) return '';
+    const direct = String(value).trim();
+    const isoMatch = direct.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (isoMatch) {
+      return `${isoMatch[3]}/${isoMatch[2]}/${isoMatch[1]}`;
+    }
+    const parsed = new Date(direct);
+    if (!Number.isFinite(parsed.getTime())) return direct;
+    return parsed.toLocaleDateString('en-GB');
+  }
+
+  function formatDateTimeDdMmYyyy(value: string): string {
+    if (!value) return '';
+    const parsed = new Date(String(value));
+    if (!Number.isFinite(parsed.getTime())) return String(value);
+    return `${parsed.toLocaleDateString('en-GB')} ${parsed.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+  }
+
   async function ensureFilterMenuClearance(allowScroll: boolean) {
     if (typeof window === 'undefined') return;
     await tick();
@@ -1145,7 +1230,7 @@
                 </div>
                 <div class="flex items-center">
                   <p class="text-zinc-500 text-sm font-bold whitespace-nowrap">
-                    {new Date(item.payout.paid_at).toLocaleDateString()} {new Date(item.payout.paid_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    {formatDateTimeDdMmYyyy(item.payout.paid_at)}
                   </p>
                 </div>
               </div>
@@ -1163,30 +1248,25 @@
                   <p class="text-sm font-bold text-white">{item.payout.pay_id || 'Not set'}</p>
                 </div>
                 <div class="flex items-center justify-between">
-                  <p class="text-xs font-black text-zinc-400 uppercase">Total Claims</p>
-                  <p class="text-sm font-bold text-white">{Number(item.payout.claim_count ?? 0)}</p>
+                  <p class="text-xs font-black text-zinc-400 uppercase">Total Amount</p>
+                  <p class="text-sm font-bold text-[#0D9CFF]">${Number(item.payout.amount ?? 0).toFixed(2)} {String(item.payout.currency ?? 'aud').toUpperCase()}</p>
                 </div>
                 <div class="flex items-center justify-between">
-                  <p class="text-xs font-black text-zinc-400 uppercase">Total Payout</p>
-                  <p class="text-sm font-bold text-[#0D9CFF]">${Number(item.payout.amount ?? 0).toFixed(2)} {String(item.payout.currency ?? 'aud').toUpperCase()}</p>
+                  <p class="text-xs font-black text-zinc-400 uppercase">Period</p>
+                  <p class="text-sm font-bold text-white">
+                    {formatDateDdMmYyyy(item.payout.period_start)} to {formatDateDdMmYyyy(item.payout.period_end)}
+                  </p>
+                </div>
+                <div class="flex items-center justify-between">
+                  <p class="text-xs font-black text-zinc-400 uppercase">Referral Rewards</p>
+                  <p class="text-sm font-bold text-white">${Number(item.payout.referral_rewards ?? 0).toFixed(2)}</p>
+                </div>
+                <div class="flex items-center justify-between">
+                  <p class="text-xs font-black text-zinc-400 uppercase">Cashback</p>
+                  <p class="text-sm font-bold text-white">${Number(item.payout.cashback ?? 0).toFixed(2)}</p>
                 </div>
               </div>
 
-              <div class="pt-2 border-t border-zinc-800/50">
-                <p class="text-xs font-black text-zinc-400 uppercase mb-2">Amount by Venue</p>
-                {#if item.payout.venue_totals && item.payout.venue_totals.length > 0}
-                  <div class="space-y-1">
-                    {#each item.payout.venue_totals as venueRow}
-                      <div class="flex items-center justify-between text-sm">
-                        <span class="text-zinc-300 uppercase tracking-tight">{venueRow.venue}</span>
-                        <span class="font-bold text-white">${Number(venueRow.total_amount ?? 0).toFixed(2)}</span>
-                      </div>
-                    {/each}
-                  </div>
-                {:else}
-                  <p class="text-sm text-zinc-500">No venue breakdown.</p>
-                {/if}
-              </div>
             </div>
           </details>
         </div>
@@ -1209,10 +1289,7 @@
               </p>
               {#if claim.referrer_id && claim.referrer_id === userId}
                 <p class="text-zinc-300 uppercase tracking-tight text-sm font-bold">
-                  {claimantCodes[claim.submitter_id ?? ''] || claim.referrer || 'Referral'}
-                  <span class="ml-1 text-orange-400 font-black uppercase tracking-widest">
-                    +${getKickbackForClaim(claim).toFixed(2)}
-                  </span>
+                  FROM <span class="text-orange-500">{claimantCodes[claim.submitter_id ?? ''] || claim.referrer || 'REFERRAL'}</span>
                 </p>
               {:else}
                 <p class="text-zinc-300 uppercase tracking-tight text-sm font-bold">{claim.venue}</p>
@@ -1277,18 +1354,23 @@
             </div>
             <div>
               <p class="text-xs font-black text-zinc-400 uppercase mb-1">
-                {claim.referrer_id && claim.referrer_id === userId ? 'Code' : 'Referrer'}
+                {claim.referrer_id && claim.referrer_id === userId ? 'Purchaser' : 'Referrer'}
               </p>
-              <p class="text-sm font-bold uppercase">
-                {#if claim.referrer_id && claim.referrer_id === userId}
-                  <span class="text-white">{claim.referrer || claimantCodes[claim.submitter_id ?? ''] || 'Code'}</span>
-                {:else}
+              {#if claim.referrer_id && claim.referrer_id === userId}
+                <p class="text-sm font-bold uppercase">
+                  <span class="text-white">{claimantCodes[claim.submitter_id ?? ''] || claim.referrer || 'Purchaser'}</span>
+                  <span class={`${isClaimDenied(claim) ? 'text-zinc-500' : 'text-green-500'} font-black uppercase tracking-widest`}>
+                    +${getKickbackForClaim(claim).toFixed(2)}
+                  </span>
+                </p>
+              {:else}
+                <p class="text-sm font-bold uppercase">
                   <span class="text-white">{claim.referrer || 'Direct'}</span>
                   <span class={`${isClaimDenied(claim) ? 'text-zinc-500' : 'text-green-500'} font-black uppercase tracking-widest`}>
                     +${getKickbackForClaim(claim).toFixed(2)}
                   </span>
-                {/if}
-              </p>
+                </p>
+              {/if}
             </div>
             {#if !(claim.referrer_id && claim.referrer_id === userId)}
               <div>
@@ -1444,76 +1526,96 @@
         <div class="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
           <p class="text-[11px] font-black uppercase tracking-[0.2em] text-zinc-500">Payouts</p>
           <div class="mt-4 space-y-4">
-            <div>
-              <label for="payout-full-name" class="mb-1 block text-[11px] font-black uppercase tracking-[0.2em] text-white">
-                Full Name
-              </label>
-              <input
-                id="payout-full-name"
-                type="text"
-                bind:value={payoutFullName}
-                placeholder="Your legal name"
-                class="w-full rounded-xl border border-zinc-800 bg-black/40 px-4 py-3 text-sm text-white placeholder-zinc-600 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500 transition-all"
-              />
-            </div>
-            <div>
-              <label for="payout-payid" class="mb-1 block text-[11px] font-black uppercase tracking-[0.2em] text-white">
-                PayID
-              </label>
-              <input
-                id="payout-payid"
-                type="text"
-                bind:value={payoutPayId}
-                placeholder="Phone or email"
-                class="w-full rounded-xl border border-zinc-800 bg-black/40 px-4 py-3 text-sm text-white placeholder-zinc-600 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500 transition-all"
-              />
-            </div>
+            {#if !payoutProfileLoaded && payoutProfileLoading}
+              <p class="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Loading payout details...</p>
+            {:else}
+              <div>
+                <label for="payout-full-name" class="mb-1 block text-[11px] font-black uppercase tracking-[0.2em] text-white">
+                  Full Name
+                </label>
+                <input
+                  id="payout-full-name"
+                  type="text"
+                  bind:value={payoutFullName}
+                  placeholder="Your legal name"
+                  class="w-full rounded-xl border border-zinc-800 bg-black/40 px-4 py-3 text-sm text-white placeholder-zinc-600 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500 transition-all"
+                />
+              </div>
+              <div>
+                <label for="payout-payid" class="mb-1 block text-[11px] font-black uppercase tracking-[0.2em] text-white">
+                  PayID
+                </label>
+                <input
+                  id="payout-payid"
+                  type="text"
+                  bind:value={payoutPayId}
+                  placeholder="Phone or email"
+                  class="w-full rounded-xl border border-zinc-800 bg-black/40 px-4 py-3 text-sm text-white placeholder-zinc-600 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500 transition-all"
+                />
+              </div>
 
-            <div class="space-y-3 pt-2">
-              <label class="flex items-start gap-3 cursor-pointer group">
-                <div class="relative flex items-center pt-0.5">
-                  <input
-                    type="checkbox"
-                    bind:checked={payoutIsHobbyist}
-                    class="peer h-4 w-4 rounded border-zinc-800 bg-black/40 text-orange-500 focus:ring-orange-500/20 focus:ring-offset-0 transition-all cursor-pointer appearance-none border"
-                  />
-                  <svg 
-                    class="absolute h-4 w-4 text-orange-500 opacity-0 peer-checked:opacity-100 transition-opacity pointer-events-none p-0.5" 
-                    fill="none" 
-                    viewBox="0 0 24 24" 
-                    stroke="currentColor" 
-                    stroke-width="4"
-                  >
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
-                  </svg>
-                </div>
-                <div class="flex-1">
-                  <p class="text-[10px] font-black uppercase tracking-widest text-white group-hover:text-orange-500 transition-colors">
-                    I confirm I'm a Hobbyist
-                  </p>
-                  {#if !payoutIsHobbyist}
-                    <p class="mt-1 text-[10px] leading-relaxed font-bold text-zinc-500 uppercase tracking-tight" transition:slide|local>
-                      I agree that my referrals are a social/recreational activity and not a business. <a href="https://kkbk.app/terms" target="_blank" class="text-orange-500/80 hover:text-orange-500 underline decoration-orange-500/30 transition-colors">Terms</a>
+              <div class="space-y-3 pt-2">
+                <label class="flex items-start gap-3 cursor-pointer group">
+                  <div class="relative flex items-center pt-0.5">
+                    <input
+                      type="checkbox"
+                      bind:checked={payoutIsHobbyist}
+                      on:change={() => (payoutHobbyistInteracted = true)}
+                      class="peer h-4 w-4 rounded border-zinc-800 bg-black/40 text-orange-500 focus:ring-orange-500/20 focus:ring-offset-0 transition-all cursor-pointer appearance-none border"
+                    />
+                    <svg 
+                      class="absolute h-4 w-4 text-orange-500 opacity-0 peer-checked:opacity-100 transition-opacity pointer-events-none p-0.5" 
+                      fill="none" 
+                      viewBox="0 0 24 24" 
+                      stroke="currentColor" 
+                      stroke-width="4"
+                    >
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                  </div>
+                  <div class="flex-1">
+                    <p class="text-[10px] font-black uppercase tracking-widest text-white group-hover:text-orange-500 transition-colors">
+                      I confirm I'm a Hobbyist
                     </p>
-                  {/if}
-                </div>
-              </label>
-            </div>
+                    {#if !payoutIsHobbyist}
+                      <p class="mt-1 text-[10px] leading-relaxed font-bold text-zinc-500 uppercase tracking-tight" transition:slide|local>
+                        I agree that my referrals are a social/recreational activity and not a business. <a href="/terms" target="_blank" class="text-orange-500/80 hover:text-orange-500 underline decoration-orange-500/30 transition-colors">Terms</a>
+                      </p>
+                    {/if}
+                  </div>
+                </label>
+              </div>
 
-            {#if payoutError}
-              <p class="text-[10px] font-bold uppercase tracking-widest text-red-400">{payoutError}</p>
+              {#if !payoutIsHobbyist && payoutHobbyistInteracted}
+                <div>
+                  <label for="payout-abn" class="mb-1 block text-[11px] font-black uppercase tracking-[0.2em] text-white">
+                    ABN
+                  </label>
+                  <input
+                    id="payout-abn"
+                    type="text"
+                    bind:value={payoutAbn}
+                    placeholder="Australian Business Number"
+                    class="w-full rounded-xl border border-zinc-800 bg-black/40 px-4 py-3 text-sm text-white placeholder-zinc-600 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500 transition-all"
+                  />
+                </div>
+              {/if}
+
+              {#if payoutError}
+                <p class="text-[10px] font-bold uppercase tracking-widest text-red-400">{payoutError}</p>
+              {/if}
+              {#if payoutMessage}
+                <p class="text-[10px] font-bold uppercase tracking-widest text-green-400">{payoutMessage}</p>
+              {/if}
+              <button
+                type="button"
+                on:click={savePayoutProfile}
+                disabled={payoutStatus === 'saving'}
+                class="w-full rounded-xl bg-white px-4 py-3 text-xs font-black uppercase tracking-[0.2em] text-black hover:bg-zinc-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {payoutStatus === 'saving' ? 'Saving...' : 'Save'}
+              </button>
             {/if}
-            {#if payoutMessage}
-              <p class="text-[10px] font-bold uppercase tracking-widest text-green-400">{payoutMessage}</p>
-            {/if}
-            <button
-              type="button"
-              on:click={savePayoutProfile}
-              disabled={payoutStatus === 'saving'}
-              class="w-full rounded-xl bg-white px-4 py-3 text-xs font-black uppercase tracking-[0.2em] text-black hover:bg-zinc-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {payoutStatus === 'saving' ? 'Saving...' : 'Save'}
-            </button>
           </div>
         </div>
         <div class="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">

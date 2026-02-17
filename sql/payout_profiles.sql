@@ -3,6 +3,7 @@ CREATE TABLE IF NOT EXISTS public.payout_profiles (
     user_id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
     full_name TEXT,
     pay_id TEXT,
+    abn TEXT,
     is_hobbyist BOOLEAN DEFAULT FALSE,
     hobbyist_confirmed_at TIMESTAMPTZ,
     dob TEXT,

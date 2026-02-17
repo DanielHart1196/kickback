@@ -18,5 +18,8 @@ export type Venue = {
   billing_city?: string | null;
   billing_address?: string | null;
   billing_abn?: string | null;
+  happy_hour_start_time?: string | null;
+  happy_hour_end_time?: string | null;
+  happy_hour_days?: string[] | null;
   active?: boolean;
 };

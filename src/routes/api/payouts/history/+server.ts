@@ -1,6 +1,62 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { supabaseAdmin } from '$lib/server/supabaseAdmin';
 
+const timeZone = 'Australia/Sydney';
+const weekdayIndex: Record<string, number> = {
+  Mon: 0,
+  Tue: 1,
+  Wed: 2,
+  Thu: 3,
+  Fri: 4,
+  Sat: 5,
+  Sun: 6
+};
+
+function getZonedDateParts(date: Date, zone: string) {
+  const parts = new Intl.DateTimeFormat('en-AU', {
+    timeZone: zone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    weekday: 'short'
+  }).formatToParts(date);
+  const lookup = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return {
+    year: Number(lookup.year),
+    month: Number(lookup.month),
+    day: Number(lookup.day),
+    weekday: weekdayIndex[lookup.weekday] ?? 0
+  };
+}
+
+function formatDateOnly(date: Date): string {
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(date.getUTCDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function getPayoutWeekRange(paidAtIso: string): { period_start: string; period_end: string } {
+  const paidAtDate = new Date(paidAtIso);
+  if (!Number.isFinite(paidAtDate.getTime())) {
+    const today = formatDateOnly(new Date());
+    return { period_start: today, period_end: today };
+  }
+  const parts = getZonedDateParts(paidAtDate, timeZone);
+  const paidLocalDate = new Date(Date.UTC(parts.year, parts.month - 1, parts.day));
+  const currentWeekMonday = new Date(paidLocalDate);
+  currentWeekMonday.setUTCDate(currentWeekMonday.getUTCDate() - parts.weekday);
+  const payoutWeekMonday = new Date(currentWeekMonday);
+  payoutWeekMonday.setUTCDate(payoutWeekMonday.getUTCDate() - 7);
+  const payoutWeekSunday = new Date(payoutWeekMonday);
+  payoutWeekSunday.setUTCDate(payoutWeekSunday.getUTCDate() + 6);
+
+  return {
+    period_start: formatDateOnly(payoutWeekMonday),
+    period_end: formatDateOnly(payoutWeekSunday)
+  };
+}
+
 type HistoryRow = {
   id: string;
   claim_ids: string[] | null;
@@ -71,6 +127,8 @@ export const GET: RequestHandler = async ({ request }) => {
     .map((row) => {
       const claimIds = (Array.isArray(row.claim_ids) ? row.claim_ids : []).map((id) => String(id));
       const venueTotals = new Map<string, number>();
+      let referralRewards = 0;
+      let cashback = 0;
       for (const claimId of claimIds) {
         const claim = claimById.get(claimId);
         if (!claim) continue;
@@ -80,23 +138,37 @@ export const GET: RequestHandler = async ({ request }) => {
         let payoutAmount = 0;
         if (String(claim.submitter_id ?? '') === userId) {
           const rate = Number(claim.kickback_guest_rate ?? 5) / 100;
-          payoutAmount += amount * rate;
+          const userCashback = amount * rate;
+          cashback += userCashback;
+          payoutAmount += userCashback;
         }
         if (String(claim.referrer_id ?? '') === userId) {
           const rate = Number(claim.kickback_referrer_rate ?? 5) / 100;
-          payoutAmount += amount * rate;
+          const userReferralReward = amount * rate;
+          referralRewards += userReferralReward;
+          payoutAmount += userReferralReward;
         }
         if (payoutAmount <= 0) continue;
         venueTotals.set(venueName, (venueTotals.get(venueName) ?? 0) + payoutAmount);
       }
+      const paidAtFallback = row.paid_at ?? row.created_at ?? new Date().toISOString();
+      const paidAtFallbackMs = new Date(paidAtFallback).getTime();
+      const paidAtFallbackIso = Number.isFinite(paidAtFallbackMs)
+        ? new Date(paidAtFallbackMs).toISOString()
+        : new Date().toISOString();
+      const payoutWeek = getPayoutWeekRange(paidAtFallbackIso);
 
       return {
         id: String(row.id),
         amount: Number(Number(row.amount ?? 0).toFixed(2)),
         currency: String(row.currency ?? 'aud').toLowerCase(),
-        paid_at: row.paid_at ?? row.created_at ?? new Date().toISOString(),
+        paid_at: paidAtFallbackIso,
         pay_id: String(row.pay_id ?? ''),
         claim_count: Number(row.claim_count ?? claimIds.length),
+        period_start: payoutWeek.period_start,
+        period_end: payoutWeek.period_end,
+        referral_rewards: Number(referralRewards.toFixed(2)),
+        cashback: Number(cashback.toFixed(2)),
         venue_totals: Array.from(venueTotals.entries())
           .map(([venue, total_amount]) => ({ venue, total_amount: Number(total_amount.toFixed(2)) }))
           .sort((a, b) => b.total_amount - a.total_amount)

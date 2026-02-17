@@ -232,13 +232,13 @@
 
     <footer class="mt-16 flex flex-wrap items-center justify-center gap-6 text-[10px] font-bold uppercase tracking-[0.3em] text-zinc-500">
       <a
-        href="https://kkbk.app/terms"
+        href="/terms"
         class="hover:text-white transition-colors"
       >
         Terms
       </a>
       <a
-        href="https://kkbk.app/privacy"
+        href="/privacy"
         class="hover:text-white transition-colors"
       >
         Privacy

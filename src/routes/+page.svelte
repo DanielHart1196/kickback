@@ -29,6 +29,7 @@
   import type { ClaimDraft } from '$lib/claims/types';
   import type { Venue } from '$lib/venues/types';
   import { fetchActiveVenues } from '$lib/venues/repository';
+  import { getVenueRatesForTime } from '$lib/venues/happyHour';
   import {
     buildReferralCodeFromEmail,
     generateReferralCode,
@@ -808,6 +809,7 @@
     const venueFromParams = urlParams ? getVenueFromParams(urlParams) : null;
     referralPresetVenueId = venueFromParams?.id ?? venueIdParam ?? '';
     referralPresetVenueName = venueFromParams?.name ?? venueParam ?? '';
+    shouldOpenReferFromUrl = Boolean(session && hasVenueOnly && referralPresetVenueId);
 
     const allowDraft = !hasVenueOnly;
     const urlDraft = allowDraft ? getDraftFromUrl(window.location.search) : null;
@@ -939,7 +941,7 @@
         return false;
       }
 
-      const rates = getVenueRates(venueId);
+      const rates = getVenueRates(venueId, purchaseTime);
       if (session?.user?.id) {
         try {
           const precheckRes = await fetch('/api/square/precheck', {
@@ -1215,19 +1217,23 @@
     return match?.name ?? '';
   }
 
-  function getVenueRates(id: string): { guestRate: number; referrerRate: number } {
+  function getVenueRates(id: string, atTime: string = purchaseTime): { guestRate: number; referrerRate: number } {
     const match = venues.find((v) => v.id === id);
-    const fallback = KICKBACK_RATE * 100;
-    const guestRate = match?.kickback_guest ?? fallback;
-    const referrerRate = match?.kickback_referrer ?? fallback;
-    return {
-      guestRate: Number(guestRate),
-      referrerRate: Number(referrerRate)
-    };
+    return getVenueRatesForTime(
+      {
+        kickback_guest: match?.kickback_guest ?? null,
+        kickback_referrer: match?.kickback_referrer ?? null,
+        happy_hour_start_time: match?.happy_hour_start_time ?? null,
+        happy_hour_end_time: match?.happy_hour_end_time ?? null,
+        happy_hour_days: match?.happy_hour_days ?? null
+      },
+      atTime,
+      KICKBACK_RATE * 100
+    );
   }
 
   function getKickbackRate(id: string, kind: 'guest' | 'referrer'): number {
-    const rates = getVenueRates(id);
+    const rates = getVenueRates(id, purchaseTime);
     const selected = kind === 'guest' ? rates.guestRate : rates.referrerRate;
     return Number(selected) / 100;
   }

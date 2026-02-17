@@ -25,6 +25,9 @@
   let venueCodeAvailable: boolean | null = null;
   let guestRate = '5';
   let referrerRate = '5';
+  let happyHourStart = '16:00';
+  let happyHourEnd = '19:00';
+  let happyHourDays = new Set<string>();
   let billingEmail = '';
   let billingFirstName = '';
   let billingLastName = '';
@@ -75,6 +78,9 @@
   let showRatesTip = false;
   let ratesTipTimer: ReturnType<typeof setTimeout> | null = null;
   let showVenueCodeTip = false;
+  let showHappyHourTip = false;
+  let venueShareUrl = '';
+  let venueQrUrl = '';
   let csvFileName = '';
   let csvSourceText = '';
   let csvParsedCount = 0;
@@ -102,6 +108,41 @@
   function normalizeVenueCode(value: string): string {
     return value.replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 12);
   }
+
+  const happyHourDayOptions = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const happyHourTimeOptions = Array.from({ length: 24 }, (_, hour) => `${String(hour).padStart(2, '0')}:00`);
+
+  function sanitizeHappyHourTime(value: string): string {
+    const next = String(value ?? '').trim();
+    return happyHourTimeOptions.includes(next) ? next : '00:00';
+  }
+
+  function normalizeHappyHourDays(days: string[] | null | undefined): Set<string> {
+    const result = new Set<string>();
+    for (const day of days ?? []) {
+      const key = String(day ?? '').trim().slice(0, 3);
+      const title = key.charAt(0).toUpperCase() + key.slice(1).toLowerCase();
+      if (happyHourDayOptions.includes(title)) {
+        result.add(title);
+      }
+    }
+    return result;
+  }
+
+  function toggleHappyHourDay(day: string) {
+    const next = new Set(happyHourDays);
+    if (next.has(day)) {
+      next.delete(day);
+    } else {
+      next.add(day);
+    }
+    happyHourDays = next;
+  }
+
+  $: venueShareUrl = venueCode.trim() ? `https://kkbk.app/?venue=${encodeURIComponent(venueCode.trim())}` : '';
+  $: venueQrUrl = venueShareUrl
+    ? `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(venueShareUrl)}`
+    : '';
 
   async function fetchVenueInvoices() {
     if (!venue?.id) {
@@ -729,7 +770,7 @@
       const { data: directVenues, error: directError } = await supabase
       .from('venues')
       .select(
-        'id, name, short_code, logo_url, kickback_guest, kickback_referrer, payment_methods, square_public, billing_email, billing_contact_first_name, billing_contact_last_name, billing_phone, billing_company, billing_country_code, billing_state, billing_postal_code, billing_city, billing_address, billing_abn, active, created_by'
+        'id, name, short_code, logo_url, kickback_guest, kickback_referrer, happy_hour_start_time, happy_hour_end_time, happy_hour_days, payment_methods, square_public, billing_email, billing_contact_first_name, billing_contact_last_name, billing_phone, billing_company, billing_country_code, billing_state, billing_postal_code, billing_city, billing_address, billing_abn, active, created_by'
       )
       .eq('created_by', user.id)
       .limit(1);
@@ -755,7 +796,7 @@
         const { data: linkedVenues, error: linkedError } = await supabase
           .from('venues')
         .select(
-          'id, name, short_code, logo_url, kickback_guest, kickback_referrer, payment_methods, square_public, billing_email, billing_contact_first_name, billing_contact_last_name, billing_phone, billing_company, billing_country_code, billing_state, billing_postal_code, billing_city, billing_address, billing_abn, active, created_by'
+          'id, name, short_code, logo_url, kickback_guest, kickback_referrer, happy_hour_start_time, happy_hour_end_time, happy_hour_days, payment_methods, square_public, billing_email, billing_contact_first_name, billing_contact_last_name, billing_phone, billing_company, billing_country_code, billing_state, billing_postal_code, billing_city, billing_address, billing_abn, active, created_by'
         )
         .in('id', venueIds)
         .limit(1);
@@ -772,6 +813,9 @@
       venueCode = venue?.short_code ?? '';
       guestRate = venue?.kickback_guest != null ? String(venue.kickback_guest) : '5';
     referrerRate = venue?.kickback_referrer != null ? String(venue.kickback_referrer) : '5';
+    happyHourStart = sanitizeHappyHourTime(venue?.happy_hour_start_time ?? '16:00');
+    happyHourEnd = sanitizeHappyHourTime(venue?.happy_hour_end_time ?? '19:00');
+    happyHourDays = normalizeHappyHourDays(venue?.happy_hour_days);
     pauseClaims = venue?.square_public === false;
     paymentMethods = ['gateway'];
     selectedPaymentMethod = 'gateway';
@@ -817,6 +861,9 @@
         created_by: user.id,
         kickback_guest: parseRate(guestRate, 'Guest %'),
         kickback_referrer: parseRate(referrerRate, 'Referrer %'),
+        happy_hour_start_time: happyHourStart,
+        happy_hour_end_time: happyHourEnd,
+        happy_hour_days: Array.from(happyHourDays),
         short_code: shortCode,
         payment_methods: paymentMethods,
         square_public: !pauseClaims,
@@ -874,6 +921,9 @@
         name: trimmedName,
         kickback_guest: parseRate(guestRate, 'Guest %'),
         kickback_referrer: parseRate(referrerRate, 'Referrer %'),
+        happy_hour_start_time: happyHourStart,
+        happy_hour_end_time: happyHourEnd,
+        happy_hour_days: Array.from(happyHourDays),
         short_code: shortCode,
         payment_methods: paymentMethods,
         square_public: !pauseClaims && squareConnected,
@@ -1842,8 +1892,8 @@
           </div>
           {#if showMoreSettings}
             <div transition:slide class="rounded-2xl border border-zinc-800 bg-zinc-950/60 p-4 space-y-4">
-              <div class="grid gap-3 md:grid-cols-[minmax(0,1fr)_10rem_10rem] items-end">
-                <div>
+              <div class="grid gap-4 md:grid-cols-2 items-start">
+                <div class="space-y-3">
                   <label class="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
                     <span>Venue Code</span>
                     <span class="relative inline-flex items-center">
@@ -1877,29 +1927,77 @@
                     placeholder="e.g. ELTHAMBAR"
                     class="mt-2 bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-lg font-black text-white w-full uppercase tracking-widest"
                   />
+                  {#if venueShareUrl}
+                    <div class="rounded-xl border border-zinc-800 bg-black/40 p-3 space-y-2">
+                      <p class="text-[10px] font-black uppercase tracking-widest text-zinc-500">Venue QR</p>
+                      {#if venueQrUrl}
+                        <img src={venueQrUrl} alt="Venue QR" class="h-40 w-40 rounded-lg border border-zinc-800 bg-white p-2" />
+                      {/if}
+                      <a
+                        href={venueShareUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        class="block text-[10px] font-bold break-all text-orange-400 hover:text-orange-300 underline decoration-orange-500/40"
+                      >
+                        {venueShareUrl}
+                      </a>
+                    </div>
+                  {/if}
                 </div>
-                <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
-                  Guest %
-                  <input
-                    type="number"
-                    min={MIN_KICKBACK_RATE}
-                    max={MAX_KICKBACK_RATE}
-                    step="0.1"
-                    bind:value={guestRate}
-                    class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-base font-bold text-white w-full font-mont"
-                  />
-                </label>
-                <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
-                  Referrer %
-                  <input
-                    type="number"
-                    min={MIN_KICKBACK_RATE}
-                    max={MAX_KICKBACK_RATE}
-                    step="0.1"
-                    bind:value={referrerRate}
-                    class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-base font-bold text-white w-full font-mont"
-                  />
-                </label>
+                <div class="rounded-xl border border-zinc-800 bg-black/30 p-3 space-y-3">
+                  <label class="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
+                    <span>Happy Hour</span>
+                    <span class="relative inline-flex items-center">
+                      <button
+                        type="button"
+                        class="inline-flex h-4 w-4 items-center justify-center rounded-full border border-zinc-600 text-[10px] leading-none text-zinc-400"
+                        aria-label="Happy hour info"
+                        on:mouseenter={() => (showHappyHourTip = true)}
+                        on:mouseleave={() => (showHappyHourTip = false)}
+                        on:focus={() => (showHappyHourTip = true)}
+                        on:blur={() => (showHappyHourTip = false)}
+                        class:text-white={showHappyHourTip}
+                        class:border-zinc-400={showHappyHourTip}
+                      >
+                        i
+                      </button>
+                      <span class={`absolute left-1/2 top-full mt-2 -translate-x-1/2 whitespace-nowrap bg-zinc-900 border border-zinc-700 text-zinc-300 text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded-lg pointer-events-none z-10 ${showHappyHourTip ? 'opacity-100' : 'opacity-0'}`}>
+                        Double kickbacks between these hours on these days. 10% referrer, 10% new customer.
+                      </span>
+                    </span>
+                  </label>
+                  <div class="grid grid-cols-2 gap-2">
+                    <label class="flex flex-col gap-1 text-[10px] font-black uppercase tracking-widest text-zinc-500">
+                      Start
+                      <select bind:value={happyHourStart} class="bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-sm font-bold text-white font-mont">
+                        {#each happyHourTimeOptions as option}
+                          <option value={option}>{option}</option>
+                        {/each}
+                      </select>
+                    </label>
+                    <label class="flex flex-col gap-1 text-[10px] font-black uppercase tracking-widest text-zinc-500">
+                      End
+                      <select bind:value={happyHourEnd} class="bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-sm font-bold text-white font-mont">
+                        {#each happyHourTimeOptions as option}
+                          <option value={option}>{option}</option>
+                        {/each}
+                      </select>
+                    </label>
+                  </div>
+                  <div class="grid grid-cols-4 gap-2">
+                    {#each happyHourDayOptions as day}
+                      <label class="flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-zinc-300">
+                        <input
+                          type="checkbox"
+                          checked={happyHourDays.has(day)}
+                          on:change={() => toggleHappyHourDay(day)}
+                          class="h-3.5 w-3.5 accent-orange-500"
+                        />
+                        <span>{day}</span>
+                      </label>
+                    {/each}
+                  </div>
+                </div>
               </div>
               {#if venueCodeChecking}
                 <p class="text-[10px] font-black uppercase tracking-widest text-zinc-500">Checking code...</p>

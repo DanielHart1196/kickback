@@ -4,7 +4,9 @@ import type { Venue } from './types';
 export async function fetchActiveVenues(): Promise<Venue[]> {
   const { data, error } = await supabase
     .from('venues')
-    .select('id, name, short_code, logo_url, kickback_guest, kickback_referrer, payment_methods, square_public')
+    .select(
+      'id, name, short_code, logo_url, kickback_guest, kickback_referrer, payment_methods, square_public, happy_hour_start_time, happy_hour_end_time, happy_hour_days'
+    )
     .eq('active', true)
     .order('name', { ascending: true });
 

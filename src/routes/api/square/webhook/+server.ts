@@ -3,6 +3,7 @@ import { supabaseAdmin } from '$lib/server/supabaseAdmin';
 import { fetchSquarePayment, type SquarePayment } from '$lib/server/square/payments';
 import { matchSquareSignature } from '$lib/server/square/webhook';
 import { GOAL_DAYS } from '$lib/claims/constants';
+import { getVenueRatesForTime } from '$lib/venues/happyHour';
 
 const dayMs = 24 * 60 * 60 * 1000;
 
@@ -210,7 +211,7 @@ export async function POST({ request }) {
 
   const { data: venue, error: venueError } = await supabaseAdmin
     .from('venues')
-    .select('name,kickback_guest,kickback_referrer,square_public')
+    .select('name,kickback_guest,kickback_referrer,square_public,happy_hour_start_time,happy_hour_end_time,happy_hour_days')
     .eq('id', venueId)
     .maybeSingle();
 
@@ -237,6 +238,7 @@ export async function POST({ request }) {
   }
 
   const autoClaimStatus = venue.square_public === false ? 'pending' : 'approved';
+  const effectiveRates = getVenueRatesForTime(venue, purchasedAt, 5);
 
   const { data: created, error: insertError } = await supabaseAdmin
     .from('claims')
@@ -252,8 +254,8 @@ export async function POST({ request }) {
         purchased_at: purchasedAt,
         created_at: new Date().toISOString(),
         status: autoClaimStatus,
-        kickback_guest_rate: venue.kickback_guest ?? null,
-        kickback_referrer_rate: venue.kickback_referrer ?? null,
+        kickback_guest_rate: effectiveRates.guestRate,
+        kickback_referrer_rate: effectiveRates.referrerRate,
         square_payment_id: payment.id,
         square_card_fingerprint: fingerprint,
         square_location_id: payment.location_id ?? null
