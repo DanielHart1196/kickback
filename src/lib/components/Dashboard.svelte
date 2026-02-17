@@ -80,6 +80,7 @@
   let notifyPayoutConfirmation = false;
   let isPwaInstalled = false;
   let isMobileScreen = false;
+  const pwaInstalledKey = 'kickback:pwa_installed';
   let authProviderLabel = '';
   let canEditAuthEmail = false;
   let emailEditMode = false;
@@ -133,15 +134,39 @@
     const updateInstallAvailability = () => {
       if (typeof window === 'undefined') return;
       isMobileScreen = window.matchMedia ? window.matchMedia('(max-width: 767px)').matches : false;
-      isPwaInstalled =
+      const runtimeInstalled =
         (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
         ((window.navigator as any)?.standalone === true);
+      let storedInstalled = false;
+      try {
+        storedInstalled = localStorage.getItem(pwaInstalledKey) === '1';
+      } catch {}
+      isPwaInstalled = runtimeInstalled || storedInstalled;
+    };
+    const handleBeforeInstallPrompt = () => {
+      if (typeof window === 'undefined') return;
+      const runtimeInstalled =
+        (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
+        ((window.navigator as any)?.standalone === true);
+      if (!runtimeInstalled) {
+        try {
+          localStorage.removeItem(pwaInstalledKey);
+        } catch {}
+        isPwaInstalled = false;
+      }
+    };
+    const handleInstalled = () => {
+      try {
+        localStorage.setItem(pwaInstalledKey, '1');
+      } catch {}
+      updateInstallAvailability();
     };
     document.addEventListener('click', handleOutsideClick);
     if (typeof window !== 'undefined') {
       try {
         updateInstallAvailability();
-        window.addEventListener('appinstalled', updateInstallAvailability);
+        window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt as EventListener);
+        window.addEventListener('appinstalled', handleInstalled);
         window.addEventListener('resize', updateInstallAvailability);
         window.addEventListener('focus', updateInstallAvailability);
         window.addEventListener('pageshow', updateInstallAvailability);
@@ -189,7 +214,8 @@
     return () => {
       document.removeEventListener('click', handleOutsideClick);
       if (typeof window !== 'undefined') {
-        window.removeEventListener('appinstalled', updateInstallAvailability);
+        window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt as EventListener);
+        window.removeEventListener('appinstalled', handleInstalled);
         window.removeEventListener('resize', updateInstallAvailability);
         window.removeEventListener('focus', updateInstallAvailability);
         window.removeEventListener('pageshow', updateInstallAvailability);
