@@ -1,9 +1,16 @@
 <script lang="ts">
+  const CONTACT_MESSAGE_MAX_LENGTH = 500;
   let contactEmail = '';
   let contactVenue = '';
   let contactMessage = '';
   let contactSubmitting = false;
   let contactStatus: string | null = null;
+
+  function handleContactMessageInput(event: Event & { currentTarget: HTMLTextAreaElement }) {
+    const next = String(event.currentTarget.value ?? '');
+    contactMessage = next.slice(0, CONTACT_MESSAGE_MAX_LENGTH);
+    if (contactStatus) contactStatus = null;
+  }
 
   async function handleContactSubmit(e: Event) {
     e.preventDefault();
@@ -16,7 +23,7 @@
         body: JSON.stringify({
           email: contactEmail,
           venue: contactVenue,
-          message: contactMessage || undefined
+          message: contactMessage.trim() || undefined
         })
       });
       if (!res.ok) {
@@ -132,9 +139,17 @@
         </div>
 
         <div class="rounded-3xl border border-zinc-800 bg-black/60 p-6 -mx-6 md:mx-0">
-          <p class="text-[10px] font-semibold uppercase tracking-[0.3em] text-zinc-500">
-            For venues
-          </p>
+          <div class="flex items-center justify-between gap-3">
+            <p class="text-[10px] font-semibold uppercase tracking-[0.3em] text-zinc-500">
+              For venues
+            </p>
+            <a
+              href="/admin/login"
+              class="inline-flex items-center justify-center rounded-full bg-white px-5 h-10 text-xs font-black uppercase text-black shadow-lg shadow-black/20 transition-transform transition-colors active:scale-95 hover:bg-zinc-200"
+            >
+              Sign In
+            </a>
+          </div>
           <p class="mt-3 text-lg font-black uppercase text-white">
             TURN YOUR<span class="sm:hidden"><br /></span> <span class="text-orange-500 font-black">REGULARS</span><span class="sm:hidden"><br /></span> INTO YOUR<span class="sm:hidden"><br /></span> <span class="text-orange-500 font-black">MARKETING TEAM</span>
           </p>
@@ -171,14 +186,23 @@
               />
             </div>
             <div>
-              <label for="contact-message" class="mb-1 block text-xs font-bold uppercase text-zinc-400">
-                Message <span class="text-zinc-600">(optional)</span>
-              </label>
+              <div class="mb-1 flex items-center justify-between gap-3">
+                <label for="contact-message" class="block text-xs font-bold uppercase text-zinc-400">
+                  Message <span class="text-zinc-600">(optional)</span>
+                </label>
+                {#if contactMessage.length > 0}
+                  <p class="text-[10px] font-bold text-zinc-500 whitespace-nowrap">
+                    {contactMessage.length}/{CONTACT_MESSAGE_MAX_LENGTH}
+                  </p>
+                {/if}
+              </div>
               <textarea
                 id="contact-message"
                 name="message"
                 rows="3"
                 bind:value={contactMessage}
+                maxlength={CONTACT_MESSAGE_MAX_LENGTH}
+                on:input={handleContactMessageInput}
                 class="w-full resize-none rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-sm text-white placeholder-zinc-500 focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500"
                 placeholder="Tell us a bit about your venue..."
               ></textarea>

@@ -54,13 +54,9 @@
         updated_at: new Date().toISOString()
       };
 
-      console.log('Saving payload:', payload);
-
       const { error } = await supabase
         .from('payout_profiles')
         .upsert(payload, { onConflict: 'user_id' });
-
-      console.log('Save result:', { error });
 
       if (error) {
         console.error('Supabase error:', error);

@@ -724,12 +724,9 @@
           notify_payout_confirmation: true,
           updated_at: new Date().toISOString()
         };
-        console.log('Creating profile:', profilePayload);
         const { error } = await supabase.from('profiles').upsert(profilePayload);
         if (error) {
           console.error('Error creating profile:', error);
-        } else {
-          console.log('Profile created successfully');
         }
       }
       

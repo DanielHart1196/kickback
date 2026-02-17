@@ -52,8 +52,6 @@ export async function POST({ request }) {
   const tablesToClean = [
     'square_connections',
     'square_location_links',
-    'zepto_connections',
-    'zepto_payto_agreements',
     'venue_payment_agreements'
   ];
 

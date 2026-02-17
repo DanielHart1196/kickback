@@ -102,7 +102,6 @@
   let filterMenuWasOpen = false;
 
   $: if (userId && userId !== lastLoadedUserId) {
-    console.log('Dashboard: userId changed, loading profile', userId);
     lastLoadedUserId = userId;
   }
 
@@ -311,8 +310,6 @@
       const { error } = await supabase.from('profiles').upsert(profilePayload, { onConflict: 'id' });
       if (error) {
         console.error('Error saving notification preferences:', error);
-      } else {
-        console.log('Notification preferences saved instantly');
       }
     } catch (err) {
       console.error('Failed to save notification preferences:', err);
@@ -413,7 +410,6 @@
       return;
     }
     
-    console.log('savePayoutProfile: Saving with', { notifyApprovedClaims, notifyPayoutConfirmation });
     if (payoutIsHobbyist && !payoutHobbyistConfirmedAt) {
       payoutHobbyistConfirmedAt = new Date().toISOString();
     } else if (!payoutIsHobbyist) {
