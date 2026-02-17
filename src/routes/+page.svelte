@@ -101,8 +101,6 @@
   let showInstallBanner = false;
   let showIosInstallModal = false;
   const installPromptKey = 'kickback:install_prompt_shown';
-  const pwaInstalledKey = 'kickback:pwa_installed';
-  let pwaInstalledKnown = false;
   let installedHandlerAdded = false;
   let autoClaimBanner: { venue: string; daysLeft: number } | null = null;
   let autoClaimBannerTimer: ReturnType<typeof setTimeout> | null = null;
@@ -163,17 +161,11 @@
     };
     const handleInstalled = () => {
       markInstallPrompted();
-      markPwaInstalledKnown();
       showInstallBanner = false;
       showIosInstallModal = false;
       showAndroidInstallModal = false;
     };
     if (typeof window !== 'undefined') {
-      try {
-        pwaInstalledKnown = Boolean(localStorage.getItem(pwaInstalledKey));
-      } catch {
-        pwaInstalledKnown = false;
-      }
       window.addEventListener('popstate', handlePopState);
       window.addEventListener('beforeinstallprompt', handleBeforeInstall as EventListener);
       window.addEventListener('appinstalled', handleInstalled);
@@ -515,19 +507,6 @@
     showInstallBanner = false;
   }
 
-  function markPwaInstalledKnown() {
-    pwaInstalledKnown = true;
-    try {
-      localStorage.setItem(pwaInstalledKey, '1');
-    } catch {}
-  }
-
-  function openInstalledApp() {
-    if (typeof window === 'undefined') return;
-    if (isStandaloneInstalled()) return;
-    window.location.assign(`${window.location.origin}/`);
-  }
-
   function showAutoClaimNotice(venueName: string, daysLeft: number) {
     autoClaimBanner = { venue: venueName, daysLeft };
     if (autoClaimBannerTimer) clearTimeout(autoClaimBannerTimer);
@@ -569,13 +548,6 @@
       const choice = await deferredInstallPrompt.userChoice;
       if (choice?.outcome === 'accepted') {
         markInstallPrompted();
-        markPwaInstalledKnown();
-        // Some Android browsers do not auto-switch to standalone after install.
-        setTimeout(() => {
-          if (!isStandaloneInstalled()) {
-            openInstalledApp();
-          }
-        }, 600);
       }
     } catch (error) {
       console.error('Install prompt failed:', error);
@@ -1426,8 +1398,6 @@
         onDeleteClaim={handleDeleteClaim}
         onOpenRefer={openReferModal}
         onRequestInstall={triggerInstallBanner}
-        onOpenInstalledApp={openInstalledApp}
-        {pwaInstalledKnown}
         onLogout={handleSignOut}
       />
     </div>
@@ -1555,25 +1525,13 @@
           <li>2. Tap Install app or Add to Home screen.</li>
           <li>3. Confirm Install.</li>
         </ol>
-        <div class="mt-5 grid gap-2">
-          <button
-            type="button"
-            on:click={() => {
-              markPwaInstalledKnown();
-              dismissAndroidInstallModal();
-            }}
-            class="w-full rounded-xl bg-white px-4 py-3 text-xs font-black uppercase tracking-[0.2em] text-black hover:bg-zinc-200 transition-colors"
-          >
-            I've Installed It
-          </button>
-          <button
-            type="button"
-            on:click={dismissAndroidInstallModal}
-            class="w-full rounded-xl border border-zinc-700 px-4 py-3 text-xs font-black uppercase tracking-[0.2em] text-zinc-300 hover:border-zinc-500 transition-colors"
-          >
-            Close
-          </button>
-        </div>
+        <button
+          type="button"
+          on:click={dismissAndroidInstallModal}
+          class="mt-5 w-full rounded-xl bg-white px-4 py-3 text-xs font-black uppercase tracking-[0.2em] text-black hover:bg-zinc-200 transition-colors"
+        >
+          Close
+        </button>
       </div>
     </div>
   {/if}

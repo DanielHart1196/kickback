@@ -21,8 +21,6 @@
   export let onLogout: () => void = () => {};
   export let onOpenRefer: () => void = () => {};
   export let onRequestInstall: () => void = () => {};
-  export let onOpenInstalledApp: () => void = () => {};
-  export let pwaInstalledKnown = false;
 
   let lastHighlightKey: string | null = null;
   let pendingTotal = 0;
@@ -145,6 +143,9 @@
         updateInstallAvailability();
         window.addEventListener('appinstalled', updateInstallAvailability);
         window.addEventListener('resize', updateInstallAvailability);
+        window.addEventListener('focus', updateInstallAvailability);
+        window.addEventListener('pageshow', updateInstallAvailability);
+        document.addEventListener('visibilitychange', updateInstallAvailability);
       } catch {}
       const hash = window.location.hash || '';
       /*
@@ -190,6 +191,9 @@
       if (typeof window !== 'undefined') {
         window.removeEventListener('appinstalled', updateInstallAvailability);
         window.removeEventListener('resize', updateInstallAvailability);
+        window.removeEventListener('focus', updateInstallAvailability);
+        window.removeEventListener('pageshow', updateInstallAvailability);
+        document.removeEventListener('visibilitychange', updateInstallAvailability);
       }
     };
   });
@@ -1476,11 +1480,11 @@
                 </div>
                 <button
                   type="button"
-                  on:click={pwaInstalledKnown && !isPwaInstalled ? onOpenInstalledApp : onRequestInstall}
+                  on:click={onRequestInstall}
                   disabled={!isMobileScreen || isPwaInstalled}
                   class="rounded-lg bg-zinc-200 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-black hover:bg-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {isPwaInstalled ? 'Installed' : pwaInstalledKnown ? 'Open' : 'Install'}
+                  {isPwaInstalled ? 'Installed' : 'Install'}
                 </button>
               </div>
               <p class="mt-0.5 text-[10px] font-black uppercase tracking-widest text-zinc-500">
