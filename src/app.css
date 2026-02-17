@@ -79,8 +79,13 @@ html, body {
   height: 100%;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  overscroll-behavior-y: contain;
+  overscroll-behavior-y: auto;
   width: 100%;
   overflow-x: hidden;
   scrollbar-gutter: stable;
+}
+
+html.no-pull-refresh,
+body.no-pull-refresh {
+  overscroll-behavior-y: contain;
 }

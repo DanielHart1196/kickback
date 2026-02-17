@@ -7,6 +7,14 @@
   let { children } = $props();
   let fbAppId = publicEnv.PUBLIC_FB_APP_ID;
   const ogImage = 'https://kkbk.app/opengraph.png?v=2';
+  const supabaseOrigin = (() => {
+    try {
+      const supabaseUrl = publicEnv.PUBLIC_SUPABASE_URL;
+      return supabaseUrl ? new URL(supabaseUrl).origin : '';
+    } catch {
+      return '';
+    }
+  })();
 
   onMount(() => {
     if ('serviceWorker' in navigator) {
@@ -18,6 +26,10 @@
 </script>
 
 <svelte:head>
+  {#if supabaseOrigin}
+    <link rel="dns-prefetch" href={supabaseOrigin} />
+    <link rel="preconnect" href={supabaseOrigin} crossorigin="anonymous" />
+  {/if}
   <link rel="icon" href="{favicon}" />
   <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="canonical" href="https://kkbk.app/" />

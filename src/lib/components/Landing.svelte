@@ -49,6 +49,8 @@
     </div>
     <a
       href="/login"
+      data-sveltekit-preload-code="viewport"
+      data-sveltekit-preload-data="hover"
     class="inline-flex items-center justify-center rounded-full bg-white px-5 h-10 text-xs font-black uppercase text-black shadow-lg shadow-black/20 transition-transform transition-colors active:scale-95 hover:bg-zinc-200"
     >
       Sign In
@@ -64,6 +66,8 @@
         <div class="flex justify-center">
             <a
               href="/login"
+              data-sveltekit-preload-code="viewport"
+              data-sveltekit-preload-data="hover"
               class="inline-flex items-center justify-center rounded-full bg-orange-500 px-8 py-3 text-lg font-black uppercase text-black transition-colors active:scale-95 hover:bg-orange-600"
             >
               Join
@@ -145,6 +149,8 @@
             </p>
             <a
               href="/admin/login"
+              data-sveltekit-preload-code="viewport"
+              data-sveltekit-preload-data="hover"
               class="inline-flex items-center justify-center rounded-full bg-white px-5 h-10 text-xs font-black uppercase text-black shadow-lg shadow-black/20 transition-transform transition-colors active:scale-95 hover:bg-zinc-200"
             >
               Sign In

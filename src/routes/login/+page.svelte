@@ -33,14 +33,36 @@
   pendingKickback = data?.pendingKickback ?? null;
 
   onMount(async () => {
-    try {
-      venueRates = await fetchActiveVenues();
-    } catch (error) {
-      console.error('Error loading venues:', error);
+    const { data } = await supabase.auth.getSession();
+    if (data?.session?.user) {
+      window.location.href = '/';
+      return;
+    }
+
+    const params = new URLSearchParams(window.location.search);
+    const urlDraft = getDraftFromUrl(window.location.search);
+    const storedDraft = getDraftFromStorage(localStorage);
+    const hasVenueParam = params.has('venue') || params.has('venue_id');
+    const hasOnlyVenue =
+      hasVenueParam &&
+      !params.has('ref') &&
+      !params.has('amount') &&
+      !params.has('last4');
+
+    const shouldLoadVenueRates =
+      hasOnlyVenue || Boolean(urlDraft?.venueCode || urlDraft?.venueId || urlDraft?.venue);
+
+    if (shouldLoadVenueRates) {
+      try {
+        venueRates = await fetchActiveVenues();
+      } catch (error) {
+        console.error('Error loading venues:', error);
+        venueRates = [];
+      }
+    } else {
       venueRates = [];
     }
 
-    const urlDraft = getDraftFromUrl(window.location.search);
     if (urlDraft) {
       const amountValue = Number(urlDraft.amount ?? '');
       const venueCode = urlDraft.venueCode ?? '';
@@ -65,8 +87,6 @@
       pendingKickback = null;
     }
 
-    const params = new URLSearchParams(window.location.search);
-    const storedDraft = getDraftFromStorage(localStorage);
     fromClaimFlow = Boolean(
       urlDraft ||
       storedDraft ||
@@ -74,12 +94,6 @@
       params.has('amount') ||
       params.has('last4')
     );
-    const hasVenueParam = params.has('venue') || params.has('venue_id');
-    const hasOnlyVenue =
-      hasVenueParam &&
-      !params.has('ref') &&
-      !params.has('amount') &&
-      !params.has('last4');
     if (hasOnlyVenue) {
       const venueParam = params.get('venue_id') || params.get('venue') || '';
       let match =
@@ -93,12 +107,6 @@
       }
     } else {
       venuePromo = null;
-    }
-    
-    const { data } = await supabase.auth.getSession();
-    if (data?.session?.user) {
-      window.location.href = '/';
-      return;
     }
   });
 

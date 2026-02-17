@@ -512,6 +512,10 @@
   }
 
   onDestroy(() => {
+    if (typeof document !== 'undefined') {
+      document.documentElement.classList.remove('no-pull-refresh');
+      document.body.classList.remove('no-pull-refresh');
+    }
     if (autoClaimBannerTimer) {
       clearTimeout(autoClaimBannerTimer);
       autoClaimBannerTimer = null;
@@ -523,6 +527,11 @@
       }
     } catch {}
   });
+
+  $: if (typeof document !== 'undefined') {
+    document.documentElement.classList.toggle('no-pull-refresh', showForm);
+    document.body.classList.toggle('no-pull-refresh', showForm);
+  }
 
   async function handleInstall() {
     if (!deferredInstallPrompt) {
@@ -1351,6 +1360,7 @@
         onNewClaim={startNewClaim}
         onDeleteClaim={handleDeleteClaim}
         onOpenRefer={openReferModal}
+        onRequestInstall={triggerInstallBanner}
         onLogout={handleSignOut}
       />
     </div>
