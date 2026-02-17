@@ -21,6 +21,8 @@
   export let onLogout: () => void = () => {};
   export let onOpenRefer: () => void = () => {};
   export let onRequestInstall: () => void = () => {};
+  export let onOpenInstalledApp: () => void = () => {};
+  export let pwaInstalledKnown = false;
 
   let lastHighlightKey: string | null = null;
   let pendingTotal = 0;
@@ -1474,11 +1476,11 @@
                 </div>
                 <button
                   type="button"
-                  on:click={onRequestInstall}
+                  on:click={pwaInstalledKnown && !isPwaInstalled ? onOpenInstalledApp : onRequestInstall}
                   disabled={!isMobileScreen || isPwaInstalled}
                   class="rounded-lg bg-zinc-200 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-black hover:bg-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {isPwaInstalled ? 'Installed' : 'Install'}
+                  {isPwaInstalled ? 'Installed' : pwaInstalledKnown ? 'Open' : 'Install'}
                 </button>
               </div>
               <p class="mt-0.5 text-[10px] font-black uppercase tracking-widest text-zinc-500">
