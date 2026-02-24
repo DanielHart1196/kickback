@@ -1,10 +1,24 @@
 <script lang="ts">
+  import { goto } from '$app/navigation';
+
   const CONTACT_MESSAGE_MAX_LENGTH = 500;
   let contactEmail = '';
   let contactVenue = '';
   let contactMessage = '';
   let contactSubmitting = false;
   let contactStatus: string | null = null;
+
+  async function navigateToLogin(event: MouseEvent) {
+    event.preventDefault();
+    await goto('/login', { noScroll: false, keepFocus: false });
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+    requestAnimationFrame(() => {
+      window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+    });
+    setTimeout(() => {
+      window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+    }, 120);
+  }
 
   function handleContactMessageInput(event: Event & { currentTarget: HTMLTextAreaElement }) {
     const next = String(event.currentTarget.value ?? '');
@@ -51,7 +65,8 @@
       href="/login"
       data-sveltekit-preload-code="viewport"
       data-sveltekit-preload-data="hover"
-    class="inline-flex items-center justify-center rounded-full bg-white px-5 h-10 text-xs font-black uppercase text-black shadow-lg shadow-black/20 transition-transform transition-colors active:scale-95 hover:bg-zinc-200"
+      on:click={navigateToLogin}
+      class="inline-flex items-center justify-center rounded-full bg-white px-5 h-10 text-xs font-black uppercase text-black shadow-lg shadow-black/20 transition-transform transition-colors active:scale-95 hover:bg-zinc-200"
     >
       Sign In
     </a>
@@ -68,6 +83,7 @@
               href="/login"
               data-sveltekit-preload-code="viewport"
               data-sveltekit-preload-data="hover"
+              on:click={navigateToLogin}
               class="inline-flex items-center justify-center rounded-full bg-orange-500 px-8 py-3 text-lg font-black uppercase text-black transition-colors active:scale-95 hover:bg-orange-600"
             >
               Join
