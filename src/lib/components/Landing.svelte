@@ -126,18 +126,18 @@
             <div class="marquee-group">
               <img src="/venues/platform3095-black.jpg" alt="platform3095" class="marquee-img" loading="eager" decoding="sync" />
               <img src="/venues/barpic-logo.jpg" alt="barpic" class="marquee-img" loading="eager" decoding="sync" />
-              <img src="/venues/pro-bros.avif" alt="pro bros" class="marquee-img" loading="eager" decoding="sync" />
+              <img src="/venues/probros-logo.png" alt="pro bros" class="marquee-img" loading="eager" decoding="sync" />
               <img src="/venues/platform3095-black.jpg" alt="platform3095" class="marquee-img" loading="eager" decoding="sync" />
               <img src="/venues/barpic-logo.jpg" alt="barpic" class="marquee-img" loading="eager" decoding="sync" />
-              <img src="/venues/pro-bros.avif" alt="pro bros" class="marquee-img" loading="eager" decoding="sync" />
+              <img src="/venues/probros-logo.png" alt="pro bros" class="marquee-img" loading="eager" decoding="sync" />
             </div>
             <div class="marquee-group" aria-hidden="true">
               <img src="/venues/platform3095-black.jpg" alt="platform3095" class="marquee-img" loading="eager" decoding="sync" />
               <img src="/venues/barpic-logo.jpg" alt="barpic" class="marquee-img" loading="eager" decoding="sync" />
-              <img src="/venues/pro-bros.avif" alt="pro bros" class="marquee-img" loading="eager" decoding="sync" />
+              <img src="/venues/probros-logo.png" alt="pro bros" class="marquee-img" loading="eager" decoding="sync" />
               <img src="/venues/platform3095-black.jpg" alt="platform3095" class="marquee-img" loading="eager" decoding="sync" />
               <img src="/venues/barpic-logo.jpg" alt="barpic" class="marquee-img" loading="eager" decoding="sync" />
-              <img src="/venues/pro-bros.avif" alt="pro bros" class="marquee-img" loading="eager" decoding="sync" />
+              <img src="/venues/probros-logo.png" alt="pro bros" class="marquee-img" loading="eager" decoding="sync" />
             </div>
           </div>
         </div>
