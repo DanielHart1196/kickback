@@ -2,6 +2,7 @@
   import "../app.css";
   import favicon from '$lib/assets/favicon.png';
   import { onMount } from 'svelte';
+  import { afterNavigate } from '$app/navigation';
   import { env as publicEnv } from '$env/dynamic/public';
 
   let { children } = $props();
@@ -22,6 +23,12 @@
         console.error('Service worker registration failed:', error);
       });
     }
+  });
+
+  afterNavigate((navigation) => {
+    if (typeof window === 'undefined') return;
+    if (navigation.type === 'popstate') return;
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
   });
 </script>
 
