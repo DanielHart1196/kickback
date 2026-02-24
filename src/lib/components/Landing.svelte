@@ -124,20 +124,20 @@
         <div class="venue-marquee !my-8 [mask-image:_linear_gradient(to_right,transparent_0,_black_10%,_black_90%,transparent_100%)]">
           <div class="marquee-track">
             <div class="marquee-group">
-              <img src="/venues/platform3095-black.jpg" alt="platform3095" class="marquee-img" loading="lazy" decoding="async" />
-              <img src="/venues/barpic-logo.jpg" alt="barpic" class="marquee-img" loading="lazy" decoding="async" />
-              <img src="/venues/pro-bros.avif" alt="pro bros" class="marquee-img" loading="lazy" decoding="async" />
-              <img src="/venues/platform3095-black.jpg" alt="platform3095" class="marquee-img" loading="lazy" decoding="async" />
-              <img src="/venues/barpic-logo.jpg" alt="barpic" class="marquee-img" loading="lazy" decoding="async" />
-              <img src="/venues/pro-bros.avif" alt="pro bros" class="marquee-img" loading="lazy" decoding="async" />
+              <img src="/venues/platform3095-black.jpg" alt="platform3095" class="marquee-img" loading="eager" decoding="sync" />
+              <img src="/venues/barpic-logo.jpg" alt="barpic" class="marquee-img" loading="eager" decoding="sync" />
+              <img src="/venues/pro-bros.avif" alt="pro bros" class="marquee-img" loading="eager" decoding="sync" />
+              <img src="/venues/platform3095-black.jpg" alt="platform3095" class="marquee-img" loading="eager" decoding="sync" />
+              <img src="/venues/barpic-logo.jpg" alt="barpic" class="marquee-img" loading="eager" decoding="sync" />
+              <img src="/venues/pro-bros.avif" alt="pro bros" class="marquee-img" loading="eager" decoding="sync" />
             </div>
             <div class="marquee-group" aria-hidden="true">
-              <img src="/venues/platform3095-black.jpg" alt="platform3095" class="marquee-img" loading="lazy" decoding="async" />
-              <img src="/venues/barpic-logo.jpg" alt="barpic" class="marquee-img" loading="lazy" decoding="async" />
-              <img src="/venues/pro-bros.avif" alt="pro bros" class="marquee-img" loading="lazy" decoding="async" />
-              <img src="/venues/platform3095-black.jpg" alt="platform3095" class="marquee-img" loading="lazy" decoding="async" />
-              <img src="/venues/barpic-logo.jpg" alt="barpic" class="marquee-img" loading="lazy" decoding="async" />
-              <img src="/venues/pro-bros.avif" alt="pro bros" class="marquee-img" loading="lazy" decoding="async" />
+              <img src="/venues/platform3095-black.jpg" alt="platform3095" class="marquee-img" loading="eager" decoding="sync" />
+              <img src="/venues/barpic-logo.jpg" alt="barpic" class="marquee-img" loading="eager" decoding="sync" />
+              <img src="/venues/pro-bros.avif" alt="pro bros" class="marquee-img" loading="eager" decoding="sync" />
+              <img src="/venues/platform3095-black.jpg" alt="platform3095" class="marquee-img" loading="eager" decoding="sync" />
+              <img src="/venues/barpic-logo.jpg" alt="barpic" class="marquee-img" loading="eager" decoding="sync" />
+              <img src="/venues/pro-bros.avif" alt="pro bros" class="marquee-img" loading="eager" decoding="sync" />
             </div>
           </div>
         </div>
@@ -250,11 +250,8 @@
 <style>
 /* Venues marquee */
 .venue-marquee {
-  width: 100vw;
-  position: relative;
-  left: 50%;
-  margin-left: -50vw;
-  overflow: hidden;
+  width: 100%;
+  overflow: clip;
   mask-image: linear-gradient(to right, transparent 0%, black 10%, black 90%, transparent 100%);
   -webkit-mask-image: linear-gradient(to right, transparent 0%, black 10%, black 90%, transparent 100%);
   z-index: 1;
