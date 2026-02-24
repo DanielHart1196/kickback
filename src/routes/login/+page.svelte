@@ -33,6 +33,14 @@
   pendingKickback = data?.pendingKickback ?? null;
 
   onMount(async () => {
+    // Ensure login always starts at the top on mobile route transitions.
+    if (typeof window !== 'undefined') {
+      window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+      requestAnimationFrame(() => {
+        window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+      });
+    }
+
     const { data } = await supabase.auth.getSession();
     if (data?.session?.user) {
       window.location.href = '/';

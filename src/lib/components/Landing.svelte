@@ -121,7 +121,7 @@
         </div>
 
         <!-- Venues marquee: drop images into `static/venues/` (e.g. platform3095.jpg) -->
-        <div class="venue-marquee !my-8 [mask-image:_linear_gradient(to_right,transparent_0,_black_10%,_black_90%,transparent_100%)]">
+        <div class="venue-marquee !my-8 -mx-6 md:mx-0">
           <div class="marquee-track">
             <div class="marquee-group">
               <img src="/venues/platform3095-black.jpg" alt="platform3095" class="marquee-img" loading="eager" decoding="sync" />
@@ -252,8 +252,8 @@
 .venue-marquee {
   width: 100%;
   overflow: clip;
-  mask-image: linear-gradient(to right, transparent 0%, black 10%, black 90%, transparent 100%);
-  -webkit-mask-image: linear-gradient(to right, transparent 0%, black 10%, black 90%, transparent 100%);
+  mask-image: linear-gradient(to right, transparent 0%, black 6%, black 94%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to right, transparent 0%, black 6%, black 94%, transparent 100%);
   z-index: 1;
 }
 .marquee-track {
