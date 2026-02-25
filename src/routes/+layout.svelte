@@ -9,6 +9,24 @@
   let fbAppId = publicEnv.PUBLIC_FB_APP_ID;
   const appUrl = (publicEnv.PUBLIC_APP_URL || 'https://kkbk.app').replace(/\/+$/, '');
   const ogImage = `${appUrl}/opengraph.png?v=2`;
+
+  /** @param {string} pathname */
+  function isLegalPath(pathname) {
+    return pathname === '/terms' || pathname === '/privacy';
+  }
+
+  function scrollTopStable() {
+    if (typeof window === 'undefined') return;
+    const applyTop = () => {
+      window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+      document.documentElement.scrollTop = 0;
+      if (document.body) document.body.scrollTop = 0;
+    };
+    applyTop();
+    requestAnimationFrame(applyTop);
+    setTimeout(applyTop, 120);
+    setTimeout(applyTop, 260);
+  }
   const supabaseOrigin = (() => {
     try {
       const supabaseUrl = publicEnv.PUBLIC_SUPABASE_URL;
@@ -28,6 +46,11 @@
 
   afterNavigate((navigation) => {
     if (typeof window === 'undefined') return;
+    const toPath = navigation.to?.url?.pathname ?? window.location.pathname;
+    if (isLegalPath(toPath)) {
+      scrollTopStable();
+      return;
+    }
     if (navigation.type === 'popstate') return;
     window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
   });

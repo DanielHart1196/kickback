@@ -198,7 +198,12 @@
     <section class="mt-14 grid gap-12 grid-cols-1 items-start">
       <div class="space-y-10">
         <h1 class="text-4xl font-extrabold uppercase tracking-tight text-white text-center sm:text-5xl lg:text-6xl">
-          BRING A MATE <br /><span class="text-orange-500">EARN TOGETHER</span>
+          <span class="sm:hidden">
+            <span class="whitespace-nowrap">BRING A MATE</span><br /><span class="text-orange-500">EARN<br />TOGETHER</span>
+          </span>
+          <span class="hidden sm:inline">
+            BRING A MATE <br /><span class="text-orange-500">EARN TOGETHER</span>
+          </span>
         </h1>
         <div class="flex justify-center">
             <a
