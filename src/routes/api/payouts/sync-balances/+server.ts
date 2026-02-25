@@ -1,7 +1,8 @@
 import { json } from '@sveltejs/kit';
+import type { RequestEvent } from '@sveltejs/kit';
 import { supabaseAdmin } from '$lib/server/supabaseAdmin';
 
-export async function POST({ request }) {
+export async function POST({ request }: RequestEvent) {
   try {
     const body = await request.json().catch(() => null);
     const invoiceId = typeof body?.stripe_invoice_id === 'string' ? body.stripe_invoice_id : null;
@@ -221,3 +222,5 @@ export async function POST({ request }) {
     return json({ ok: false, error: message }, { status: 500 });
   }
 }
+
+

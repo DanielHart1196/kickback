@@ -1,4 +1,5 @@
 import { json } from '@sveltejs/kit';
+import type { RequestEvent } from '@sveltejs/kit';
 import { dev } from '$app/environment';
 import { supabaseAdmin } from '$lib/server/supabaseAdmin';
 import { env } from '$env/dynamic/private';
@@ -46,7 +47,7 @@ async function stripePost(path: string, payload: Record<string, unknown> = {}) {
   return data;
 }
 
-export async function POST({ request }) {
+export async function POST({ request }: RequestEvent) {
   try {
     const body = await request.json().catch(() => null);
     const claimIds: string[] = Array.isArray(body?.claim_ids) ? body.claim_ids : [];
@@ -200,3 +201,5 @@ export async function POST({ request }) {
     return json({ ok: false, error: error instanceof Error ? error.message : 'bulk_send_failed' }, { status: 500 });
   }
 }
+
+

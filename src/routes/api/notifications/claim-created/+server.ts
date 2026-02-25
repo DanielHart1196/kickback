@@ -1,7 +1,8 @@
 import { json } from '@sveltejs/kit';
+import type { RequestEvent } from '@sveltejs/kit';
 import { supabaseAdmin } from '$lib/server/supabaseAdmin';
 
-export async function POST({ request }) {
+export async function POST({ request }: RequestEvent) {
   try {
     const appUrl = (
       process.env.PRIVATE_APP_URL ||
@@ -76,3 +77,5 @@ export async function POST({ request }) {
     return json({ ok: false, error: 'failed_to_send' }, { status: 500 });
   }
 }
+
+

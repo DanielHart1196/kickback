@@ -1,11 +1,12 @@
 import { json } from '@sveltejs/kit';
+import type { RequestEvent } from '@sveltejs/kit';
 import { dev } from '$app/environment';
 import { supabaseAdmin } from '$lib/server/supabaseAdmin';
 
 const squareApiBase = dev ? 'https://connect.squareupsandbox.com' : 'https://connect.squareup.com';
 const squareVersion = '2025-01-23';
 
-export async function GET({ url }) {
+export async function GET({ url }: RequestEvent) {
   const venueId = url.searchParams.get('venue_id');
   if (!venueId) {
     return json({ locations: [], error: 'missing_venue_id' }, { status: 400 });
@@ -46,3 +47,5 @@ export async function GET({ url }) {
 
   return json({ locations });
 }
+
+

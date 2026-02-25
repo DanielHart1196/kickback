@@ -70,9 +70,11 @@
       referral_code_original?: string | null;
     } | null
   ) {
+    const safeRole: 'member' | 'owner' | 'admin' =
+      existingProfile?.role === 'admin' ? 'admin' : role;
     const profilePayload: Record<string, any> = {
       id: userId,
-      role,
+      role: safeRole,
       updated_at: new Date().toISOString()
     };
     if (userEmail) {

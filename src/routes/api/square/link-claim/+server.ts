@@ -1,10 +1,12 @@
 import { json } from '@sveltejs/kit';
+import type { RequestEvent } from '@sveltejs/kit';
+import { createHash, randomBytes } from 'crypto';
 import { supabaseAdmin } from '$lib/server/supabaseAdmin';
 import { listSquarePayments, type SquarePayment } from '$lib/server/square/payments';
 const searchWindowMinutes = 10;
 const matchToleranceMinutes = 5;
 
-export async function POST({ request }) {
+export async function POST({ request }: RequestEvent) {
   const body = await request.json().catch(() => null);
   const claimId = body?.claim_id;
   if (!claimId) {
@@ -25,9 +27,6 @@ export async function POST({ request }) {
   }
   if (claim.square_payment_id) {
     return json({ ok: true, linked: true });
-  }
-  if (!claim.submitter_id) {
-    return json({ ok: true, linked: false });
   }
 
   const { data: connection, error: connectionError } = await supabaseAdmin
@@ -126,37 +125,39 @@ export async function POST({ request }) {
     });
   }
 
-  const { data: binding, error: bindingError } = await supabaseAdmin
-    .from('square_card_bindings')
-    .select('user_id')
-    .eq('venue_id', claim.venue_id)
-    .eq('card_fingerprint', bestMatch.fingerprint)
-    .maybeSingle();
-
-  if (bindingError) {
-    return json({ ok: false, error: bindingError.message }, { status: 500 });
-  }
-
-  if (binding?.user_id && binding.user_id !== claim.submitter_id) {
-    return json({ ok: false, error: 'card_bound_to_other_user' }, { status: 409 });
-  }
-
-  if (!binding?.user_id) {
-    const { error: createBindingError } = await supabaseAdmin
+  if (claim.submitter_id) {
+    const { data: binding, error: bindingError } = await supabaseAdmin
       .from('square_card_bindings')
-      .upsert(
-        {
-          venue_id: claim.venue_id,
-          card_fingerprint: bestMatch.fingerprint,
-          user_id: claim.submitter_id,
-          first_claim_id: claim.id,
-          first_purchased_at: claim.purchased_at,
-          updated_at: new Date().toISOString()
-        },
-        { onConflict: 'venue_id,card_fingerprint', ignoreDuplicates: true }
-      );
-    if (createBindingError) {
-      return json({ ok: false, error: createBindingError.message }, { status: 500 });
+      .select('user_id')
+      .eq('venue_id', claim.venue_id)
+      .eq('card_fingerprint', bestMatch.fingerprint)
+      .maybeSingle();
+
+    if (bindingError) {
+      return json({ ok: false, error: bindingError.message }, { status: 500 });
+    }
+
+    if (binding?.user_id && binding.user_id !== claim.submitter_id) {
+      return json({ ok: false, error: 'card_bound_to_other_user' }, { status: 409 });
+    }
+
+    if (!binding?.user_id) {
+      const { error: createBindingError } = await supabaseAdmin
+        .from('square_card_bindings')
+        .upsert(
+          {
+            venue_id: claim.venue_id,
+            card_fingerprint: bestMatch.fingerprint,
+            user_id: claim.submitter_id,
+            first_claim_id: claim.id,
+            first_purchased_at: claim.purchased_at,
+            updated_at: new Date().toISOString()
+          },
+          { onConflict: 'venue_id,card_fingerprint', ignoreDuplicates: true }
+        );
+      if (createBindingError) {
+        return json({ ok: false, error: createBindingError.message }, { status: 500 });
+      }
     }
   }
 
@@ -197,6 +198,33 @@ export async function POST({ request }) {
       body: JSON.stringify({ claim_id: claim.id })
     });
   } catch {}
+  if (!claim.submitter_id) {
+    try {
+      const activationToken = randomBytes(24).toString('hex');
+      const tokenHash = createHash('sha256').update(activationToken).digest('hex');
+      const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+
+      await supabaseAdmin
+        .from('activation_claim_tokens')
+        .delete()
+        .eq('claim_id', claim.id)
+        .is('claimed_at', null);
+
+      const { error: tokenError } = await supabaseAdmin
+        .from('activation_claim_tokens')
+        .insert({
+          claim_id: claim.id,
+          token_hash: tokenHash,
+          expires_at: expiresAt
+        });
+
+      if (!tokenError) {
+        return json({ ok: true, linked: true, activation_token: activationToken });
+      }
+    } catch {}
+  }
 
   return json({ ok: true, linked: true });
 }
+
+

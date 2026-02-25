@@ -1,7 +1,8 @@
 import { json } from '@sveltejs/kit';
+import type { RequestEvent } from '@sveltejs/kit';
 import { supabaseAdmin } from '$lib/server/supabaseAdmin';
 
-export async function GET({ url }) {
+export async function GET({ url }: RequestEvent) {
   const venueId = url.searchParams.get('venue_id');
   if (!venueId) {
     return json({ location_ids: [], error: 'missing_venue_id' }, { status: 400 });
@@ -19,7 +20,7 @@ export async function GET({ url }) {
   return json({ location_ids: (data ?? []).map((row) => row.location_id) });
 }
 
-export async function POST({ request }) {
+export async function POST({ request }: RequestEvent) {
   const body = await request.json().catch(() => null);
   const venueId = body?.venue_id;
   const locationIds = Array.isArray(body?.location_ids) ? body.location_ids : null;
@@ -52,3 +53,5 @@ export async function POST({ request }) {
 
   return json({ ok: true });
 }
+
+

@@ -1,4 +1,5 @@
 import { json } from '@sveltejs/kit';
+import type { RequestEvent } from '@sveltejs/kit';
 import { supabaseAdmin } from '$lib/server/supabaseAdmin';
 import { fetchSquarePayment, type SquarePayment } from '$lib/server/square/payments';
 import { matchSquareSignature } from '$lib/server/square/webhook';
@@ -15,7 +16,7 @@ function isWithinAutoClaimWindow(firstPurchasedAt: string, paymentPurchasedAt: s
   return diffInDays >= 0 && diffInDays < GOAL_DAYS;
 }
 
-export async function POST({ request }) {
+export async function POST({ request }: RequestEvent) {
   const signature = request.headers.get('x-square-signature') ?? '';
   const body = await request.text();
   const signatureMatch = matchSquareSignature(request, body, signature);
@@ -284,3 +285,5 @@ export async function POST({ request }) {
 
   return json({ ok: true });
 }
+
+

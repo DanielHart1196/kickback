@@ -1,7 +1,8 @@
 import { json } from '@sveltejs/kit';
+import type { RequestEvent } from '@sveltejs/kit';
 import { supabaseAdmin } from '$lib/server/supabaseAdmin';
 
-export async function GET({ url }) {
+export async function GET({ url }: RequestEvent) {
   const venueId = url.searchParams.get('venue_id');
   if (!venueId) {
     return json({ connected: false, error: 'missing_venue_id' }, { status: 400 });
@@ -19,3 +20,5 @@ export async function GET({ url }) {
 
   return json({ connected: Boolean(data), merchant_id: data?.merchant_id ?? null });
 }
+
+

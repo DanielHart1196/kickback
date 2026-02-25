@@ -1,8 +1,9 @@
 import { json } from '@sveltejs/kit';
+import type { RequestEvent } from '@sveltejs/kit';
 import { supabaseAdmin } from '$lib/server/supabaseAdmin';
 import { listSquarePayments } from '$lib/server/square/payments';
 
-export async function GET({ url }) {
+export async function GET({ url }: RequestEvent) {
   const venueId = url.searchParams.get('venue_id');
   const beginTime = url.searchParams.get('begin_time');
   const endTime = url.searchParams.get('end_time');
@@ -41,3 +42,5 @@ export async function GET({ url }) {
 
   return json({ payments: paymentsResult.payload?.payments ?? [] });
 }
+
+

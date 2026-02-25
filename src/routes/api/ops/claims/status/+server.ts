@@ -1,4 +1,5 @@
 import { json } from '@sveltejs/kit';
+import type { RequestEvent } from '@sveltejs/kit';
 import { supabaseAdmin } from '$lib/server/supabaseAdmin';
 import { addClaimsToUnpaidPayouts, type ClaimPayoutRow } from '$lib/server/payouts';
 
@@ -7,7 +8,7 @@ type ClaimStatusRow = ClaimPayoutRow & {
   status: ClaimStatus | null;
 };
 
-export async function POST({ request }) {
+export async function POST({ request }: RequestEvent) {
   const authHeader = request.headers.get('authorization') ?? '';
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
 
@@ -100,3 +101,5 @@ export async function POST({ request }) {
 
   return json({ ok: true, updated: claimIds.length, status, payouts_created: payoutsCreated });
 }
+
+

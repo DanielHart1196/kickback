@@ -1,4 +1,5 @@
 import { json } from '@sveltejs/kit';
+import type { RequestEvent } from '@sveltejs/kit';
 import nodemailer from 'nodemailer';
 import { env } from '$env/dynamic/private';
 import { supabaseAdmin } from '$lib/server/supabaseAdmin';
@@ -18,7 +19,7 @@ function getSmtpConfig() {
   return { host, port, user, pass, from, secure };
 }
 
-export async function POST({ request }) {
+export async function POST({ request }: RequestEvent) {
   let body: { email?: string; venue?: string; message?: string };
   try {
     body = await request.json();
@@ -89,3 +90,5 @@ export async function POST({ request }) {
 
   return json({ ok: true });
 }
+
+

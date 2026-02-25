@@ -8,6 +8,7 @@ export async function fetchActiveVenues(): Promise<Venue[]> {
       'id, name, short_code, logo_url, kickback_guest, kickback_referrer, payment_methods, square_public, happy_hour_start_time, happy_hour_end_time, happy_hour_days'
     )
     .eq('active', true)
+    .eq('square_public', true)
     .order('name', { ascending: true });
 
   if (error) throw error;

@@ -1,7 +1,8 @@
 import { json } from '@sveltejs/kit';
+import type { RequestEvent } from '@sveltejs/kit';
 import { supabaseAdmin } from '$lib/server/supabaseAdmin';
 
-export async function POST({ request }) {
+export async function POST({ request }: RequestEvent) {
   try {
     const body = await request.json().catch(() => null);
     const claimIds: string[] = Array.isArray(body?.claim_ids) ? body.claim_ids : [];
@@ -114,3 +115,5 @@ export async function POST({ request }) {
     return json({ ok: false, error: error instanceof Error ? error.message : 'preview_failed' }, { status: 500 });
   }
 }
+
+

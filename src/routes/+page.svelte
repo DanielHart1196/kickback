@@ -91,6 +91,8 @@
   let isReferrerLocked = false;
   let isVenueLocked = false;
   let showForm = false;
+  let isDirectAddVenueFlow = false;
+  let initialRouteReady = false;
   let referrerLockedByVenue = false;
   let referrerLookupStatus: 'idle' | 'checking' | 'valid' | 'invalid' = 'idle';
   let referrerLookupTimer: ReturnType<typeof setTimeout> | null = null;
@@ -111,9 +113,11 @@
   let showInstallBanner = false;
   let showIosInstallModal = false;
   const installPromptKey = 'kickback:install_prompt_shown';
+  const activationTokenStorageKey = 'kickback:activation_token';
   let installedHandlerAdded = false;
   let autoClaimBanner: { venue: string; daysLeft: number } | null = null;
   let autoClaimBannerTimer: ReturnType<typeof setTimeout> | null = null;
+  let autoClaimDaysLeft: number | null = null;
   let canAutosave = false;
   let claimsChannel: any = null;
   let initialDashboardLoadPromise: Promise<void> | null = null;
@@ -186,6 +190,36 @@
       return;
     }
     await fetchPendingInvitations(userId);
+  }
+
+  async function claimStoredActivationToken(): Promise<void> {
+    if (typeof window === 'undefined' || !session?.user?.id) return;
+    const token = window.localStorage.getItem(activationTokenStorageKey);
+    if (!token) return;
+
+    try {
+      const { data } = await supabase.auth.getSession();
+      const accessToken = data.session?.access_token;
+      if (!accessToken) return;
+
+      const response = await fetch('/api/activations/claim-token', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`
+        },
+        body: JSON.stringify({ token })
+      });
+
+      if (response.ok) {
+        window.localStorage.removeItem(activationTokenStorageKey);
+      } else if (response.status === 404 || response.status === 410 || response.status === 409) {
+        // Token is no longer usable. Drop it.
+        window.localStorage.removeItem(activationTokenStorageKey);
+      }
+    } catch (error) {
+      console.error('Error claiming pending activation token:', error);
+    }
   }
 
   let session: Session | null | undefined = undefined;
@@ -781,6 +815,7 @@
   }
 
   onMount(async () => {
+    initialRouteReady = false;
     showReferModal = false;
     showGuestWarning = false;
     if (typeof document !== 'undefined') {
@@ -808,6 +843,7 @@
     session = data.session;
     userId = session?.user?.id ?? null;
     if (userId) {
+      await claimStoredActivationToken();
       await fetchPendingInvitations(userId);
     }
     if (userId) {
@@ -865,6 +901,7 @@
       showLanding = true;
       void venuesPromise;
       canAutosave = true;
+      initialRouteReady = true;
       return;
     }
 
@@ -983,6 +1020,7 @@
     }
     initialDashboardLoadPromise = null;
     canAutosave = true;
+    initialRouteReady = true;
   });
 
   async function submitClaim(): Promise<boolean> {
@@ -1024,41 +1062,52 @@
       }
 
       const rates = getVenueRates(venueId, purchaseTime);
-      if (session?.user?.id) {
-        try {
-          const precheckRes = await fetch('/api/square/precheck', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              venue_id: venueId,
-              amount: cleanAmount,
-              last_4: last4,
-              purchased_at: purchaseTime,
-              submitter_id: session.user.id
-            })
-          });
-          const precheck = await precheckRes.json().catch(() => null);
-          if (precheckRes.ok && precheck?.ok && precheck.bound_to_other_user) {
-            status = 'error';
-            errorMessage = 'This card is already linked to another account at this venue';
-            return false;
-          }
-          if (precheckRes.ok && precheck?.ok && precheck.duplicate) {
-            if (precheck.by_same_user) {
-              const venueName = getVenueNameById(venueId) || venueId;
-              const daysLeft = getAutoClaimDaysLeft(venueId, venueName) ?? 0;
-              autoClaimWarningVenue = venueName;
-              autoClaimWarningDaysLeft = daysLeft;
-              showAutoClaimWarning = true;
-              return false;
-            }
-            status = 'error';
-            errorMessage = 'This transaction has already been claimed';
-            return false;
-          }
-        } catch (err) {
-          // proceed as pending on any precheck error
+      const noMatchHelp =
+        'We could not verify that purchase yet. Make sure purchase time is within 5 minutes and, for Apple Pay/Google Pay, use the last 4 digits shown in your wallet.';
+      const precheckRes = await fetch('/api/square/precheck', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          venue_id: venueId,
+          amount: cleanAmount,
+          last_4: last4,
+          purchased_at: purchaseTime,
+          submitter_id: session?.user?.id ?? null
+        })
+      });
+      const precheck = await precheckRes.json().catch(() => null);
+      if (!precheckRes.ok || !precheck?.ok) {
+        status = 'error';
+        errorMessage = 'Activation check failed. Please try again.';
+        return false;
+      }
+      if (!precheck.connected) {
+        status = 'error';
+        errorMessage = 'This venue is not connected for auto tracking yet.';
+        return false;
+      }
+      if (precheck.bound_to_other_user) {
+        status = 'error';
+        errorMessage = 'This card is already linked to another account at this venue';
+        return false;
+      }
+      if (precheck.duplicate) {
+        if (precheck.by_same_user) {
+          const venueName = getVenueNameById(venueId) || venueId;
+          const daysLeft = getAutoClaimDaysLeft(venueId, venueName) ?? 0;
+          autoClaimWarningVenue = venueName;
+          autoClaimWarningDaysLeft = daysLeft;
+          showAutoClaimWarning = true;
+          return false;
         }
+        status = 'error';
+        errorMessage = 'This transaction has already been claimed';
+        return false;
+      }
+      if (!precheck.matched) {
+        status = 'error';
+        errorMessage = noMatchHelp;
+        return false;
       }
       const insertedClaim = await insertClaim(
         buildClaimInsert({
@@ -1075,24 +1124,30 @@
           submitterReferralCode: userRefCode || null
         })
       );
-      let linkSquarePromise: Promise<boolean> | null = null;
-      if (insertedClaim.id && session?.user?.id) {
-        linkSquarePromise = (async () => {
-          try {
-            const response = await fetch('/api/square/link-claim', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ claim_id: insertedClaim.id })
-            });
-            const payload = await response.json().catch(() => null);
-            if (response.ok) {
-              return Boolean(payload?.linked);
-            }
-          } catch (error) {
-            console.error('Error linking Square payment:', error);
+      let linkedSquare = false;
+      let activationToken: string | null = null;
+      if (insertedClaim.id) {
+        try {
+          const response = await fetch('/api/square/link-claim', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ claim_id: insertedClaim.id })
+          });
+          const payload = await response.json().catch(() => null);
+          if (response.ok) {
+            linkedSquare = Boolean(payload?.linked);
+            activationToken = typeof payload?.activation_token === 'string'
+              ? payload.activation_token
+              : null;
           }
-          return false;
-        })();
+        } catch (error) {
+          console.error('Error linking Square payment:', error);
+        }
+      }
+      if (!linkedSquare) {
+        status = 'error';
+        errorMessage = noMatchHelp;
+        return false;
       }
       successMessage = `Submitted ${venue} claim for $${cleanAmount.toFixed(2)}.`;
       status = 'success';
@@ -1130,7 +1185,6 @@
         status = 'idle';
         successMessage = '';
         void (async () => {
-          const linkedSquare = linkSquarePromise ? await linkSquarePromise : false;
           try {
             await fetchDashboardData();
           } catch (error) {
@@ -1152,6 +1206,11 @@
         })();
         return true;
       } else {
+        if (activationToken && typeof window !== 'undefined') {
+          try {
+            window.localStorage.setItem(activationTokenStorageKey, activationToken);
+          } catch {}
+        }
         setTimeout(() => {
           if (status === 'success') status = 'idle';
         }, 2000);
@@ -1221,6 +1280,9 @@
     draftPurchaseTime: string
   ) {
     const venueCode = getVenueCodeById(draftVenueId);
+    const includeTransactionDetails = Boolean(
+      (draftAmount ?? 0) > 0 || String(draftLast4 ?? '').trim().length > 0
+    );
     const query = draftToQuery({
       amount: draftAmount ? draftAmount.toString() : '',
       venue: draftVenue,
@@ -1228,15 +1290,14 @@
       venueCode,
       ref: draftReferrer,
       last4: draftLast4,
-      purchaseTime: draftPurchaseTime
+      purchaseTime: includeTransactionDetails ? draftPurchaseTime : ''
     });
     return query ? `/login?${query}` : '/login';
   }
 
   $: loginUrl = buildLoginUrl(amount, venue, venueId, referrer, last4, purchaseTime);
-  $: autoClaimsActive = Boolean(
-    getAutoClaimDaysLeft(venueId, getVenueNameById(venueId) || venue)
-  );
+  $: autoClaimDaysLeft = getAutoClaimDaysLeft(venueId, getVenueNameById(venueId) || venue);
+  $: autoClaimsActive = Boolean(autoClaimDaysLeft);
 
   function openReferModal() {
     showReferModal = true;
@@ -1437,21 +1498,12 @@
   }
 
   function startNewClaim() {
-    const latestClaim = claims[0];
-    const venueFromId = latestClaim?.venue_id ? getVenueNameById(latestClaim.venue_id) : '';
-    const latestVenue = venueFromId || latestClaim?.venue || '';
-    const validVenue = getVenueIdByName(latestVenue) ? latestVenue : '';
-    const lockedReferrer = validVenue ? getVenueLockedReferrer(validVenue) : null;
-    venue = validVenue;
-    if (lockedReferrer) {
-      referrer = lockedReferrer.code ?? '';
-      void syncLockedReferrer(lockedReferrer);
-    } else {
-      referrer = '';
-    }
+    isDirectAddVenueFlow = true;
+    venue = '';
+    referrer = '';
     isVenueLocked = false;
-    isReferrerLocked = Boolean(lockedReferrer);
-    referrerLockedByVenue = Boolean(lockedReferrer);
+    isReferrerLocked = false;
+    referrerLockedByVenue = false;
     amountInput = '';
     purchaseTime = getLocalNowInputValue();
     maxPurchaseTime = purchaseTime;
@@ -1483,6 +1535,7 @@
   }
 
   function handleContinueInvitation(invite: PendingInvitation) {
+    isDirectAddVenueFlow = false;
     venue = invite.venueName || getVenueNameById(invite.venueId) || '';
     venueId = invite.venueId || getVenueIdByName(venue) || '';
     referrer = invite.referrerCode;
@@ -1503,6 +1556,7 @@
   }
 
   function handleFormBack() {
+    isDirectAddVenueFlow = false;
     showForm = false;
     if (session && typeof window !== 'undefined') {
       const state = getHistoryState();
@@ -1512,7 +1566,7 @@
 </script>
 
 <main class="min-h-screen bg-black text-white">
-  {#if session === undefined}
+  {#if session === undefined || !initialRouteReady}
     <div class="w-full min-h-screen" aria-hidden="true"></div>
   {:else if !session && showLanding}
     <div class="w-full">
@@ -1542,6 +1596,7 @@
       <ClaimForm
         {session}
         {venueRefLandingMode}
+        progressiveAddVenueFlow={isDirectAddVenueFlow}
         showBack={Boolean(session)}
         {status}
         {errorMessage}
@@ -1564,6 +1619,7 @@
         {isVenueLocked}
         {isReferrerLocked}
         autoClaimsActive={autoClaimsActive}
+        autoClaimDaysLeft={autoClaimDaysLeft}
         loginUrl={loginUrl}
         onBack={handleFormBack}
         onSubmit={handleSubmitClaim}

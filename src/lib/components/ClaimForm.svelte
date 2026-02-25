@@ -32,7 +32,9 @@
   export let isReferrerLocked = false;
   export let loginUrl = '/login';
   export let autoClaimsActive = false;
+  export let autoClaimDaysLeft: number | null = null;
   export let venueRefLandingMode = false;
+  export let progressiveAddVenueFlow = false;
   export let onBack: () => void = () => {};
   export let onSubmit: () => void = () => {};
   export let onConfirmGuest: () => void = () => {};
@@ -59,6 +61,7 @@
   let autoClaimTooltipStyle = '';
   let logoLoaded = false;
   let keyboardPad = false;
+  let keyboardPadResetTimer: ReturnType<typeof setTimeout> | null = null;
   let referrerEditing = false;
   let referrerBannerInput: HTMLInputElement | null = null;
   let invitationOnly = false;
@@ -109,12 +112,34 @@
     window.addEventListener('resize', handleTooltipReposition);
     window.addEventListener('scroll', handleTooltipReposition, true);
     return () => {
+      if (keyboardPadResetTimer) {
+        clearTimeout(keyboardPadResetTimer);
+        keyboardPadResetTimer = null;
+      }
       document.removeEventListener('click', handleClick);
       document.removeEventListener('click', handleTooltipOutsideClick);
       window.removeEventListener('resize', handleTooltipReposition);
       window.removeEventListener('scroll', handleTooltipReposition, true);
     };
   });
+
+  function handleAmountFocus() {
+    if (keyboardPadResetTimer) {
+      clearTimeout(keyboardPadResetTimer);
+      keyboardPadResetTimer = null;
+    }
+    keyboardPad = true;
+  }
+
+  function handleAmountBlur() {
+    if (keyboardPadResetTimer) {
+      clearTimeout(keyboardPadResetTimer);
+    }
+    keyboardPadResetTimer = setTimeout(() => {
+      keyboardPad = false;
+      keyboardPadResetTimer = null;
+    }, 120);
+  }
 
   function updateLast4TooltipPosition() {
     if (!last4InfoButton || typeof window === 'undefined') return;
@@ -151,12 +176,22 @@
   $: safeReferrer = typeof referrer === 'string' ? referrer : '';
   $: normalizedReferrerCode = safeReferrer.trim().toUpperCase();
   $: referrerValid = safeReferrer.trim().length > 0 && isReferralCodeValid(safeReferrer);
+  $: hasSelectedVenue = Boolean(selectedVenue);
+  $: canShowReferrerStep = progressiveAddVenueFlow ? hasSelectedVenue : true;
+  $: hasValidReferrerForStep =
+    referrerValid && !isSelfReferral && referrerLookupStatus === 'valid';
+  $: canShowTransactionStep =
+    progressiveAddVenueFlow ? (canShowReferrerStep && hasValidReferrerForStep) : true;
   $: if (selectedVenue?.logo_url) {
     logoLoaded = false;
   }
   $: if (!venueRefLandingMode || !selectedVenue || !normalizedReferrerCode) {
     invitationOnly = false;
   }
+  $: showInvitedByReferrer = Boolean(normalizedReferrerCode && !referrerEditing);
+  $: showVenueRefInviteHeader = Boolean(venueRefLandingMode && selectedVenue && normalizedReferrerCode);
+  $: showGenericHeaderSubtitle = !showVenueRefInviteHeader;
+  $: headerSpacingClass = venueRefLandingMode || showGenericHeaderSubtitle ? 'space-y-6' : 'space-y-8';
 
   function handleReferrerInput(event: Event & { currentTarget: HTMLInputElement }) {
     const raw = event.currentTarget.value;
@@ -263,21 +298,24 @@
     {/if}
   </div>
 
-  <div class={`w-full max-w-sm ${venueRefLandingMode ? 'space-y-6' : 'space-y-8'}`}>
+  <div class={`w-full max-w-sm ${headerSpacingClass}`}>
     <div class="text-center">
       <img src="/branding/kickback-wordmark.svg" alt="Kickback" class="mx-auto h-7 w-auto" loading="eager" decoding="sync" />
-      {#if !(venueRefLandingMode && selectedVenue && normalizedReferrerCode)}
-        <p class="mt-3 text-base text-zinc-400">
-          {selectedVenue?.square_public
-            ? autoClaimsActive
-              ? `Auto claims active at ${selectedVenue?.name ?? 'this venue'}`
-              : `${selectedVenue?.name ?? 'this venue'} supports auto claims after the initial handshake`
-            : 'Claim Portal'}
-        </p>
-      {/if}
     </div>
 
-    {#if venueRefLandingMode && selectedVenue && normalizedReferrerCode}
+    {#if showGenericHeaderSubtitle}
+      <div class="text-center space-y-2">
+        <p class="text-base text-zinc-400">
+          {selectedVenue?.square_public
+            ? autoClaimsActive
+              ? `Earning 5% at ${selectedVenue?.name ?? 'this venue'} for ${Math.max(autoClaimDaysLeft ?? 0, 0)} more day${Math.max(autoClaimDaysLeft ?? 0, 0) === 1 ? '' : 's'}`
+              : `Get 5% for 30 days at ${selectedVenue?.name ?? 'this venue'}`
+            : 'Get 5% for 30 days'}
+        </p>
+      </div>
+    {/if}
+
+    {#if showVenueRefInviteHeader}
       <div class="text-center space-y-2">
         <p class="text-base text-zinc-400">
           <span class="text-orange-500 font-semibold">{normalizedReferrerCode}</span> invited you to {selectedVenue.name}
@@ -294,13 +332,43 @@
           class="h-48 w-auto max-w-full object-contain rounded-2xl border-2 transition-opacity duration-200 {logoLoaded ? 'border-orange-500/80 opacity-100' : 'border-transparent opacity-0'}"
           loading="lazy"
         />
+        {#if progressiveAddVenueFlow && !venueRefLandingMode}
+          <button
+            type="button"
+            on:click={clearVenueSelection}
+            class="absolute -right-2 top-2 rounded-full border border-zinc-700 bg-zinc-950/90 p-1 text-zinc-300 hover:text-white hover:border-zinc-500 transition-colors"
+            aria-label="Change venue"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M6 6l12 12" />
+              <path d="M18 6l-12 12" />
+            </svg>
+          </button>
+        {/if}
       </div>
       {#if venueRefLandingMode && normalizedReferrerCode}
         <div class="mt-4">
           <div class="relative mx-auto max-w-sm px-7">
-            <p class="text-center text-base text-zinc-400">
-              Confirm your first visit to unlock 5% cashback for 30 days
-            </p>
+            <div class="relative">
+              <p class="text-center text-base text-zinc-400">
+                Confirm your first visit to unlock 5% cashback for 30 days
+              </p>
+              <button
+                type="button"
+                bind:this={autoClaimInfoButton}
+                on:click={toggleAutoClaimInfo}
+                aria-expanded={showAutoClaimInfo}
+                aria-controls="auto-claim-help"
+                class="absolute -right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-white transition-colors flex items-center justify-center w-4 h-4"
+              >
+                <span class="sr-only">More info</span>
+                <svg aria-hidden="true" viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="9" />
+                  <path d="M12 16v-4" />
+                  <path d="M12 8h.01" />
+                </svg>
+              </button>
+            </div>
             <button
               type="button"
               class="mt-2 block w-fit mx-auto text-[11px] font-bold uppercase tracking-widest text-orange-500/80 hover:text-orange-400 transition-colors"
@@ -309,27 +377,12 @@
             >
               {invitationOnly ? 'Here now' : 'Not there yet?'}
             </button>
-            <button
-              type="button"
-              bind:this={autoClaimInfoButton}
-              on:click={toggleAutoClaimInfo}
-              aria-expanded={showAutoClaimInfo}
-              aria-controls="auto-claim-help"
-              class="absolute right-0 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-white transition-colors flex items-center justify-center w-4 h-4"
-            >
-              <span class="sr-only">More info</span>
-              <svg aria-hidden="true" viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="12" r="9" />
-                <path d="M12 16v-4" />
-                <path d="M12 8h.01" />
-              </svg>
-            </button>
           </div>
           {#if showAutoClaimInfo}
             <div
               id="auto-claim-help"
               bind:this={autoClaimTooltipEl}
-              class="fixed w-72 rounded-2xl border border-zinc-800 bg-zinc-950 p-3 text-[11px] text-zinc-300 shadow-xl shadow-black/30 z-[300] opacity-100"
+              class="fixed w-72 rounded-2xl border border-zinc-800 bg-zinc-950 p-3 text-[11px] text-zinc-400 shadow-xl shadow-black/30 z-[300] opacity-100"
               style={autoClaimTooltipStyle}
             >
               <p class="text-zinc-400">Any time your card is used at {selectedVenue.name} for the next 30 days, you and {normalizedReferrerCode} will automatically receive a 5% kickback.</p>
@@ -339,65 +392,87 @@
       {/if}
     {/if}
 
-    {#if !selectedVenue?.logo_url}
-      <div>
-        <label for="venue" class="block text-[10px] font-black uppercase text-zinc-500 tracking-widest mb-4 px-1 text-center">Which venue?</label>
-        <div class="relative" bind:this={venueWrap}>
-          <input 
-            id="venue"
-            type="text" 
-            bind:value={venue} 
-            readonly={isVenueLocked}
-            placeholder="Bar Name"
-            autocomplete="off"
-            spellcheck="false"
-            on:blur={() => (venueDirty = true)}
-            on:focus={handleVenueFocus}
-            on:input={handleVenueInput}
-            class="w-full bg-black border border-zinc-800 text-white p-4 rounded-2xl text-xl font-black uppercase tracking-widest outline-none ring-2 ring-orange-500 transition-all text-center {isVenueLocked ? 'opacity-50 cursor-not-allowed' : ''}"
-          />
-          {#if !isVenueLocked && venue.trim().length > 0}
-            <button
-              type="button"
-              on:click={() => {
-                venue = '';
-                venueDirty = true;
-                venueOpen = true;
-              }}
-              class="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white transition-colors"
-              aria-label="Clear venue"
-            >
-              <svg viewBox="0 0 24 24" aria-hidden="true" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M6 6l12 12" />
-                <path d="M18 6l-12 12" />
-              </svg>
-            </button>
-          {/if}
-          {#if !isVenueLocked && venueOpen}
-            <div class="absolute z-20 mt-2 w-full rounded-2xl border border-zinc-800 bg-zinc-900/95 backdrop-blur-xl shadow-xl max-h-56 overflow-auto">
-              {#if filteredVenues.length === 0}
-                <div class="px-4 py-3 text-xs font-bold uppercase tracking-widest text-zinc-500">No matches</div>
-              {:else}
-                {#each filteredVenues as venueOption}
-                  <button
-                    type="button"
-                    on:click={() => handleVenueSelect(venueOption.name)}
-                    class="w-full text-left px-4 py-3 text-sm font-bold uppercase tracking-wide text-zinc-200 hover:bg-zinc-800/60 transition-colors"
-                  >
-                    {venueOption.name}
-                  </button>
-                {/each}
-              {/if}
-            </div>
-          {/if}
-        </div>
-        {#if venueDirty && !venue.trim()}
-          <p class="mt-2 text-[11px] font-bold uppercase tracking-widest text-orange-500/70">Select a venue</p>
+    {#if !venueRefLandingMode && (!progressiveAddVenueFlow || !selectedVenue?.logo_url)}
+    <div>
+      <div class="relative" bind:this={venueWrap}>
+        <input 
+          id="venue"
+          type="text" 
+          bind:value={venue} 
+          readonly={isVenueLocked}
+          placeholder="Select venue"
+          autocomplete="off"
+          spellcheck="false"
+          on:blur={() => (venueDirty = true)}
+          on:focus={handleVenueFocus}
+          on:input={handleVenueInput}
+          class="w-full bg-black border border-zinc-800 text-white p-4 rounded-2xl text-xl font-black uppercase tracking-widest outline-none ring-2 ring-orange-500 transition-all text-center {isVenueLocked ? 'opacity-50 cursor-not-allowed' : ''}"
+        />
+        {#if !isVenueLocked && venue.trim().length > 0}
+          <button
+            type="button"
+            on:click={() => {
+              venue = '';
+              venueDirty = true;
+              venueOpen = true;
+            }}
+            class="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white transition-colors"
+            aria-label="Clear venue"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M6 6l12 12" />
+              <path d="M18 6l-12 12" />
+            </svg>
+          </button>
+        {/if}
+        {#if !isVenueLocked && venueOpen}
+          <div class="absolute z-20 mt-2 w-full rounded-2xl border border-zinc-800 bg-zinc-900/95 backdrop-blur-xl shadow-xl max-h-56 overflow-auto">
+            {#if filteredVenues.length === 0}
+              <div class="px-4 py-3 text-xs font-bold uppercase tracking-widest text-zinc-500">No matches</div>
+            {:else}
+              {#each filteredVenues as venueOption}
+                <button
+                  type="button"
+                  on:click={() => handleVenueSelect(venueOption.name)}
+                  class="w-full text-left px-4 py-3 text-sm font-bold uppercase tracking-wide text-zinc-200 hover:bg-zinc-800/60 transition-colors"
+                >
+                  {venueOption.name}
+                </button>
+              {/each}
+            {/if}
+          </div>
         {/if}
       </div>
+      {#if venueDirty && !venue.trim()}
+        <p class="mt-2 text-[11px] font-bold uppercase tracking-widest text-orange-500/70">Select a venue</p>
+      {/if}
+    </div>
     {/if}
 
-    {#if !venueRefLandingMode}
+    {#if canShowReferrerStep && !venueRefLandingMode}
+    {#if showInvitedByReferrer}
+      <p class="text-center text-base text-zinc-400">
+        Invited by
+        {#if !isReferrerLocked}
+          <button
+            type="button"
+            on:click={() => {
+              referrerEditing = true;
+              setTimeout(() => referrerBannerInput?.focus(), 0);
+            }}
+            class="ml-1 text-orange-500 font-semibold hover:text-orange-400 transition-colors"
+            aria-label="Edit referral code"
+          >
+            {normalizedReferrerCode}
+          </button>
+        {:else}
+          <span class="ml-1 text-orange-500 font-semibold">{normalizedReferrerCode}</span>
+        {/if}
+      </p>
+    {:else}
+      <p class="text-center text-[12px] font-black uppercase tracking-widest text-zinc-500">Who sent you?</p>
+    {/if}
+    {#if !showInvitedByReferrer || referrerEditing}
     <div class="relative flex items-center justify-center gap-2 text-lg font-black uppercase tracking-[0.6em] text-center">
       {#if !isReferrerLocked && referrerEditing}
         <span class="text-white">CODE:</span>
@@ -438,6 +513,7 @@
         </button>
       {/if}
     </div>
+    {/if}
 
     {#if referrerDirty && !referrer.trim()}
       <p class="mt-2 text-[11px] font-bold uppercase tracking-widest text-orange-500/70 text-center">Referrer required</p>
@@ -456,11 +532,12 @@
 
     <div class="bg-zinc-900 border border-zinc-800 p-6 rounded-3xl shadow-2xl">
       <div class={invitationOnly ? 'space-y-0' : 'space-y-5'}>
-        <div
-          class={`space-y-5 overflow-hidden transition-[max-height,opacity] duration-350 ease-in-out ${
-            invitationOnly ? 'max-h-0 opacity-0 pointer-events-none' : 'max-h-[900px] opacity-100'
-          }`}
-        >
+        {#if canShowTransactionStep}
+          <div
+            class={`space-y-5 overflow-hidden transition-[max-height,opacity] duration-350 ease-in-out ${
+              invitationOnly ? 'max-h-0 opacity-0 pointer-events-none' : 'max-h-[900px] opacity-100'
+            }`}
+          >
             <div>
               <div class="flex items-center justify-between mb-2">
                 <label for="time" class="block text-xs font-bold uppercase tracking-widest text-zinc-500">Time of Purchase</label>
@@ -512,8 +589,8 @@
                 type="text"
                 bind:value={amountInput}
                 bind:this={amountField}
-                on:focus={() => (keyboardPad = true)}
-                on:blur={() => (keyboardPad = false)}
+                on:focus={handleAmountFocus}
+                on:blur={handleAmountBlur}
                 on:input={onAmountInput}
                 placeholder="0.00"
                 inputmode="decimal"
@@ -558,7 +635,7 @@
                 <div
                   id="last4-help"
                   bind:this={last4TooltipEl}
-                  class="fixed w-72 rounded-2xl border border-zinc-800 bg-zinc-950 p-3 text-[11px] text-zinc-300 shadow-xl shadow-black/30 z-[300] opacity-100"
+                  class="fixed w-72 rounded-2xl border border-zinc-800 bg-zinc-950 p-3 text-[11px] text-zinc-400 shadow-xl shadow-black/30 z-[300] opacity-100"
                   style={last4TooltipStyle}
                 >
                   <p class="font-semibold uppercase">WHY WE NEED THIS</p>
@@ -588,76 +665,83 @@
                 <span class="text-green-500">+ ${kickback}</span>
               </div>
             {/if}
-        </div>
+          </div>
+        {:else if !canShowReferrerStep}
+          <p class="text-center text-sm text-zinc-400">Select a venue to continue.</p>
+        {:else}
+          <p class="text-center text-sm text-zinc-400">Enter a valid referral code to continue.</p>
+        {/if}
 
-        <div class="space-y-4">
-          {#if invitationOnly}
-            {#if session}
-              <button
-                type="button"
-                on:click={onAcceptInvitation}
-                class="w-full bg-orange-500 text-black font-black py-4 rounded-2xl text-lg active:scale-95 transition-all"
-              >
-                ACCEPT INVITATION
-              </button>
+        {#if canShowTransactionStep}
+          <div class="space-y-4">
+            {#if invitationOnly}
+              {#if session}
+                <button
+                  type="button"
+                  on:click={onAcceptInvitation}
+                  class="w-full bg-orange-500 text-black font-black py-4 rounded-2xl text-lg active:scale-95 transition-all"
+                >
+                  ACCEPT INVITATION
+                </button>
+              {:else}
+                <button
+                  type="button"
+                  on:click={() => goto(loginUrl)}
+                  class="w-full bg-white text-black font-black py-4 rounded-2xl text-lg active:scale-95 transition-all shadow-xl shadow-white/5"
+                >
+                  SIGN UP & ACCEPT INVITATION
+                </button>
+              {/if}
             {:else}
-              <button
-                type="button"
-                on:click={() => goto(loginUrl)}
-                class="w-full bg-white text-black font-black py-4 rounded-2xl text-lg active:scale-95 transition-all shadow-xl shadow-white/5"
-              >
-                SIGN UP & ACCEPT INVITATION
-              </button>
-            {/if}
-          {:else}
-            {#if session}
-              <button 
-                on:click={() => { if (status !== 'loading' && canSubmit) onSubmit(); }}
-                disabled={status === 'loading' || !canSubmit}
-                class="w-full bg-orange-500 text-black font-black py-4 rounded-2xl text-lg active:scale-95 transition-all disabled:opacity-50"
-                class:opacity-50={!canSubmit || status === 'loading'}
-              class:cursor-not-allowed={!canSubmit || status === 'loading'}
-            >
-              {status === 'loading' ? 'PROCESSING...' : 'ACTIVATE'}
-            </button>
-            {:else}
-              <button 
-                on:click={async () => {
-                  if (status === 'loading' || !canSubmit) return;
-                  const draft: ClaimDraft = {
-                    amount: amountInput || '',
-                    venue: (selectedVenue?.name ?? venue) || '',
-                    venueId: selectedVenue?.id ?? '',
-                    venueCode: selectedVenue?.short_code ?? undefined,
-                    ref: typeof referrer === 'string' ? referrer : '',
-                    last4: typeof last4 === 'string' ? last4 : '',
-                    purchaseTime: typeof purchaseTime === 'string' ? purchaseTime : ''
-                  };
-                  try {
-                    saveDraftToStorage(localStorage, draft);
-                  } catch {}
-                  await goto(loginUrl);
-                }}
-                disabled={status === 'loading' || !canSubmit}
-                class="w-full bg-white text-black font-black py-4 rounded-2xl text-lg active:scale-95 transition-all shadow-xl shadow-white/5"
-                class:opacity-50={!canSubmit || status === 'loading'}
+              {#if session}
+                <button 
+                  on:click={() => { if (status !== 'loading' && canSubmit) onSubmit(); }}
+                  disabled={status === 'loading' || !canSubmit}
+                  class="w-full bg-orange-500 text-black font-black py-4 rounded-2xl text-lg active:scale-95 transition-all disabled:opacity-50"
+                  class:opacity-50={!canSubmit || status === 'loading'}
                 class:cursor-not-allowed={!canSubmit || status === 'loading'}
               >
-                SIGN UP & CLAIM ${kickback}
+                {status === 'loading' ? 'PROCESSING...' : 'ACTIVATE'}
               </button>
+              {:else}
+                <button 
+                  on:click={async () => {
+                    if (status === 'loading' || !canSubmit) return;
+                    const draft: ClaimDraft = {
+                      amount: amountInput || '',
+                      venue: (selectedVenue?.name ?? venue) || '',
+                      venueId: selectedVenue?.id ?? '',
+                      venueCode: selectedVenue?.short_code ?? undefined,
+                      ref: typeof referrer === 'string' ? referrer : '',
+                      last4: typeof last4 === 'string' ? last4 : '',
+                      purchaseTime: typeof purchaseTime === 'string' ? purchaseTime : ''
+                    };
+                    try {
+                      saveDraftToStorage(localStorage, draft);
+                    } catch {}
+                    await goto(loginUrl);
+                  }}
+                  disabled={status === 'loading' || !canSubmit}
+                  class="w-full bg-white text-black font-black py-4 rounded-2xl text-lg active:scale-95 transition-all shadow-xl shadow-white/5"
+                  class:opacity-50={!canSubmit || status === 'loading'}
+                  class:cursor-not-allowed={!canSubmit || status === 'loading'}
+                >
+                  SIGN UP & CLAIM ${kickback}
+                </button>
 
-              <button
-                on:click={() => { if (status !== 'loading' && canSubmit) onConfirmGuest(); }}
-                type="button"
-                disabled={status === 'loading' || !canSubmit}
-                class="w-full py-3 text-zinc-500 font-bold text-sm uppercase tracking-[0.2em] disabled:opacity-50"
-                class:cursor-not-allowed={!canSubmit || status === 'loading'}
-              >
-                Submit as Guest
-              </button>
+                <button
+                  on:click={() => { if (status !== 'loading' && canSubmit) onConfirmGuest(); }}
+                  type="button"
+                  disabled={status === 'loading' || !canSubmit}
+                  class="w-full py-3 text-zinc-500 font-bold text-sm uppercase tracking-[0.2em] disabled:opacity-50"
+                  class:cursor-not-allowed={!canSubmit || status === 'loading'}
+                >
+                  Submit as Guest
+                </button>
+              {/if}
             {/if}
-          {/if}
-        </div>
+          </div>
+        {/if}
       </div>
     </div>
   </div>
@@ -691,3 +775,5 @@
     -moz-appearance: auto;
   }
 </style>
+
+

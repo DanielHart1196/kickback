@@ -1,7 +1,8 @@
 import { json } from '@sveltejs/kit';
+import type { RequestEvent } from '@sveltejs/kit';
 import { supabaseAdmin } from '$lib/server/supabaseAdmin';
 
-export async function POST({ request }) {
+export async function POST({ request }: RequestEvent) {
   const authHeader = request.headers.get('authorization') ?? '';
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
 
@@ -69,3 +70,5 @@ export async function POST({ request }) {
 
   return json({ ok: true });
 }
+
+

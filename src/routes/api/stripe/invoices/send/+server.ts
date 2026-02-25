@@ -1,4 +1,5 @@
 import { json } from '@sveltejs/kit';
+import type { RequestEvent } from '@sveltejs/kit';
 import { dev } from '$app/environment';
 import { env } from '$env/dynamic/private';
 
@@ -25,7 +26,7 @@ async function stripePost(path: string) {
   return data;
 }
 
-export async function POST({ request }) {
+export async function POST({ request }: RequestEvent) {
   try {
     const body = await request.json().catch(() => null);
     const invoiceId = body?.invoice_id as string | undefined;
@@ -41,3 +42,5 @@ export async function POST({ request }) {
     );
   }
 }
+
+

@@ -1,9 +1,10 @@
 import { json } from '@sveltejs/kit';
+import type { RequestEvent } from '@sveltejs/kit';
 import { supabaseAdmin } from '$lib/server/supabaseAdmin';
 import { env } from '$env/dynamic/private';
 import { dev } from '$app/environment';
 
-export async function POST({ request }) {
+export async function POST({ request }: RequestEvent) {
   const secret = dev
     ? env.PRIVATE_HELLOCLEVER_WEBHOOK_SECRET_SANDBOX
     : env.PRIVATE_HELLOCLEVER_WEBHOOK_SECRET_PROD;
@@ -57,3 +58,5 @@ export async function POST({ request }) {
 
   return json({ ok: true });
 }
+
+

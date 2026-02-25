@@ -1,9 +1,10 @@
 import { json } from '@sveltejs/kit';
+import type { RequestEvent } from '@sveltejs/kit';
 import { supabaseAdmin } from '$lib/server/supabaseAdmin';
 
 type PromoteAction = 'pending_to_approved' | 'approved_to_available' | 'all';
 
-export async function POST({ request }) {
+export async function POST({ request }: RequestEvent) {
   try {
     const body = await request.json().catch(() => null);
     const action: PromoteAction =
@@ -44,3 +45,5 @@ export async function POST({ request }) {
     return json({ ok: false, error: message }, { status: 500 });
   }
 }
+
+

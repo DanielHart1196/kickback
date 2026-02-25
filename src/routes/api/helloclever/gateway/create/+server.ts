@@ -1,4 +1,5 @@
 import { json } from '@sveltejs/kit';
+import type { RequestEvent } from '@sveltejs/kit';
 import { dev } from '$app/environment';
 import { env } from '$env/dynamic/private';
 import { supabaseAdmin } from '$lib/server/supabaseAdmin';
@@ -138,7 +139,7 @@ function getGatewayBaseUrl(isDev: boolean): string {
   return isDev ? 'https://api.cleverhub.co' : 'https://api-merchant.helloclever.co';
 }
 
-export async function POST({ request, url }) {
+export async function POST({ request, url }: RequestEvent) {
   const body = await request.json().catch(() => null);
   const venueId = body?.venue_id;
   const description = body?.description ?? 'Weekly Kickback invoice';
@@ -301,3 +302,5 @@ export async function POST({ request, url }) {
     );
   }
 }
+
+

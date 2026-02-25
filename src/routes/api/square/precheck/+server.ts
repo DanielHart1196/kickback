@@ -1,10 +1,11 @@
 import { json } from '@sveltejs/kit';
+import type { RequestEvent } from '@sveltejs/kit';
 import { supabaseAdmin } from '$lib/server/supabaseAdmin';
 import { listSquarePayments, type SquarePayment } from '$lib/server/square/payments';
 
 const searchWindowMinutes = 10;
 
-export async function POST({ request }) {
+export async function POST({ request }: RequestEvent) {
   const body = await request.json().catch(() => null);
   const venueId = body?.venue_id;
   const amount = body?.amount;
@@ -25,7 +26,7 @@ export async function POST({ request }) {
     return json({ ok: false, error: connectionError.message }, { status: 500 });
   }
   if (!connection?.access_token) {
-    return json({ ok: true, connected: false, duplicate: false });
+    return json({ ok: true, connected: false, matched: false, duplicate: false });
   }
 
   const { data: locationLinks, error: locationError } = await supabaseAdmin
@@ -80,7 +81,7 @@ export async function POST({ request }) {
   }
 
   if (!matched) {
-    return json({ ok: true, connected: true, duplicate: false });
+    return json({ ok: true, connected: true, matched: false, duplicate: false });
   }
 
   if (submitterId) {
@@ -99,6 +100,7 @@ export async function POST({ request }) {
       return json({
         ok: true,
         connected: true,
+        matched: true,
         duplicate: false,
         by_same_user: false,
         bound_to_other_user: true
@@ -122,8 +124,12 @@ export async function POST({ request }) {
   return json({
     ok: true,
     connected: true,
+    matched: true,
     duplicate: alreadyLinked,
     by_same_user: bySameUser,
-    bound_to_other_user: false
+    bound_to_other_user: false,
+    matched_payment_id: matched.paymentId
   });
 }
+
+

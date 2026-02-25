@@ -1,4 +1,5 @@
 import { json } from '@sveltejs/kit';
+import type { RequestEvent } from '@sveltejs/kit';
 import { dev } from '$app/environment';
 import { supabaseAdmin } from '$lib/server/supabaseAdmin';
 import { env } from '$env/dynamic/private';
@@ -80,7 +81,7 @@ function formatDateIsoFromParts(parts: ZonedParts): string {
   return `${parts.year}-${month}-${day}`;
 }
 
-export async function POST({ request, url }) {
+export async function POST({ request, url }: RequestEvent) {
   const body = await request.json().catch(() => null);
   const venueId = body?.venue_id;
   const payIdRaw = body?.pay_id;
@@ -213,3 +214,5 @@ export async function POST({ request, url }) {
     );
   }
 }
+
+

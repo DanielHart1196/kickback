@@ -1,4 +1,5 @@
 import { json } from '@sveltejs/kit';
+import type { RequestEvent } from '@sveltejs/kit';
 import { dev } from '$app/environment';
 import {
   PRIVATE_SQUARE_APP_SECRET_PROD,
@@ -16,7 +17,7 @@ const squareRevokeUrl = dev
   ? 'https://connect.squareupsandbox.com/oauth2/revoke'
   : 'https://connect.squareup.com/oauth2/revoke';
 
-export async function POST({ request }) {
+export async function POST({ request }: RequestEvent) {
   const body = await request.json().catch(() => null);
   const venueId = body?.venue_id;
 
@@ -80,3 +81,5 @@ export async function POST({ request }) {
 
   return json({ ok: true });
 }
+
+

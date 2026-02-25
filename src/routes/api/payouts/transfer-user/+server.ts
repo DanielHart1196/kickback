@@ -1,4 +1,5 @@
 import { json } from '@sveltejs/kit';
+import type { RequestEvent } from '@sveltejs/kit';
 import { dev } from '$app/environment';
 import { supabaseAdmin } from '$lib/server/supabaseAdmin';
 import { env } from '$env/dynamic/private';
@@ -40,7 +41,7 @@ async function stripePost(path: string, payload: Record<string, unknown> = {}) {
   return data;
 }
 
-export async function POST({ request }) {
+export async function POST({ request }: RequestEvent) {
   try {
     const body = await request.json().catch(() => null);
     const userId: string | undefined = typeof body?.user_id === 'string' ? body.user_id : undefined;
@@ -99,3 +100,5 @@ export async function POST({ request }) {
     return json({ ok: false, error: error instanceof Error ? error.message : 'transfer_failed' }, { status: 500 });
   }
 }
+
+

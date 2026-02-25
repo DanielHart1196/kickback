@@ -1,4 +1,5 @@
 import { json } from '@sveltejs/kit';
+import type { RequestEvent } from '@sveltejs/kit';
 import { supabaseAdmin } from '$lib/server/supabaseAdmin';
 import { getSquareApiBase, squareVersion, type SquarePayment } from '$lib/server/square/payments';
 import { GOAL_DAYS } from '$lib/claims/constants';
@@ -16,7 +17,7 @@ function isWithinAutoClaimWindow(firstPurchasedAt: string, paymentPurchasedAt: s
   return diffInDays >= 0 && diffInDays < GOAL_DAYS;
 }
 
-export async function POST({ request }) {
+export async function POST({ request }: RequestEvent) {
   const body = await request.json().catch(() => null);
   const venueId = body?.venue_id;
   const beginOverride = body?.begin_time;
@@ -321,3 +322,5 @@ export async function POST({ request }) {
 
   return json({ ok: true, created: claimsToInsert.length });
 }
+
+

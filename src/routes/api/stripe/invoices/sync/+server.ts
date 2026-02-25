@@ -1,4 +1,5 @@
 import { json } from '@sveltejs/kit';
+import type { RequestEvent } from '@sveltejs/kit';
 import { dev } from '$app/environment';
 import { supabaseAdmin } from '$lib/server/supabaseAdmin';
 import { env } from '$env/dynamic/private';
@@ -45,7 +46,7 @@ async function stripeGet(path: string, query: Record<string, unknown> = {}) {
   return data;
 }
 
-export async function GET({ url }) {
+export async function GET({ url }: RequestEvent) {
   try {
     const venueId = url.searchParams.get('venue_id') ?? undefined;
     if (!venueId) {
@@ -134,3 +135,5 @@ export async function GET({ url }) {
     return json({ ok: false, error: error instanceof Error ? error.message : 'sync_failed' }, { status: 500 });
   }
 }
+
+

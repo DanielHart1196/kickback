@@ -1,6 +1,6 @@
 <script lang="ts">
   import { supabase } from '$lib/supabase';
-  import { onMount, tick } from 'svelte';
+  import { onDestroy, onMount, tick } from 'svelte';
   import { fetchActiveVenues } from '$lib/venues/repository';
   import { calculateKickbackWithRate } from '$lib/claims/utils';
   import { KICKBACK_RATE } from '$lib/claims/constants';
@@ -68,6 +68,11 @@
   }
 
   onMount(async () => {
+    if (typeof document !== 'undefined') {
+      document.documentElement.classList.add('no-pull-refresh');
+      document.body.classList.add('no-pull-refresh');
+    }
+
     // Ensure login always starts at the top on route transitions.
     await tick();
     forceScrollTop();
@@ -150,6 +155,13 @@
       }
     } else {
       venuePromo = null;
+    }
+  });
+
+  onDestroy(() => {
+    if (typeof document !== 'undefined') {
+      document.documentElement.classList.remove('no-pull-refresh');
+      document.body.classList.remove('no-pull-refresh');
     }
   });
 
@@ -322,12 +334,13 @@
   <div class={`w-full max-w-sm space-y-5`}>
     <div class={`text-center pt-16 ${venuePromo ? 'pb-0' : 'pb-16'}`}>
       <div class="min-h-[44px] flex items-center justify-center">
-        <h1 class="text-3xl font-black uppercase tracking-tighter leading-none whitespace-normal md:whitespace-nowrap">
-          Welcome to <span class="sm:hidden"><br /></span><img src="/branding/kickback-wordmark.svg" alt="Kickback" class="inline-block h-7 w-auto align-middle" loading="eager" decoding="sync" />
+        <h1 class="text-3xl font-black uppercase tracking-tighter leading-none">
+          <span class="block">Welcome to</span>
+          <span class="mt-1 block"><img src="/branding/kickback-wordmark.svg" alt="Kickback" class="inline-block h-7 w-auto align-middle" loading="eager" decoding="sync" /></span>
         </h1>
       </div>
       {#if venuePromo}
-        <div class="mt-5 flex flex-col items-center justify-center gap-5">
+        <div class="mt-6 flex flex-col items-center justify-center gap-6">
           {#if venuePromo.logo_url}
             <img
               src={venuePromo.logo_url}
@@ -336,8 +349,8 @@
               class="h-48 w-auto max-w-full object-contain rounded-2xl border-2 transition-opacity duration-200 {promoLogoLoaded ? 'border-orange-500/80 opacity-100' : 'border-transparent opacity-0'}"
             />
           {/if}
-          <p class="text-sm text-zinc-300 font-semibold text-center">
-            Bring a mate to {venuePromo.name} and you'll both get {venuePromo.rate_pct}% cash back on their spend for 30 days
+          <p class="text-base text-zinc-400 text-center">
+            Bring a mate to <span class="text-orange-500 font-semibold">{venuePromo.name}</span> and you'll both get {venuePromo.rate_pct}% cash back on their spend for 30 days
           </p>
         </div>
       {/if}

@@ -1,7 +1,8 @@
 import { json } from '@sveltejs/kit';
+import type { RequestEvent } from '@sveltejs/kit';
 import { supabaseAdmin } from '$lib/server/supabaseAdmin';
 
-export async function GET({ url }) {
+export async function GET({ url }: RequestEvent) {
   try {
     const venueId = url.searchParams.get('venue_id') ?? undefined;
     if (!venueId) {
@@ -21,3 +22,5 @@ export async function GET({ url }) {
     return json({ ok: false, error: error instanceof Error ? error.message : 'load_failed' }, { status: 500 });
   }
 }
+
+

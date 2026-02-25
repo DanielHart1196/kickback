@@ -1,7 +1,8 @@
 import { json } from '@sveltejs/kit';
+import type { RequestEvent } from '@sveltejs/kit';
 import { supabaseAdmin } from '$lib/server/supabaseAdmin';
 
-export async function GET({ url }) {
+export async function GET({ url }: RequestEvent) {
   try {
     const minStr = url.searchParams.get('min') ?? '20';
     const min = Number(minStr);
@@ -48,3 +49,5 @@ export async function GET({ url }) {
     return json({ ok: false, error: error instanceof Error ? error.message : 'weekly_payouts_failed' }, { status: 500 });
   }
 }
+
+

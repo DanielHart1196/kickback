@@ -1,4 +1,4 @@
-import { json, redirect } from '@sveltejs/kit';
+import { json, redirect, type RequestEvent } from '@sveltejs/kit';
 import { dev } from '$app/environment';
 import {
   PRIVATE_SQUARE_APP_SECRET_PROD,
@@ -21,7 +21,7 @@ function getErrorMessage(error: unknown): string {
   return 'Unexpected error';
 }
 
-export async function GET({ url, cookies }) {
+export async function GET({ url, cookies }: RequestEvent) {
   const code = url.searchParams.get('code');
   const state = url.searchParams.get('state');
   const oauthError = url.searchParams.get('error');
@@ -128,3 +128,4 @@ export async function GET({ url, cookies }) {
     throw redirect(302, `/admin?square=error&reason=${reason}`);
   }
 }
+

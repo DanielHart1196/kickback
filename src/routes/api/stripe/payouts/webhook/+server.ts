@@ -1,4 +1,5 @@
 import { json } from '@sveltejs/kit';
+import type { RequestEvent } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
 import { supabaseAdmin } from '$lib/server/supabaseAdmin';
 import crypto from 'node:crypto';
@@ -29,7 +30,7 @@ function verifySignature(secret: string, timestamp: string, rawBody: string, exp
   return crypto.timingSafeEqual(Buffer.from(computed, 'utf8'), Buffer.from(expectedV1, 'utf8'));
 }
 
-export async function POST({ request }) {
+export async function POST({ request }: RequestEvent) {
   try {
     const secrets = getWebhookSecrets();
     if (!secrets || secrets.length === 0) {
@@ -88,3 +89,5 @@ export async function POST({ request }) {
     return json({ ok: false, error: error instanceof Error ? error.message : 'payout_webhook_failed' }, { status: 500 });
   }
 }
+
+
