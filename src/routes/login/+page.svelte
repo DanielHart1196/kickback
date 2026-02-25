@@ -1,6 +1,6 @@
 <script lang="ts">
   import { supabase } from '$lib/supabase';
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { fetchActiveVenues } from '$lib/venues/repository';
   import { calculateKickbackWithRate } from '$lib/claims/utils';
   import { KICKBACK_RATE } from '$lib/claims/constants';
@@ -15,6 +15,7 @@
   } from '$lib/claims/draft';
   export let data: { pendingKickback: string | null };
   const MIN_PASSWORD_LENGTH = 6;
+  const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
   let loading = false;
   let message = '';
@@ -32,14 +33,44 @@
 
   pendingKickback = data?.pendingKickback ?? null;
 
-  onMount(async () => {
-    // Ensure login always starts at the top on mobile route transitions.
-    if (typeof window !== 'undefined') {
+  function forceScrollTop() {
+    if (typeof window === 'undefined') return;
+    const applyTop = () => {
       window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
-      requestAnimationFrame(() => {
-        window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
-      });
-    }
+      document.documentElement.scrollTop = 0;
+      if (document.body) document.body.scrollTop = 0;
+    };
+    applyTop();
+    requestAnimationFrame(applyTop);
+    setTimeout(applyTop, 120);
+    setTimeout(applyTop, 280);
+    setTimeout(applyTop, 520);
+  }
+
+  function scrollFieldIntoViewSmooth(target: HTMLElement) {
+    if (typeof window === 'undefined') return;
+    const rect = target.getBoundingClientRect();
+    const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
+    const targetTop = Math.max(
+      0,
+      window.scrollY + rect.top - Math.max(16, (viewportHeight - rect.height) / 2)
+    );
+    window.scrollTo({ top: targetTop, left: 0, behavior: 'smooth' });
+  }
+
+  function ensureFieldVisible(event: FocusEvent) {
+    const target = event.currentTarget;
+    if (!(target instanceof HTMLElement)) return;
+    scrollFieldIntoViewSmooth(target);
+    requestAnimationFrame(() => scrollFieldIntoViewSmooth(target));
+    setTimeout(() => scrollFieldIntoViewSmooth(target), 120);
+    setTimeout(() => scrollFieldIntoViewSmooth(target), 280);
+  }
+
+  onMount(async () => {
+    // Ensure login always starts at the top on route transitions.
+    await tick();
+    forceScrollTop();
 
     const { data } = await supabase.auth.getSession();
     if (data?.session?.user) {
@@ -156,8 +187,13 @@
   }
 
   async function handleMagicLink() {
-    if (!email) {
+    const normalizedEmail = email.trim();
+    if (!normalizedEmail) {
       message = 'Please enter your email address';
+      return;
+    }
+    if (!emailPattern.test(normalizedEmail)) {
+      message = 'Please enter a valid email address';
       return;
     }
 
@@ -166,9 +202,9 @@
 
     try {
       const { error } = await supabase.auth.signInWithOtp({
-        email,
+        email: normalizedEmail,
         options: {
-          emailRedirectTo: `${window.location.origin}/auth/callback?redirect_to=${encodeURIComponent(window.location.origin + '/')}&email=${encodeURIComponent(email)}`
+          emailRedirectTo: `${window.location.origin}/auth/callback?redirect_to=${encodeURIComponent(window.location.origin + '/')}&email=${encodeURIComponent(normalizedEmail)}`
         }
       });
 
@@ -185,8 +221,13 @@
   }
 
   async function handlePasswordAuth() {
-    if (!email) {
+    const normalizedEmail = email.trim();
+    if (!normalizedEmail) {
       message = 'Please enter your email address';
+      return;
+    }
+    if (!emailPattern.test(normalizedEmail)) {
+      message = 'Please enter a valid email address';
       return;
     }
     if (!password) {
@@ -203,7 +244,7 @@
 
     try {
       const { error: signInError } = await supabase.auth.signInWithPassword({
-        email,
+        email: normalizedEmail,
         password
       });
 
@@ -214,7 +255,7 @@
 
       // If the user doesn't exist yet, create one with the same credentials.
       const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
-        email,
+        email: normalizedEmail,
         password
       });
 
@@ -233,8 +274,13 @@
   }
 
   async function handleForgotPassword() {
-    if (!email) {
+    const normalizedEmail = email.trim();
+    if (!normalizedEmail) {
       message = 'Enter your email first';
+      return;
+    }
+    if (!emailPattern.test(normalizedEmail)) {
+      message = 'Please enter a valid email address';
       return;
     }
 
@@ -243,7 +289,7 @@
 
     try {
       const resetRedirectTo = `${window.location.origin}/auth/callback?redirect_to=${encodeURIComponent(window.location.origin + '/reset-password')}`;
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      const { error } = await supabase.auth.resetPasswordForEmail(normalizedEmail, {
         redirectTo: resetRedirectTo
       });
       if (error) {
@@ -260,6 +306,15 @@
   
   function handleGoBack() {
     if (!fromClaimFlow) {
+      if (typeof window !== 'undefined' && window.history.length > 1 && document.referrer) {
+        try {
+          const referrerUrl = new URL(document.referrer);
+          if (referrerUrl.origin === window.location.origin) {
+            window.history.back();
+            return;
+          }
+        } catch {}
+      }
       window.location.href = '/';
       return;
     }
@@ -329,6 +384,7 @@
         bind:value={email}
         placeholder="Enter your email"
         disabled={magicLinkLoading || passwordAuthLoading}
+        on:focus={ensureFieldVisible}
         on:keydown={(e) =>
           e.key === 'Enter' && (usePassword ? handlePasswordAuth() : handleMagicLink())}
         class="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-xl text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
@@ -339,6 +395,7 @@
           bind:value={password}
           placeholder="Enter your password"
           disabled={passwordAuthLoading}
+          on:focus={ensureFieldVisible}
           on:keydown={(e) => e.key === 'Enter' && handlePasswordAuth()}
           class="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-xl text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
         />

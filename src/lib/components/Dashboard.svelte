@@ -1057,7 +1057,7 @@
     on:click={onNewClaim}
     class="w-full bg-white text-black font-black py-5 rounded-[2rem] text-xl uppercase tracking-tight shadow-xl shadow-white/5 active:scale-95 transition-all"
   >
-    + New Claim
+    + Add Venue
   </button>
 
   <div

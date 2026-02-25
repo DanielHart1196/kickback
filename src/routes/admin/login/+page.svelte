@@ -1,6 +1,6 @@
 <script lang="ts">
   import { supabase } from '$lib/supabase';
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
 
   const MIN_PASSWORD_LENGTH = 6;
   let loading = false;
@@ -13,6 +13,40 @@
   let adminSignupCode = '';
   let showAdminSignupCode = false;
   const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+  function forceScrollTop() {
+    if (typeof window === 'undefined') return;
+    const applyTop = () => {
+      window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+      document.documentElement.scrollTop = 0;
+      if (document.body) document.body.scrollTop = 0;
+    };
+    applyTop();
+    requestAnimationFrame(applyTop);
+    setTimeout(applyTop, 120);
+    setTimeout(applyTop, 280);
+    setTimeout(applyTop, 520);
+  }
+
+  function scrollFieldIntoViewSmooth(target: HTMLElement) {
+    if (typeof window === 'undefined') return;
+    const rect = target.getBoundingClientRect();
+    const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
+    const targetTop = Math.max(
+      0,
+      window.scrollY + rect.top - Math.max(16, (viewportHeight - rect.height) / 2)
+    );
+    window.scrollTo({ top: targetTop, left: 0, behavior: 'smooth' });
+  }
+
+  function ensureFieldVisible(event: FocusEvent) {
+    const target = event.currentTarget;
+    if (!(target instanceof HTMLElement)) return;
+    scrollFieldIntoViewSmooth(target);
+    requestAnimationFrame(() => scrollFieldIntoViewSmooth(target));
+    setTimeout(() => scrollFieldIntoViewSmooth(target), 120);
+    setTimeout(() => scrollFieldIntoViewSmooth(target), 280);
+  }
 
   async function handleGoogleOAuth() {
     if (showAdminSignupCode && adminSignupCode.trim() !== '3095') {
@@ -133,15 +167,27 @@
         }
       }
 
-      const { error } = await supabase.auth.signInWithPassword({
+      const { error: signInError } = await supabase.auth.signInWithPassword({
         email: magicLinkEmail,
         password
       });
 
-      if (error) {
-        message = error.message;
-      } else {
+      if (!signInError) {
         window.location.href = '/admin';
+        return;
+      }
+
+      const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+        email: magicLinkEmail,
+        password
+      });
+
+      if (signUpError) {
+        message = signUpError.message;
+      } else if (signUpData?.session) {
+        window.location.href = '/admin';
+      } else {
+        message = 'CHECK YOUR EMAIL TO CONFIRM YOUR ACCOUNT';
       }
     } catch (error) {
       message = error instanceof Error ? error.message : 'Failed to sign in';
@@ -181,6 +227,9 @@
   }
 
   onMount(async () => {
+    await tick();
+    forceScrollTop();
+
     const params = new URLSearchParams(window.location.search);
     if (params.get('error') === 'admin_code_required') {
       message = 'Valid admin sign-up code required for new owner access';
@@ -241,8 +290,9 @@
         bind:value={magicLinkEmail}
         placeholder="Enter your email"
         disabled={magicLinkLoading || passwordAuthLoading}
+        on:focus={ensureFieldVisible}
         on:keydown={(e) => e.key === 'Enter' && (usePassword ? handlePasswordAuth() : handleMagicLink())}
-        class="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-xl text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-white focus:border-transparent"
+        class="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-xl text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
       />
       {#if usePassword}
         <input
@@ -250,8 +300,9 @@
           bind:value={password}
           placeholder="Enter your password"
           disabled={passwordAuthLoading}
+          on:focus={ensureFieldVisible}
           on:keydown={(e) => e.key === 'Enter' && handlePasswordAuth()}
-          class="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-xl text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-white focus:border-transparent"
+          class="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-xl text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
         />
       {/if}
       {#if showAdminSignupCode}
@@ -260,7 +311,8 @@
           bind:value={adminSignupCode}
           placeholder="Admin sign-up code"
           disabled={loading || magicLinkLoading || passwordAuthLoading}
-          class="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-xl text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-white focus:border-transparent"
+          on:focus={ensureFieldVisible}
+          class="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-xl text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
         />
       {/if}
       <button
@@ -270,7 +322,7 @@
         class="w-full h-10 rounded-full bg-orange-500 text-black text-[14px] leading-[20px] font-black inline-flex items-center justify-center active:scale-95 transition-all disabled:opacity-50 hover:bg-orange-600"
       >
         {#if usePassword}
-          {passwordAuthLoading ? 'SIGNING IN...' : 'SIGN IN'}
+          {passwordAuthLoading ? 'SIGNING IN / UP...' : 'SIGN IN / UP'}
         {:else}
           {magicLinkLoading ? 'SENDING...' : 'SEND MAGIC LINK'}
         {/if}
@@ -304,7 +356,7 @@
     </div>
 
     <p class="text-center text-[10px] text-zinc-500 leading-snug">
-      By creating an account, you are agreeing to our
+      By signing in/creating an account, you are agreeing to our
       <a href="/terms" class="text-zinc-300 hover:text-white transition-colors">terms of service</a>
       and
       <a href="/privacy" class="text-zinc-300 hover:text-white transition-colors">privacy policy</a>.

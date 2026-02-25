@@ -1,5 +1,6 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
+  import { onDestroy } from 'svelte';
 
   const CONTACT_MESSAGE_MAX_LENGTH = 500;
   let contactEmail = '';
@@ -7,6 +8,16 @@
   let contactMessage = '';
   let contactSubmitting = false;
   let contactStatus: string | null = null;
+  let marqueeDragX = 0;
+  let marqueeVelocityX = 0;
+  let marqueeDragging = false;
+  let marqueePointerId: number | null = null;
+  let marqueeStartX = 0;
+  let marqueeStartDragX = 0;
+  let marqueeLastPointerX = 0;
+  let marqueeLastPointerTime = 0;
+  let marqueeInertiaFrame = 0;
+  let marqueeLastFrameTime = 0;
 
   async function navigateToLogin(event: MouseEvent) {
     event.preventDefault();
@@ -54,6 +65,75 @@
       contactSubmitting = false;
     }
   }
+
+  function stopMarqueeInertia() {
+    if (marqueeInertiaFrame) {
+      cancelAnimationFrame(marqueeInertiaFrame);
+      marqueeInertiaFrame = 0;
+    }
+  }
+
+  function runMarqueeInertia() {
+    stopMarqueeInertia();
+    marqueeLastFrameTime = performance.now();
+    const tick = (now: number) => {
+      if (marqueeDragging) {
+        marqueeInertiaFrame = 0;
+        return;
+      }
+      const dt = Math.max(0.001, (now - marqueeLastFrameTime) / 1000);
+      marqueeLastFrameTime = now;
+      marqueeDragX += marqueeVelocityX * dt;
+      const friction = Math.pow(0.9, dt * 60);
+      marqueeVelocityX *= friction;
+      if (Math.abs(marqueeVelocityX) < 4) {
+        marqueeVelocityX = 0;
+        marqueeInertiaFrame = 0;
+        return;
+      }
+      marqueeInertiaFrame = requestAnimationFrame(tick);
+    };
+    marqueeInertiaFrame = requestAnimationFrame(tick);
+  }
+
+  function onMarqueePointerDown(event: PointerEvent) {
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+    stopMarqueeInertia();
+    marqueeDragging = true;
+    marqueePointerId = event.pointerId;
+    marqueeStartX = event.clientX;
+    marqueeStartDragX = marqueeDragX;
+    marqueeLastPointerX = event.clientX;
+    marqueeLastPointerTime = performance.now();
+    marqueeVelocityX = 0;
+    const target = event.currentTarget as HTMLElement | null;
+    target?.setPointerCapture?.(event.pointerId);
+  }
+
+  function onMarqueePointerMove(event: PointerEvent) {
+    if (!marqueeDragging) return;
+    if (marqueePointerId !== null && event.pointerId !== marqueePointerId) return;
+    const delta = event.clientX - marqueeStartX;
+    marqueeDragX = marqueeStartDragX + delta;
+    const now = performance.now();
+    const dtMs = Math.max(1, now - marqueeLastPointerTime);
+    const instantVelocity = ((event.clientX - marqueeLastPointerX) / dtMs) * 1000;
+    marqueeVelocityX = marqueeVelocityX * 0.55 + instantVelocity * 0.45;
+    marqueeLastPointerX = event.clientX;
+    marqueeLastPointerTime = now;
+  }
+
+  function endMarqueeDrag(event?: PointerEvent) {
+    if (!marqueeDragging) return;
+    if (event && marqueePointerId !== null && event.pointerId !== marqueePointerId) return;
+    marqueeDragging = false;
+    marqueePointerId = null;
+    runMarqueeInertia();
+  }
+
+  onDestroy(() => {
+    stopMarqueeInertia();
+  });
 </script>
 
 <main class="relative min-h-screen overflow-hidden bg-black text-white">
@@ -76,7 +156,7 @@
     <section class="mt-14 grid gap-12 grid-cols-1 items-start">
       <div class="space-y-10">
         <h1 class="text-4xl font-extrabold uppercase tracking-tight text-white text-center sm:text-5xl lg:text-6xl">
-          EAT. DRINK. <br /> GET PAID.
+          BRING A MATE <br /><span class="text-orange-500">EARN TOGETHER</span>
         </h1>
         <div class="flex justify-center">
             <a
@@ -137,23 +217,32 @@
         </div>
 
         <!-- Venues marquee: drop images into `static/venues/` (e.g. platform3095.jpg) -->
-        <div class="venue-marquee !my-8 -mx-6 md:mx-0">
+        <div
+          class="venue-marquee !my-8"
+          style={`--marquee-drag-x: ${marqueeDragX}px;`}
+          on:pointerdown={onMarqueePointerDown}
+          on:pointermove={onMarqueePointerMove}
+          on:pointerup={endMarqueeDrag}
+          on:pointercancel={endMarqueeDrag}
+        >
           <div class="marquee-track">
-            <div class="marquee-group">
-              <img src="/venues/platform3095-black.jpg" alt="platform3095" class="marquee-img" loading="eager" decoding="sync" />
-              <img src="/venues/barpic-logo.jpg" alt="barpic" class="marquee-img" loading="eager" decoding="sync" />
-              <img src="/venues/probros-logo.png" alt="pro bros" class="marquee-img" loading="eager" decoding="sync" />
-              <img src="/venues/platform3095-black.jpg" alt="platform3095" class="marquee-img" loading="eager" decoding="sync" />
-              <img src="/venues/barpic-logo.jpg" alt="barpic" class="marquee-img" loading="eager" decoding="sync" />
-              <img src="/venues/probros-logo.png" alt="pro bros" class="marquee-img" loading="eager" decoding="sync" />
-            </div>
-            <div class="marquee-group" aria-hidden="true">
-              <img src="/venues/platform3095-black.jpg" alt="platform3095" class="marquee-img" loading="eager" decoding="sync" />
-              <img src="/venues/barpic-logo.jpg" alt="barpic" class="marquee-img" loading="eager" decoding="sync" />
-              <img src="/venues/probros-logo.png" alt="pro bros" class="marquee-img" loading="eager" decoding="sync" />
-              <img src="/venues/platform3095-black.jpg" alt="platform3095" class="marquee-img" loading="eager" decoding="sync" />
-              <img src="/venues/barpic-logo.jpg" alt="barpic" class="marquee-img" loading="eager" decoding="sync" />
-              <img src="/venues/probros-logo.png" alt="pro bros" class="marquee-img" loading="eager" decoding="sync" />
+            <div class="marquee-track-inner">
+              <div class="marquee-group">
+                <img src="/venues/platform3095-black.jpg" alt="platform3095" class="marquee-img" loading="eager" decoding="sync" />
+                <img src="/venues/barpic-logo.jpg" alt="barpic" class="marquee-img" loading="eager" decoding="sync" />
+                <img src="/venues/probros-logo.png" alt="pro bros" class="marquee-img" loading="eager" decoding="sync" />
+                <img src="/venues/platform3095-black.jpg" alt="platform3095" class="marquee-img" loading="eager" decoding="sync" />
+                <img src="/venues/barpic-logo.jpg" alt="barpic" class="marquee-img" loading="eager" decoding="sync" />
+                <img src="/venues/probros-logo.png" alt="pro bros" class="marquee-img" loading="eager" decoding="sync" />
+              </div>
+              <div class="marquee-group" aria-hidden="true">
+                <img src="/venues/platform3095-black.jpg" alt="platform3095" class="marquee-img" loading="eager" decoding="sync" />
+                <img src="/venues/barpic-logo.jpg" alt="barpic" class="marquee-img" loading="eager" decoding="sync" />
+                <img src="/venues/probros-logo.png" alt="pro bros" class="marquee-img" loading="eager" decoding="sync" />
+                <img src="/venues/platform3095-black.jpg" alt="platform3095" class="marquee-img" loading="eager" decoding="sync" />
+                <img src="/venues/barpic-logo.jpg" alt="barpic" class="marquee-img" loading="eager" decoding="sync" />
+                <img src="/venues/probros-logo.png" alt="pro bros" class="marquee-img" loading="eager" decoding="sync" />
+              </div>
             </div>
           </div>
         </div>
@@ -266,23 +355,38 @@
 <style>
 /* Venues marquee */
 .venue-marquee {
-  width: 100%;
+  width: calc(100% + 3rem);
+  margin-left: -1.5rem;
+  margin-right: -1.5rem;
   overflow: clip;
+  touch-action: pan-y;
+  cursor: grab;
+  user-select: none;
   mask-image: linear-gradient(to right, transparent 0%, black 6%, black 94%, transparent 100%);
   -webkit-mask-image: linear-gradient(to right, transparent 0%, black 6%, black 94%, transparent 100%);
   z-index: 1;
 }
+.venue-marquee:active {
+  cursor: grabbing;
+}
 .marquee-track {
   display: flex;
-  gap: 2rem;
+  gap: 0;
   align-items: center;
   width: max-content;
   animation: marquee-left 40s linear infinite;
+}
+.marquee-track-inner {
+  display: flex;
+  align-items: center;
+  transform: translate3d(var(--marquee-drag-x, 0px), 0, 0);
+  will-change: transform;
 }
 .marquee-group {
   display: flex;
   gap: 2rem;
   align-items: center;
+  padding-right: 2rem;
 }
 .marquee-img {
   width: 134px;
@@ -303,5 +407,13 @@
 /* Slow down on reduced motion */
 @media (prefers-reduced-motion: reduce) {
   .marquee-track { animation-duration: 0s; }
+}
+
+@media (min-width: 768px) {
+  .venue-marquee {
+    width: 100%;
+    margin-left: 0;
+    margin-right: 0;
+  }
 }
 </style>
