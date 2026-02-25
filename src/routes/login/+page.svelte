@@ -323,7 +323,7 @@
     <div class={`text-center pt-16 ${venuePromo ? 'pb-0' : 'pb-16'}`}>
       <div class="min-h-[44px] flex items-center justify-center">
         <h1 class="text-3xl font-black uppercase tracking-tighter leading-none whitespace-normal md:whitespace-nowrap">
-          Welcome to <span class="sm:hidden"><br /></span><span class="kickback-wordmark"><span class="text-white">Kick</span><span class="text-orange-500">back</span></span>
+          Welcome to <span class="sm:hidden"><br /></span><img src="/branding/kickback-wordmark.svg" alt="Kickback" class="inline-block h-7 w-auto align-middle" loading="eager" decoding="sync" />
         </h1>
       </div>
       {#if venuePromo}

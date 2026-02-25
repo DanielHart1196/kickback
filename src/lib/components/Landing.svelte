@@ -180,9 +180,15 @@
 
 <main class="relative min-h-screen overflow-hidden bg-black text-white">
   <header class="mx-auto flex w-full max-w-6xl items-center justify-between px-6 pt-5">
-    <div class="kickback-wordmark text-4xl uppercase leading-none select-none transform -translate-y-[1px]">
-      <span class="text-white">Kick</span><span class="text-orange-500">back</span>
-    </div>
+    <a href="/" aria-label="Go to home" class="inline-flex items-center">
+      <img
+        src="/branding/kickback-wordmark.svg"
+        alt="Kickback"
+        class="h-7 w-auto select-none"
+        loading="eager"
+        decoding="sync"
+      />
+    </a>
     <a
       href="/login"
       data-sveltekit-preload-code="viewport"

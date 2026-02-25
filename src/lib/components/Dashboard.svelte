@@ -1006,15 +1006,9 @@
 
 <div class="w-full max-w-sm space-y-10 mx-auto" in:fade>
   <header class="relative text-center pt-2">
-    <button
-      type="button"
-      class="text-4xl font-black tracking-tighter italic uppercase cursor-pointer select-none"
-      on:click={onRequestInstall}
-      title="Add Kickback to home"
-      aria-label="Add Kickback to home"
-    >
-      <span class="kickback-wordmark"><span class="text-white">Kick</span><span class="text-orange-500">back</span></span>
-    </button>
+    <a href="/" aria-label="Go to home" class="inline-flex items-center justify-center">
+      <img src="/branding/kickback-wordmark.svg" alt="Kickback" class="h-7 w-auto select-none" loading="eager" decoding="sync" />
+    </a>
     <button
       type="button"
       on:click={openSettings}

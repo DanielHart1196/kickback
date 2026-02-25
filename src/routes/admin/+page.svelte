@@ -2499,7 +2499,7 @@
     <section class="flex items-start justify-between gap-4">
       <div class="min-w-0">
         <h1 class="text-zinc-500 uppercase tracking-tighter text-sm font-bold">
-          <span class="kickback-wordmark"><span class="text-white">Kick</span><span class="text-orange-500">back</span></span> Dashboard
+          <img src="/branding/kickback-wordmark.svg" alt="Kickback" class="inline-block h-5 w-auto align-middle" loading="eager" decoding="sync" /> Dashboard
         </h1>
         <div class="text-[3.4rem] sm:text-6xl md:text-6xl font-black text-white mt-1">${totalAmount.toFixed(2)}</div>
         <p class="text-xs font-black uppercase tracking-widest text-zinc-500 mt-1">

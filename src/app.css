@@ -92,3 +92,17 @@ html.no-pull-refresh,
 body.no-pull-refresh {
   overscroll-behavior-y: contain;
 }
+
+/* Hide SvelteKit live region without leaving a paintable 1px box on some mobile Chrome builds */
+#svelte-announcer {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  margin: -1px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  overflow: hidden !important;
+  clip: rect(0 0 0 0) !important;
+  clip-path: inset(50%) !important;
+  white-space: nowrap !important;
+}

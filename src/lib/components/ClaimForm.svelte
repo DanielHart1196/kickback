@@ -195,7 +195,9 @@
 >
   {#if showBack}
     <button on:click={onBack} class="text-zinc-600 font-bold text-xs uppercase tracking-widest flex items-center gap-2 mb-4">
-      <span aria-hidden="true">←</span>
+      <svg aria-hidden="true" viewBox="0 0 20 20" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12.5 4.5L7 10l5.5 5.5" />
+      </svg>
       Back to Balance
     </button>
   {/if}
@@ -222,9 +224,7 @@
 
   <div class="w-full max-w-sm space-y-8">
     <div class="text-center">
-      <h1 class="kickback-wordmark text-4xl font-black uppercase">
-        <span class="text-white">Kick</span><span class="text-orange-500">back</span>
-      </h1>
+      <img src="/branding/kickback-wordmark.svg" alt="Kickback" class="mx-auto h-7 w-auto" loading="eager" decoding="sync" />
       <p class="text-zinc-500 text-sm mt-2">
         {selectedVenue?.square_public
           ? autoClaimsActive

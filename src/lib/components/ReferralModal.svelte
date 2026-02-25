@@ -306,7 +306,7 @@
     <div class="px-8">
       <header class="text-center mb-6">
         <h2 class="text-2xl font-black uppercase tracking-tighter text-white">
-          Share the <span class="kickback-wordmark"><span class="text-white">Kick</span><span class="text-orange-500">back</span></span>
+          Share the <img src="/branding/kickback-wordmark.svg" alt="Kickback" class="inline-block h-5 w-auto align-middle" loading="eager" decoding="sync" />
         </h2>
       </header>
 

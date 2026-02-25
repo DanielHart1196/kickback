@@ -9,7 +9,7 @@
 <main class="min-h-screen bg-black text-white flex flex-col items-center justify-center p-6">
   <div class="w-full max-w-sm space-y-6 text-center">
     <h1 class="text-3xl font-black uppercase tracking-tighter leading-none">
-      <span class="kickback-wordmark"><span class="text-white">Kick</span><span class="text-orange-500">back</span></span>
+      <img src="/branding/kickback-wordmark.svg" alt="Kickback" class="mx-auto h-7 w-auto" loading="eager" decoding="sync" />
     </h1>
 
     <div class="space-y-3">

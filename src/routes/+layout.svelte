@@ -27,6 +27,32 @@
     setTimeout(applyTop, 120);
     setTimeout(applyTop, 260);
   }
+
+  function probeCorner() {
+    if (typeof window === 'undefined' || typeof document === 'undefined') return [];
+    const points = [
+      [1, 1],
+      [2, 2],
+      [4, 4],
+      [8, 8]
+    ];
+    const result = points.map(([x, y]) => {
+      const chain = document.elementsFromPoint(x, y).map((el) => {
+        const style = window.getComputedStyle(el);
+        return {
+          tag: el.tagName,
+          id: el.id || '',
+          cls: typeof el.className === 'string' ? el.className : '',
+          pos: style.position,
+          z: style.zIndex,
+          pe: style.pointerEvents
+        };
+      });
+      return { point: `${x},${y}`, chain };
+    });
+    console.log('[kb-probe-corner]', result);
+    return result;
+  }
   const supabaseOrigin = (() => {
     try {
       const supabaseUrl = publicEnv.PUBLIC_SUPABASE_URL;
@@ -37,11 +63,19 @@
   })();
 
   onMount(() => {
+    if (typeof window !== 'undefined') {
+      /** @type {any} */ (window).__kbProbeCorner = probeCorner;
+    }
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/service-worker.js').catch((error) => {
         console.error('Service worker registration failed:', error);
       });
     }
+    return () => {
+      if (typeof window !== 'undefined') {
+        delete /** @type {any} */ (window).__kbProbeCorner;
+      }
+    };
   });
 
   afterNavigate((navigation) => {
