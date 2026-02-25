@@ -77,6 +77,14 @@
   let referralPresetVenueId = '';
   let referralPresetVenueName = '';
   let shouldOpenReferFromUrl = false;
+  type PendingInvitation = {
+    id: string;
+    venueId: string;
+    venueName: string;
+    referrerCode: string;
+    createdAt: string;
+  };
+  let pendingInvitations: PendingInvitation[] = [];
 
   let venues: Venue[] = [];
 
@@ -121,6 +129,64 @@
   let autoClaimWarningOverride = false;
   let showClaimWindowExpired = false;
   let claimWindowVenue = '';
+
+  async function fetchPendingInvitations(uid: string) {
+    if (!uid) return;
+    const { data, error } = await supabase
+      .from('pending_invitations')
+      .select('id, venue_id, venue_name, referrer_code, created_at')
+      .eq('user_id', uid)
+      .order('created_at', { ascending: false });
+    if (error) {
+      console.error('Error loading pending invitations:', error);
+      pendingInvitations = [];
+      return;
+    }
+    pendingInvitations = (data ?? []).map((row) => ({
+      id: row.id,
+      venueId: row.venue_id ?? '',
+      venueName: row.venue_name ?? '',
+      referrerCode: row.referrer_code ?? '',
+      createdAt: row.created_at
+    }));
+  }
+
+  async function addPendingInvitation(payload: Omit<PendingInvitation, 'id' | 'createdAt'>) {
+    if (!userId) return;
+    const { error } = await supabase
+      .from('pending_invitations')
+      .upsert(
+        {
+          user_id: userId,
+          venue_id: payload.venueId,
+          venue_name: payload.venueName,
+          referrer_code: payload.referrerCode
+        },
+        { onConflict: 'user_id,venue_id,referrer_code' }
+      );
+    if (error) {
+      console.error('Error saving pending invitation:', error);
+      return;
+    }
+    await fetchPendingInvitations(userId);
+  }
+
+  async function removePendingInvitation(match: { venueId?: string; referrerCode?: string }) {
+    if (!userId) return;
+    let query = supabase.from('pending_invitations').delete().eq('user_id', userId);
+    if (match.venueId) {
+      query = query.eq('venue_id', match.venueId);
+    }
+    if (match.referrerCode) {
+      query = query.eq('referrer_code', match.referrerCode);
+    }
+    const { error } = await query;
+    if (error) {
+      console.error('Error removing pending invitation:', error);
+      return;
+    }
+    await fetchPendingInvitations(userId);
+  }
 
   let session: Session | null | undefined = undefined;
   let userId: string | null = null;
@@ -742,6 +808,9 @@
     session = data.session;
     userId = session?.user?.id ?? null;
     if (userId) {
+      await fetchPendingInvitations(userId);
+    }
+    if (userId) {
       void (async () => {
         try {
           const { data: profile } = await supabase
@@ -1032,6 +1101,10 @@
         last4 = '';
       }
       if (session) {
+        const submittedReferrer = normalizeReferralCode(normalizedReferrerInput);
+        if (submittedReferrer) {
+          void removePendingInvitation({ venueId, referrerCode: submittedReferrer });
+        }
         showForm = false;
         if (typeof window !== 'undefined') {
           const state = getHistoryState();
@@ -1389,6 +1462,46 @@
     showForm = true;
   }
 
+  async function handleAcceptInvitation() {
+    if (!session) return;
+    const resolvedVenueId = venueId || getVenueIdByName(venue);
+    const resolvedVenueName = getVenueNameById(resolvedVenueId) || venue;
+    const referrerCode = normalizeReferralCode(normalizedReferrerInput);
+    if (!resolvedVenueId && !resolvedVenueName) return;
+    if (!referrerCode) return;
+    await addPendingInvitation({
+      venueId: resolvedVenueId,
+      venueName: resolvedVenueName,
+      referrerCode
+    });
+    showForm = false;
+    showLanding = false;
+    if (typeof window !== 'undefined' && session) {
+      const state = getHistoryState();
+      replaceState('', { ...state, [historyViewKey]: 'dashboard' });
+    }
+  }
+
+  function handleContinueInvitation(invite: PendingInvitation) {
+    venue = invite.venueName || getVenueNameById(invite.venueId) || '';
+    venueId = invite.venueId || getVenueIdByName(venue) || '';
+    referrer = invite.referrerCode;
+    isVenueLocked = true;
+    isReferrerLocked = true;
+    referrerLockedByVenue = false;
+    amountInput = '';
+    last4 = '';
+    purchaseTime = getLocalNowInputValue();
+    maxPurchaseTime = purchaseTime;
+    venueRefLandingMode = false;
+    showForm = true;
+    showLanding = false;
+    if (typeof window !== 'undefined' && session) {
+      const state = getHistoryState();
+      replaceState('', { ...state, [historyViewKey]: 'claim' });
+    }
+  }
+
   function handleFormBack() {
     showForm = false;
     if (session && typeof window !== 'undefined') {
@@ -1415,10 +1528,12 @@
         userEmail={session?.user?.email ?? ''}
         userId={userId ?? ''}
         claimantCodes={claimantCodes}
+        pendingInvitations={pendingInvitations}
         onNewClaim={startNewClaim}
         onDeleteClaim={handleDeleteClaim}
         onOpenRefer={openReferModal}
         onRequestInstall={triggerInstallBanner}
+        onContinueInvitation={handleContinueInvitation}
         onLogout={handleSignOut}
       />
     </div>
@@ -1453,6 +1568,7 @@
         onBack={handleFormBack}
         onSubmit={handleSubmitClaim}
         onConfirmGuest={confirmGuestSubmit}
+        onAcceptInvitation={handleAcceptInvitation}
         onAmountInput={handleInput}
         onAmountHydrate={hydrateAmountInput}
       />

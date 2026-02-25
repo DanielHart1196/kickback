@@ -36,6 +36,7 @@
   export let onBack: () => void = () => {};
   export let onSubmit: () => void = () => {};
   export let onConfirmGuest: () => void = () => {};
+  export let onAcceptInvitation: () => void = () => {};
   export let onAmountInput: (e: Event & { currentTarget: HTMLInputElement }) => void = () => {};
   export let onAmountHydrate: (value: string) => void = () => {};
 
@@ -60,6 +61,7 @@
   let keyboardPad = false;
   let referrerEditing = false;
   let referrerBannerInput: HTMLInputElement | null = null;
+  let invitationOnly = false;
 
   onMount(() => {
     const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent : '';
@@ -151,6 +153,9 @@
   $: referrerValid = safeReferrer.trim().length > 0 && isReferralCodeValid(safeReferrer);
   $: if (selectedVenue?.logo_url) {
     logoLoaded = false;
+  }
+  $: if (!venueRefLandingMode || !selectedVenue || !normalizedReferrerCode) {
+    invitationOnly = false;
   }
 
   function handleReferrerInput(event: Event & { currentTarget: HTMLInputElement }) {
@@ -273,9 +278,11 @@
     </div>
 
     {#if venueRefLandingMode && selectedVenue && normalizedReferrerCode}
-      <p class="text-center text-base text-zinc-400">
-        <span class="text-orange-500 font-semibold">{normalizedReferrerCode}</span> invited you to {selectedVenue.name}
-      </p>
+      <div class="text-center space-y-2">
+        <p class="text-base text-zinc-400">
+          <span class="text-orange-500 font-semibold">{normalizedReferrerCode}</span> invited you to {selectedVenue.name}
+        </p>
+      </div>
     {/if}
 
     {#if selectedVenue?.logo_url}
@@ -291,9 +298,17 @@
       {#if venueRefLandingMode && normalizedReferrerCode}
         <div class="mt-4">
           <div class="relative mx-auto max-w-sm px-7">
-            <p class="text-center text-sm text-zinc-500 leading-relaxed">
+            <p class="text-center text-base text-zinc-400">
               Confirm your first visit to unlock 5% cashback for 30 days
             </p>
+            <button
+              type="button"
+              class="mt-2 block w-fit mx-auto text-[11px] font-bold uppercase tracking-widest text-orange-500/80 hover:text-orange-400 transition-colors"
+              aria-expanded={invitationOnly}
+              on:click={() => (invitationOnly = !invitationOnly)}
+            >
+              {invitationOnly ? 'Here now' : 'Not there yet?'}
+            </button>
             <button
               type="button"
               bind:this={autoClaimInfoButton}
@@ -440,183 +455,207 @@
     {/if}
 
     <div class="bg-zinc-900 border border-zinc-800 p-6 rounded-3xl shadow-2xl">
-      <div class="space-y-5">
-        
+      <div class={invitationOnly ? 'space-y-0' : 'space-y-5'}>
+        <div
+          class={`space-y-5 overflow-hidden transition-[max-height,opacity] duration-350 ease-in-out ${
+            invitationOnly ? 'max-h-0 opacity-0 pointer-events-none' : 'max-h-[900px] opacity-100'
+          }`}
+        >
+            <div>
+              <div class="flex items-center justify-between mb-2">
+                <label for="time" class="block text-xs font-bold uppercase tracking-widest text-zinc-500">Time of Purchase</label>
+                <button
+                  type="button"
+                  on:click={handleTimeReset}
+                  class="text-[10px] font-black uppercase tracking-[0.3em] text-zinc-500 hover:text-white transition-colors"
+                >
+                  Reset
+                </button>
+              </div>
+              <div class="relative">
+                <input 
+                  id="time"
+                  type="datetime-local" 
+                  bind:value={purchaseTime} 
+                  bind:this={timeInput}
+                  max={maxPurchaseTime || undefined}
+                  class="time-input w-full appearance-none bg-zinc-800 border-none p-4 {isFirefox ? 'pr-4 text-base' : 'pr-12 text-lg'} rounded-2xl focus:ring-2 focus:ring-inset focus:ring-white outline-none [color-scheme:dark]"
+                  class:time-input-native={isFirefox}
+                />
+                {#if !isFirefox}
+                  <button
+                    type="button"
+                    aria-label="Open time picker"
+                    on:click={openTimePicker}
+                    class="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white transition-colors"
+                  >
+                    <svg viewBox="0 0 24 24" aria-hidden="true" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <circle cx="12" cy="12" r="8" />
+                      <path d="M12 8v4l3 2" />
+                    </svg>
+                  </button>
+                {/if}
+              </div>
+              {#if purchaseTimeTooOld}
+                <p class="mt-2 text-[11px] font-bold uppercase tracking-widest text-orange-500/70">
+                  Manual claims must be submitted within 24 hours
+                </p>
+              {/if}
+            </div>
 
-        <div>
-          <div class="flex items-center justify-between mb-2">
-            <label for="time" class="block text-xs font-bold uppercase tracking-widest text-zinc-500">Time of Purchase</label>
-            <button
-              type="button"
-              on:click={handleTimeReset}
-              class="text-[10px] font-black uppercase tracking-[0.3em] text-zinc-500 hover:text-white transition-colors"
-            >
-              Reset
-            </button>
-          </div>
-          <div class="relative">
-            <input 
-              id="time"
-              type="datetime-local" 
-              bind:value={purchaseTime} 
-              bind:this={timeInput}
-              max={maxPurchaseTime || undefined}
-              class="time-input w-full appearance-none bg-zinc-800 border-none p-4 {isFirefox ? 'pr-4 text-base' : 'pr-12 text-lg'} rounded-2xl focus:ring-2 focus:ring-white outline-none [color-scheme:dark]"
-              class:time-input-native={isFirefox}
-            />
-            {#if !isFirefox}
-              <button
-                type="button"
-                aria-label="Open time picker"
-                on:click={openTimePicker}
-                class="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white transition-colors"
-              >
-                <svg viewBox="0 0 24 24" aria-hidden="true" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <circle cx="12" cy="12" r="8" />
-                  <path d="M12 8v4l3 2" />
-                </svg>
-              </button>
-            {/if}
-          </div>
-          {#if purchaseTimeTooOld}
-            <p class="mt-2 text-[11px] font-bold uppercase tracking-widest text-orange-500/70">
-              Manual claims must be submitted within 24 hours
-            </p>
-          {/if}
-        </div>
-
-        <div>
-          <label for="amount" class="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">Amount</label>
-          <div class="relative">
-          <span class="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500 font-bold">$</span>
-          <input 
-            id="amount"
-            type="text"
-            bind:value={amountInput}
-            bind:this={amountField}
-            on:focus={() => (keyboardPad = true)}
-            on:blur={() => (keyboardPad = false)}
-            on:input={onAmountInput}
-            placeholder="0.00"
-            inputmode="decimal"
-            class="w-full bg-zinc-800 border-none p-4 pl-8 rounded-2xl text-lg focus:ring-2 focus:ring-white outline-none"
-          />
-          </div>
-        </div>
+            <div>
+              <label for="amount" class="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">Amount</label>
+              <div class="relative">
+              <span class="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500 font-bold">$</span>
+              <input 
+                id="amount"
+                type="text"
+                bind:value={amountInput}
+                bind:this={amountField}
+                on:focus={() => (keyboardPad = true)}
+                on:blur={() => (keyboardPad = false)}
+                on:input={onAmountInput}
+                placeholder="0.00"
+                inputmode="decimal"
+                class="w-full bg-zinc-800 border-none p-4 pl-8 rounded-2xl text-lg focus:ring-2 focus:ring-inset focus:ring-white outline-none"
+              />
+              </div>
+            </div>
 <style>
   #venue::placeholder {
     font-family: 'Montserrat', ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
   }
 </style>
 
-        {#if (amount ?? 0) >= maxBill}
-          <p transition:fade class="text-orange-500 text-[10px] font-bold mt-2 px-2">
-            WARNING: MAXIMUM BILL AMOUNT REACHED (${maxBill})
-          </p>
-        {/if}
+            {#if (amount ?? 0) >= maxBill}
+              <p transition:fade class="text-orange-500 text-[10px] font-bold mt-2 px-2">
+                WARNING: MAXIMUM BILL AMOUNT REACHED (${maxBill})
+              </p>
+            {/if}
 
-        <div>
-          <div class="flex items-center justify-between mb-2">
-            <label for="last4" class="block text-xs font-bold uppercase tracking-widest text-zinc-500">Card Digits (Last 4)</label>
-            <div class="flex items-center">
-              <button
-                type="button"
-                bind:this={last4InfoButton}
-                on:click={toggleLast4Info}
-                aria-expanded={showLast4Info}
-                aria-controls="last4-help"
-                class="text-zinc-400 hover:text-white transition-colors flex items-center justify-center w-4 h-4"
-              >
-                <span class="sr-only">Why we need this</span>
-                <svg aria-hidden="true" viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <circle cx="12" cy="12" r="9" />
-                  <path d="M12 16v-4" />
-                  <path d="M12 8h.01" />
-                </svg>
-              </button>
+            <div>
+              <div class="flex items-center justify-between mb-2">
+                <label for="last4" class="block text-xs font-bold uppercase tracking-widest text-zinc-500">Card Digits (Last 4)</label>
+                <div class="flex items-center">
+                  <button
+                    type="button"
+                    bind:this={last4InfoButton}
+                    on:click={toggleLast4Info}
+                    aria-expanded={showLast4Info}
+                    aria-controls="last4-help"
+                    class="text-zinc-400 hover:text-white transition-colors flex items-center justify-center w-4 h-4"
+                  >
+                    <span class="sr-only">Why we need this</span>
+                    <svg aria-hidden="true" viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <circle cx="12" cy="12" r="9" />
+                      <path d="M12 16v-4" />
+                      <path d="M12 8h.01" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              {#if showLast4Info}
+                <div
+                  id="last4-help"
+                  bind:this={last4TooltipEl}
+                  class="fixed w-72 rounded-2xl border border-zinc-800 bg-zinc-950 p-3 text-[11px] text-zinc-300 shadow-xl shadow-black/30 z-[300] opacity-100"
+                  style={last4TooltipStyle}
+                >
+                  <p class="font-semibold uppercase">WHY WE NEED THIS</p>
+                  <p class="mt-1 text-zinc-400">We use the last 4 digits to verify your purchase with the venue. We never see the full card number and never charge your card.</p>
+                  <p class="mt-2 text-zinc-500">Apple Pay and Google Pay can show a different card number than the one on your physical card. Please enter the last 4 shown in your wallet app.</p>
+                </div>
+              {/if}
+              <input 
+                id="last4"
+                type="text" 
+                inputmode="numeric"
+                pattern="[0-9]*"
+                bind:value={last4} 
+                placeholder="1234"
+                maxlength="4"
+                on:blur={() => last4Dirty = true}
+                class="w-full bg-zinc-800 border-none p-4 rounded-2xl text-xl font-medium focus:ring-2 focus:ring-inset focus:ring-white transition-all outline-none"
+              />
+              {#if last4Dirty && last4 && last4.length < 4}
+                <p class="mt-2 text-[11px] font-bold uppercase tracking-widest text-orange-500/70">Enter 4 digits</p>
+              {/if}
             </div>
-          </div>
-          {#if showLast4Info}
-            <div
-              id="last4-help"
-              bind:this={last4TooltipEl}
-              class="fixed w-72 rounded-2xl border border-zinc-800 bg-zinc-950 p-3 text-[11px] text-zinc-300 shadow-xl shadow-black/30 z-[300] opacity-100"
-              style={last4TooltipStyle}
-            >
-              <p class="font-semibold uppercase">WHY WE NEED THIS</p>
-              <p class="mt-1 text-zinc-400">We use the last 4 digits to verify your purchase with the venue. We never see the full card number and never charge your card.</p>
-              <p class="mt-2 text-zinc-500">Apple Pay and Google Pay can show a different card number than the one on your physical card. Please enter the last 4 shown in your wallet app.</p>
-            </div>
-          {/if}
-          <input 
-            id="last4"
-            type="text" 
-            inputmode="numeric"
-            pattern="[0-9]*"
-            bind:value={last4} 
-            placeholder="1234"
-            maxlength="4"
-            on:blur={() => last4Dirty = true}
-            class="w-full bg-zinc-800 border-none p-4 rounded-2xl text-xl font-medium focus:ring-2 focus:ring-white transition-all outline-none"
-          />
-          {#if last4Dirty && last4 && last4.length < 4}
-            <p class="mt-2 text-[11px] font-bold uppercase tracking-widest text-orange-500/70">Enter 4 digits</p>
-          {/if}
+
+            {#if amount && amount > 0}
+              <div transition:slide={{ duration: 300 }} class="flex justify-between items-center px-2 mb-4 text-sm font-bold uppercase">
+                <span class="text-zinc-500">REWARD ({kickbackRatePercent}%)</span>
+                <span class="text-green-500">+ ${kickback}</span>
+              </div>
+            {/if}
         </div>
 
-        {#if amount && amount > 0}
-          <div transition:slide={{ duration: 300 }} class="flex justify-between items-center px-2 mb-4 text-sm font-bold uppercase">
-            <span class="text-zinc-500">REWARD ({kickbackRatePercent}%)</span>
-            <span class="text-green-500">+ ${kickback}</span>
-          </div>
-        {/if}
-
         <div class="space-y-4">
-          {#if session}
-            <button 
-              on:click={() => { if (status !== 'loading' && canSubmit) onSubmit(); }}
-              disabled={status === 'loading' || !canSubmit}
-              class="w-full bg-orange-500 text-black font-black py-4 rounded-2xl text-lg active:scale-95 transition-all disabled:opacity-50"
-              class:opacity-50={!canSubmit || status === 'loading'}
-              class:cursor-not-allowed={!canSubmit || status === 'loading'}
-            >
-              {status === 'loading' ? 'PROCESSING...' : `SUBMIT & CLAIM $${kickback}`}
-            </button>
+          {#if invitationOnly}
+            {#if session}
+              <button
+                type="button"
+                on:click={onAcceptInvitation}
+                class="w-full bg-orange-500 text-black font-black py-4 rounded-2xl text-lg active:scale-95 transition-all"
+              >
+                ACCEPT INVITATION
+              </button>
+            {:else}
+              <button
+                type="button"
+                on:click={() => goto(loginUrl)}
+                class="w-full bg-white text-black font-black py-4 rounded-2xl text-lg active:scale-95 transition-all shadow-xl shadow-white/5"
+              >
+                SIGN UP & ACCEPT INVITATION
+              </button>
+            {/if}
           {:else}
-            <button 
-              on:click={async () => {
-                if (status === 'loading' || !canSubmit) return;
-                const draft: ClaimDraft = {
-                  amount: amountInput || '',
-                  venue: (selectedVenue?.name ?? venue) || '',
-                  venueId: selectedVenue?.id ?? '',
-                  venueCode: selectedVenue?.short_code ?? undefined,
-                  ref: typeof referrer === 'string' ? referrer : '',
-                  last4: typeof last4 === 'string' ? last4 : '',
-                  purchaseTime: typeof purchaseTime === 'string' ? purchaseTime : ''
-                };
-                try {
-                  saveDraftToStorage(localStorage, draft);
-                } catch {}
-                await goto(loginUrl);
-              }}
-              disabled={status === 'loading' || !canSubmit}
-              class="w-full bg-white text-black font-black py-4 rounded-2xl text-lg active:scale-95 transition-all shadow-xl shadow-white/5"
-              class:opacity-50={!canSubmit || status === 'loading'}
+            {#if session}
+              <button 
+                on:click={() => { if (status !== 'loading' && canSubmit) onSubmit(); }}
+                disabled={status === 'loading' || !canSubmit}
+                class="w-full bg-orange-500 text-black font-black py-4 rounded-2xl text-lg active:scale-95 transition-all disabled:opacity-50"
+                class:opacity-50={!canSubmit || status === 'loading'}
               class:cursor-not-allowed={!canSubmit || status === 'loading'}
             >
-              SIGN UP & CLAIM ${kickback}
+              {status === 'loading' ? 'PROCESSING...' : 'ACTIVATE'}
             </button>
+            {:else}
+              <button 
+                on:click={async () => {
+                  if (status === 'loading' || !canSubmit) return;
+                  const draft: ClaimDraft = {
+                    amount: amountInput || '',
+                    venue: (selectedVenue?.name ?? venue) || '',
+                    venueId: selectedVenue?.id ?? '',
+                    venueCode: selectedVenue?.short_code ?? undefined,
+                    ref: typeof referrer === 'string' ? referrer : '',
+                    last4: typeof last4 === 'string' ? last4 : '',
+                    purchaseTime: typeof purchaseTime === 'string' ? purchaseTime : ''
+                  };
+                  try {
+                    saveDraftToStorage(localStorage, draft);
+                  } catch {}
+                  await goto(loginUrl);
+                }}
+                disabled={status === 'loading' || !canSubmit}
+                class="w-full bg-white text-black font-black py-4 rounded-2xl text-lg active:scale-95 transition-all shadow-xl shadow-white/5"
+                class:opacity-50={!canSubmit || status === 'loading'}
+                class:cursor-not-allowed={!canSubmit || status === 'loading'}
+              >
+                SIGN UP & CLAIM ${kickback}
+              </button>
 
-            <button
-              on:click={() => { if (status !== 'loading' && canSubmit) onConfirmGuest(); }}
-              type="button"
-              disabled={status === 'loading' || !canSubmit}
-              class="w-full py-3 text-zinc-500 font-bold text-sm uppercase tracking-[0.2em] disabled:opacity-50"
-              class:cursor-not-allowed={!canSubmit || status === 'loading'}
-            >
-              Submit as Guest
-            </button>
+              <button
+                on:click={() => { if (status !== 'loading' && canSubmit) onConfirmGuest(); }}
+                type="button"
+                disabled={status === 'loading' || !canSubmit}
+                class="w-full py-3 text-zinc-500 font-bold text-sm uppercase tracking-[0.2em] disabled:opacity-50"
+                class:cursor-not-allowed={!canSubmit || status === 'loading'}
+              >
+                Submit as Guest
+              </button>
+            {/if}
           {/if}
         </div>
       </div>

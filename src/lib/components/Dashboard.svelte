@@ -9,6 +9,14 @@
   import type { Venue } from '$lib/venues/types';
   
 
+  type PendingInvitation = {
+    id: string;
+    venueId: string;
+    venueName: string;
+    referrerCode: string;
+    createdAt: string;
+  };
+
   export let claims: Claim[] = [];
   export let totalPending = 0;
   export let venues: Venue[] = [];
@@ -21,6 +29,8 @@
   export let onLogout: () => void = () => {};
   export let onOpenRefer: () => void = () => {};
   export let onRequestInstall: () => void = () => {};
+  export let pendingInvitations: PendingInvitation[] = [];
+  export let onContinueInvitation: (invite: PendingInvitation) => void = () => {};
 
   let lastHighlightKey: string | null = null;
   let pendingTotal = 0;
@@ -40,7 +50,8 @@
   };
   type HistoryItem =
     | { kind: 'payout'; key: string; timestamp: number; payout: PayoutHistoryItem }
-    | { kind: 'claim'; key: string; timestamp: number; claim: Claim };
+    | { kind: 'claim'; key: string; timestamp: number; claim: Claim }
+    | { kind: 'invitation'; key: string; timestamp: number; invitation: PendingInvitation };
 
   let payoutHistory: PayoutHistoryItem[] = [];
   let historyItems: HistoryItem[] = [];
@@ -931,7 +942,15 @@
           key: `claim:${claim.id ?? claim.created_at}`,
           timestamp: new Date(claim.purchased_at).getTime(),
           claim
-        })))
+        }))),
+    ...(!filterPayoutsOnly && !hasClaimFilters
+      ? pendingInvitations.map((invitation) => ({
+          kind: 'invitation' as const,
+          key: `invitation:${invitation.id}`,
+          timestamp: new Date(invitation.createdAt).getTime(),
+          invitation
+        }))
+      : [])
   ].sort((a, b) => {
     const at = Number.isFinite(a.timestamp) ? a.timestamp : 0;
     const bt = Number.isFinite(b.timestamp) ? b.timestamp : 0;
@@ -1211,7 +1230,32 @@
       </div>
     {/if}
     {#each historyItems as item (item.key)}
-      {#if item.kind === 'payout'}
+      {#if item.kind === 'invitation'}
+        {@const invite = item.invitation}
+        <div transition:slide|local={{ duration: 220 }}>
+          <div class="bg-zinc-900/30 border border-zinc-800 rounded-2xl p-5">
+            <div class="flex items-center justify-between gap-4">
+              <div>
+                <p class="text-[11px] font-black uppercase tracking-[0.25em] text-orange-400">Invitation Pending</p>
+                <p class="text-sm font-bold text-white mt-1">{invite.venueName || 'Venue'}</p>
+                <p class="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mt-1">
+                  Code {invite.referrerCode}
+                </p>
+              </div>
+              <button
+                type="button"
+                on:click={() => onContinueInvitation(invite)}
+                class="shrink-0 rounded-full bg-orange-500/90 text-black text-xs font-black uppercase tracking-widest px-4 py-2 hover:bg-orange-400 transition-colors"
+              >
+                Continue
+              </button>
+            </div>
+            <p class="text-[10px] font-bold uppercase tracking-widest text-zinc-600 mt-3">
+              Accepted {formatDateTimeDdMmYyyy(invite.createdAt)}
+            </p>
+          </div>
+        </div>
+      {:else if item.kind === 'payout'}
         <div transition:slide|local={{ duration: 220 }}>
           <details class="group bg-zinc-900/20 border border-zinc-900 rounded-2xl overflow-hidden">
             <summary class="list-none p-5 flex items-center justify-between gap-4 cursor-pointer active:bg-zinc-900/50">
