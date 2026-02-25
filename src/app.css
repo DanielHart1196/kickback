@@ -85,12 +85,19 @@ html, body {
   width: 100%;
   overflow-x: hidden;
   overflow-x: clip;
-  scrollbar-gutter: stable;
+  scrollbar-gutter: auto;
 }
 
 html.no-pull-refresh,
 body.no-pull-refresh {
   overscroll-behavior-y: contain;
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/Edge legacy */
+}
+
+html.no-pull-refresh::-webkit-scrollbar,
+body.no-pull-refresh::-webkit-scrollbar {
+  display: none; /* Chrome/Safari/Opera */
 }
 
 /* Hide SvelteKit live region without leaving a paintable 1px box on some mobile Chrome builds */

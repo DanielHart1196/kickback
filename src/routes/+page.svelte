@@ -72,6 +72,7 @@
   let showReferModal = false;
   let showPayoutSetup = false;
   let showLanding = false;
+  let venueRefLandingMode = false;
   let showAndroidInstallModal = false;
   let referralPresetVenueId = '';
   let referralPresetVenueName = '';
@@ -634,6 +635,10 @@
     showGuestWarning = true;
   }
 
+  function dismissGuestWarning() {
+    showGuestWarning = false;
+  }
+
   function proceedAsGuest() {
     showGuestWarning = false;
     submitClaim();
@@ -726,6 +731,7 @@
     const hasRefAndVenue = hasRef && hasVenueParam;
     const hasVenueOnly = hasVenueParam && !hasRef;
     const hasRefOnly = hasRef && !hasVenueParam;
+    venueRefLandingMode = hasRefAndVenue;
 
     const localNow = getLocalNowInputValue();
     purchaseTime = localNow;
@@ -1420,6 +1426,7 @@
     <div class="mx-auto w-full max-w-6xl p-6 flex flex-col items-center">
       <ClaimForm
         {session}
+        {venueRefLandingMode}
         showBack={Boolean(session)}
         {status}
         {errorMessage}
@@ -1463,6 +1470,8 @@
         kickback={kickback}
         kickbackRatePercent={kickbackRatePercent}
         loginUrl={loginUrl}
+        referrerCode={normalizeReferralCode(normalizedReferrerInput) || 'your friend'}
+        onDismiss={dismissGuestWarning}
         onProceed={proceedAsGuest}
       />
     {/if}
