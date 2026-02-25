@@ -2,6 +2,7 @@
   import { onMount, tick } from 'svelte';
   import { fade, fly } from 'svelte/transition';
   import QRCode from 'qrcode';
+  import { env as publicEnv } from '$env/dynamic/public';
   import { isReferralCodeValid, normalizeReferralCode } from '$lib/referrals/code';
 
   export let userRefCode = 'member';
@@ -69,7 +70,10 @@
       params.set('venue', venueName);
     }
     params.set('ref', code);
-    return `https://kkbk.app/?${params.toString()}`;
+    const origin = typeof window !== 'undefined'
+      ? window.location.origin
+      : (publicEnv.PUBLIC_APP_URL || 'https://kkbk.app');
+    return `${origin}/?${params.toString()}`;
   }
 
   function copyToClipboard() {

@@ -306,15 +306,6 @@
   
   function handleGoBack() {
     if (!fromClaimFlow) {
-      if (typeof window !== 'undefined' && window.history.length > 1 && document.referrer) {
-        try {
-          const referrerUrl = new URL(document.referrer);
-          if (referrerUrl.origin === window.location.origin) {
-            window.history.back();
-            return;
-          }
-        } catch {}
-      }
       window.location.href = '/';
       return;
     }

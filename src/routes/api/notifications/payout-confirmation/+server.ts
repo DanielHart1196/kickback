@@ -39,6 +39,12 @@ async function sendEmailNotification(to: string, subject: string, text: string, 
 
 export const POST: RequestHandler = async ({ request }) => {
   try {
+    const appUrl = (
+      process.env.PRIVATE_APP_URL ||
+      process.env.PUBLIC_APP_URL ||
+      'https://kkbk.app'
+    ).replace(/\/+$/, '');
+    const dashboardUrl = `${appUrl}/`;
     const body = await request.json().catch(() => null);
     const userId = typeof body?.user_id === 'string' ? body.user_id : null;
     const amount = Number(body?.amount ?? 0);
@@ -68,9 +74,9 @@ export const POST: RequestHandler = async ({ request }) => {
       `PayID: ${payId || 'Not set'}`,
       `Time: ${paidLabel}`,
       '',
-      'View your dashboard at https://kkbk.app/'
+      `View your dashboard at ${dashboardUrl}`
     ];
-    const html = `Payout sent: ${amountLabel}<br>PayID: ${payId || 'Not set'}<br>Time: ${paidLabel}<br><br>View your dashboard at https://kkbk.app/`;
+    const html = `Payout sent: ${amountLabel}<br>PayID: ${payId || 'Not set'}<br>Time: ${paidLabel}<br><br>View your dashboard at ${dashboardUrl}`;
     const sent = await sendEmailNotification(profile.email, subject, textLines.join('\n'), html);
     return json({ ok: true, sent });
   } catch (error) {

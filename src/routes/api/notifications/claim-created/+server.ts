@@ -3,6 +3,12 @@ import { supabaseAdmin } from '$lib/server/supabaseAdmin';
 
 export async function POST({ request }) {
   try {
+    const appUrl = (
+      process.env.PRIVATE_APP_URL ||
+      process.env.PUBLIC_APP_URL ||
+      'https://kkbk.app'
+    ).replace(/\/+$/, '');
+    const dashboardUrl = `${appUrl}/`;
     const body = await request.json().catch(() => null);
     const claimId = body?.claim_id as string | undefined;
     if (!claimId) {
@@ -41,8 +47,8 @@ export async function POST({ request }) {
       targets.push({
         userId: submitterId,
         emailSubject: earnedText,
-        emailText: `${earnedText}\n${detailText}\n\nView your dashboard at https://kkbk.app/`,
-        emailHtml: `${earnedText}<br>${detailText}<br><br>View your dashboard at https://kkbk.app/`
+        emailText: `${earnedText}\n${detailText}\n\nView your dashboard at ${dashboardUrl}`,
+        emailHtml: `${earnedText}<br>${detailText}<br><br>View your dashboard at ${dashboardUrl}`
       });
     }
     if (referrerId) {
@@ -52,8 +58,8 @@ export async function POST({ request }) {
       targets.push({
         userId: referrerId,
         emailSubject: earnedText,
-        emailText: `${earnedText}\n${detailText}\n\nView your dashboard at https://kkbk.app/`,
-        emailHtml: `${earnedText}<br>${detailText}<br><br>View your dashboard at https://kkbk.app/`
+        emailText: `${earnedText}\n${detailText}\n\nView your dashboard at ${dashboardUrl}`,
+        emailHtml: `${earnedText}<br>${detailText}<br><br>View your dashboard at ${dashboardUrl}`
       });
     }
 

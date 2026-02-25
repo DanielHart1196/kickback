@@ -11,6 +11,7 @@
   import { buildVenueBase, generateVenueCode } from '$lib/venues/code';
   import { dev } from '$app/environment';
   import {
+    PUBLIC_APP_URL,
     PUBLIC_SQUARE_APP_ID_PROD,
     PUBLIC_SQUARE_APP_ID_SANDBOX
   } from '$env/static/public';
@@ -139,7 +140,11 @@
     happyHourDays = next;
   }
 
-  $: venueShareUrl = venueCode.trim() ? `https://kkbk.app/?venue=${encodeURIComponent(venueCode.trim())}` : '';
+  function appOrigin(): string {
+    return typeof window !== 'undefined' ? window.location.origin : (PUBLIC_APP_URL || 'https://kkbk.app');
+  }
+
+  $: venueShareUrl = venueCode.trim() ? `${appOrigin()}/?venue=${encodeURIComponent(venueCode.trim())}` : '';
   $: venueQrUrl = venueShareUrl
     ? `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(venueShareUrl)}`
     : '';

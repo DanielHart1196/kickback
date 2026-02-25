@@ -7,7 +7,8 @@
 
   let { children } = $props();
   let fbAppId = publicEnv.PUBLIC_FB_APP_ID;
-  const ogImage = 'https://kkbk.app/opengraph.png?v=2';
+  const appUrl = (publicEnv.PUBLIC_APP_URL || 'https://kkbk.app').replace(/\/+$/, '');
+  const ogImage = `${appUrl}/opengraph.png?v=2`;
   const supabaseOrigin = (() => {
     try {
       const supabaseUrl = publicEnv.PUBLIC_SUPABASE_URL;
@@ -39,7 +40,7 @@
   {/if}
   <link rel="icon" href="{favicon}" />
   <link rel="manifest" href="/manifest.webmanifest" />
-  <link rel="canonical" href="https://kkbk.app/" />
+  <link rel="canonical" href="{appUrl}/" />
   <meta name="theme-color" content="#0b0b0b" />
   <title>Kickback</title>
   <meta property="og:title" content="Kickback" />
@@ -50,7 +51,7 @@
   <meta property="og:image:width" content="1200" />
   <meta property="og:image:height" content="630" />
   <meta property="og:image:alt" content="Kickback — EAT. DRINK. GET PAID." />
-  <meta property="og:url" content="https://kkbk.app/" />
+  <meta property="og:url" content="{appUrl}/" />
   <meta property="og:site_name" content="Kickback" />
   <meta property="og:type" content="website" />
   {#if fbAppId}

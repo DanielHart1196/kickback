@@ -145,7 +145,7 @@
           </p>
           <p class="mt-1 text-[10px] leading-relaxed font-bold text-zinc-500 uppercase tracking-tight">
             I agree that my referrals are a social/recreational activity and not a business. 
-            <a href="https://kkbk.app/terms" target="_blank" class="text-orange-500/80 hover:text-orange-500 underline decoration-orange-500/30 transition-colors">Terms</a>
+            <a href="/terms" target="_blank" class="text-orange-500/80 hover:text-orange-500 underline decoration-orange-500/30 transition-colors">Terms</a>
           </p>
         </div>
       </label>
