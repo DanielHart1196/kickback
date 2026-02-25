@@ -10,8 +10,8 @@
   import type { Venue } from '$lib/venues/types';
   import { buildVenueBase, generateVenueCode } from '$lib/venues/code';
   import { dev } from '$app/environment';
+  import { env as publicEnv } from '$env/dynamic/public';
   import {
-    PUBLIC_APP_URL,
     PUBLIC_SQUARE_APP_ID_PROD,
     PUBLIC_SQUARE_APP_ID_SANDBOX
   } from '$env/static/public';
@@ -141,7 +141,9 @@
   }
 
   function appOrigin(): string {
-    return typeof window !== 'undefined' ? window.location.origin : (PUBLIC_APP_URL || 'https://kkbk.app');
+    return typeof window !== 'undefined'
+      ? window.location.origin
+      : (publicEnv.PUBLIC_APP_URL || 'https://kkbk.app');
   }
 
   $: venueShareUrl = venueCode.trim() ? `${appOrigin()}/?venue=${encodeURIComponent(venueCode.trim())}` : '';

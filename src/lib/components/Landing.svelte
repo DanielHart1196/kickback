@@ -1,6 +1,6 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
-  import { onDestroy } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
 
   const CONTACT_MESSAGE_MAX_LENGTH = 500;
   let contactEmail = '';
@@ -18,6 +18,9 @@
   let marqueeLastPointerTime = 0;
   let marqueeInertiaFrame = 0;
   let marqueeLastFrameTime = 0;
+  let marqueeGroupEl: HTMLDivElement | null = null;
+  let marqueeLoopWidth = 0;
+  let marqueeResizeObserver: ResizeObserver | null = null;
 
   async function navigateToLogin(event: MouseEvent) {
     event.preventDefault();
@@ -73,6 +76,22 @@
     }
   }
 
+  function normalizeMarqueeDrag(value: number): number {
+    if (!marqueeLoopWidth || !Number.isFinite(value)) return value;
+    const span = marqueeLoopWidth;
+    let wrapped = ((value % span) + span) % span;
+    if (wrapped > span / 2) wrapped -= span;
+    return wrapped;
+  }
+
+  function measureMarqueeLoopWidth() {
+    if (!marqueeGroupEl) return;
+    const width = marqueeGroupEl.getBoundingClientRect().width;
+    if (!Number.isFinite(width) || width <= 0) return;
+    marqueeLoopWidth = width;
+    marqueeDragX = normalizeMarqueeDrag(marqueeDragX);
+  }
+
   function runMarqueeInertia() {
     stopMarqueeInertia();
     marqueeLastFrameTime = performance.now();
@@ -83,7 +102,7 @@
       }
       const dt = Math.max(0.001, (now - marqueeLastFrameTime) / 1000);
       marqueeLastFrameTime = now;
-      marqueeDragX += marqueeVelocityX * dt;
+      marqueeDragX = normalizeMarqueeDrag(marqueeDragX + marqueeVelocityX * dt);
       const friction = Math.pow(0.9, dt * 60);
       marqueeVelocityX *= friction;
       if (Math.abs(marqueeVelocityX) < 4) {
@@ -114,7 +133,7 @@
     if (!marqueeDragging) return;
     if (marqueePointerId !== null && event.pointerId !== marqueePointerId) return;
     const delta = event.clientX - marqueeStartX;
-    marqueeDragX = marqueeStartDragX + delta;
+    marqueeDragX = normalizeMarqueeDrag(marqueeStartDragX + delta);
     const now = performance.now();
     const dtMs = Math.max(1, now - marqueeLastPointerTime);
     const instantVelocity = ((event.clientX - marqueeLastPointerX) / dtMs) * 1000;
@@ -133,6 +152,29 @@
 
   onDestroy(() => {
     stopMarqueeInertia();
+    marqueeResizeObserver?.disconnect();
+    marqueeResizeObserver = null;
+  });
+
+  onMount(() => {
+    measureMarqueeLoopWidth();
+    requestAnimationFrame(measureMarqueeLoopWidth);
+    setTimeout(measureMarqueeLoopWidth, 120);
+
+    if (typeof ResizeObserver !== 'undefined') {
+      marqueeResizeObserver = new ResizeObserver(() => {
+        measureMarqueeLoopWidth();
+      });
+      if (marqueeGroupEl) {
+        marqueeResizeObserver.observe(marqueeGroupEl);
+      }
+    }
+
+    const handleResize = () => measureMarqueeLoopWidth();
+    window.addEventListener('resize', handleResize, { passive: true });
+    return () => {
+      window.removeEventListener('resize', handleResize);
+    };
   });
 </script>
 
@@ -227,7 +269,7 @@
         >
           <div class="marquee-track">
             <div class="marquee-track-inner">
-              <div class="marquee-group">
+              <div class="marquee-group" bind:this={marqueeGroupEl}>
                 <img src="/venues/platform3095-black.jpg" alt="platform3095" class="marquee-img" loading="eager" decoding="sync" />
                 <img src="/venues/barpic-logo.jpg" alt="barpic" class="marquee-img" loading="eager" decoding="sync" />
                 <img src="/venues/probros-logo.png" alt="pro bros" class="marquee-img" loading="eager" decoding="sync" />
