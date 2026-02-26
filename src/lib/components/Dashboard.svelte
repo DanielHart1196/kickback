@@ -16,6 +16,15 @@
     referrerCode: string;
     createdAt: string;
   };
+  type AcceptedInvitation = {
+    id: string;
+    venueId: string;
+    venueName: string;
+    referrerCode: string;
+    activatedAt: string;
+    expiresAt: string | null;
+    role: 'guest' | 'referrer';
+  };
 
   export let claims: Claim[] = [];
   export let totalBalance = 0;
@@ -32,6 +41,7 @@
   export let onOpenRefer: () => void = () => {};
   export let onRequestInstall: () => void = () => {};
   export let pendingInvitations: PendingInvitation[] = [];
+  export let acceptedInvitations: AcceptedInvitation[] = [];
   export let onContinueInvitation: (invite: PendingInvitation) => void = () => {};
   export let onDeleteInvitation: (invite: PendingInvitation) => void = () => {};
 
@@ -52,7 +62,8 @@
   type HistoryItem =
     | { kind: 'payout'; key: string; timestamp: number; payout: PayoutHistoryItem }
     | { kind: 'claim'; key: string; timestamp: number; claim: Claim }
-    | { kind: 'invitation'; key: string; timestamp: number; invitation: PendingInvitation };
+    | { kind: 'invitation'; key: string; timestamp: number; invitation: PendingInvitation }
+    | { kind: 'accepted_invitation'; key: string; timestamp: number; invitation: AcceptedInvitation };
 
   let payoutHistory: PayoutHistoryItem[] = [];
   let historyItems: HistoryItem[] = [];
@@ -60,7 +71,7 @@
   let hasClaimFilters = false;
   let filterStatus: Set<'pending' | 'approved' | 'paid' | 'denied'> = new Set();
   let filterReferred: Set<'referrer' | 'direct'> = new Set();
-  const statusOptions: Array<'approved' | 'pending' | 'paid' | 'denied'> = ['approved', 'pending', 'paid', 'denied'];
+  const statusOptions: Array<'approved' | 'paid' | 'denied'> = ['approved', 'paid', 'denied'];
   const referralOptions: Array<'referrer' | 'direct'> = ['referrer', 'direct'];
   let showFilterMenu = false;
   let listContainer: HTMLDivElement | null = null;
@@ -962,6 +973,113 @@
     return (elapsedDays / GOAL_DAYS) * 100;
   }
 
+  function getTimeLeftLabelForVenue(venueName: string, submitterId: string | undefined): string {
+    if (!submitterId) return `${GOAL_DAYS} DAYS LEFT`;
+    const normalizedVenue = venueName.trim().toLowerCase();
+    const userVenueClaims = claims.filter((c) => {
+      if (isClaimDenied(c)) return false;
+      if (c.submitter_id !== submitterId) return false;
+      return c.venue.trim().toLowerCase() === normalizedVenue;
+    });
+    if (userVenueClaims.length === 0) return `${GOAL_DAYS} DAYS LEFT`;
+    const firstClaimAt = Math.min(
+      ...userVenueClaims.map((c) => new Date(c.purchased_at).getTime()).filter((time) => Number.isFinite(time))
+    );
+    if (!Number.isFinite(firstClaimAt)) return `${GOAL_DAYS} DAYS LEFT`;
+    const windowEnd = firstClaimAt + GOAL_DAYS * 24 * 60 * 60 * 1000;
+    const remainingMs = Math.max(windowEnd - Date.now(), 0);
+    if (remainingMs >= 24 * 60 * 60 * 1000) {
+      const remainingDays = Math.ceil(remainingMs / (24 * 60 * 60 * 1000));
+      return `${remainingDays} ${remainingDays === 1 ? 'DAY' : 'DAYS'} LEFT`;
+    }
+    const hours = Math.ceil(remainingMs / (60 * 60 * 1000));
+    if (hours >= 1) return `${hours} ${hours === 1 ? 'HOUR' : 'HOURS'} LEFT`;
+    const minutes = Math.ceil(remainingMs / (60 * 1000));
+    const clampedMinutes = Math.max(minutes, 0);
+    return `${clampedMinutes} ${clampedMinutes === 1 ? 'MIN' : 'MINS'} LEFT`;
+  }
+
+  function getProgressBarWidth(venueName: string, submitterId: string | undefined): number {
+    const percent = getProgressPercentAtVenueForUser(venueName, submitterId);
+    if (percent <= 0) return 2;
+    return percent;
+  }
+
+  function getDaysLeftForInvitation(invite: AcceptedInvitation): number {
+    const expiresAt = invite.expiresAt
+      ? new Date(invite.expiresAt).getTime()
+      : new Date(invite.activatedAt).getTime() + GOAL_DAYS * 24 * 60 * 60 * 1000;
+    if (!Number.isFinite(expiresAt)) return 0;
+    const diffMs = expiresAt - Date.now();
+    return Math.max(Math.ceil(diffMs / (24 * 60 * 60 * 1000)), 0);
+  }
+
+  function getTimeLeftLabelForInvitation(invite: AcceptedInvitation): string {
+    const expiresAt = invite.expiresAt
+      ? new Date(invite.expiresAt).getTime()
+      : new Date(invite.activatedAt).getTime() + GOAL_DAYS * 24 * 60 * 60 * 1000;
+    if (!Number.isFinite(expiresAt)) return '0 MINS LEFT';
+    const remainingMs = Math.max(expiresAt - Date.now(), 0);
+    if (remainingMs >= 24 * 60 * 60 * 1000) {
+      const remainingDays = Math.ceil(remainingMs / (24 * 60 * 60 * 1000));
+      return `${remainingDays} ${remainingDays === 1 ? 'DAY' : 'DAYS'} LEFT`;
+    }
+    const hours = Math.ceil(remainingMs / (60 * 60 * 1000));
+    if (hours >= 1) return `${hours} ${hours === 1 ? 'HOUR' : 'HOURS'} LEFT`;
+    const minutes = Math.ceil(remainingMs / (60 * 1000));
+    const clampedMinutes = Math.max(minutes, 0);
+    return `${clampedMinutes} ${clampedMinutes === 1 ? 'MIN' : 'MINS'} LEFT`;
+  }
+
+  function getFirstPurchaseTimeForInvitation(invite: AcceptedInvitation): number | null {
+    if (invite.role !== 'guest' || !userId) return null;
+    const relevantClaims = claims.filter((claim) => {
+      if (!claim.submitter_id || claim.submitter_id !== userId) return false;
+      if (claim.status === 'denied') return false;
+      if (invite.venueId) return claim.venue_id === invite.venueId;
+      return claim.venue?.trim().toLowerCase() === invite.venueName?.trim().toLowerCase();
+    });
+    if (relevantClaims.length === 0) return null;
+    const earliest = Math.min(
+      ...relevantClaims
+        .map((claim) => new Date(claim.purchased_at).getTime())
+        .filter((time) => Number.isFinite(time))
+    );
+    return Number.isFinite(earliest) ? earliest : null;
+  }
+
+  function getInvitationTimestamp(invite: AcceptedInvitation): number {
+    const firstPurchase = getFirstPurchaseTimeForInvitation(invite);
+    if (firstPurchase != null) {
+      return firstPurchase - 1;
+    }
+    return new Date(invite.activatedAt).getTime();
+  }
+
+  function getInvitationDisplayTime(invite: AcceptedInvitation): string {
+    const firstPurchase = getFirstPurchaseTimeForInvitation(invite);
+    if (firstPurchase != null) {
+      return new Date(firstPurchase).toISOString();
+    }
+    return invite.activatedAt;
+  }
+
+  function getInvitedCodeForInvitation(invite: AcceptedInvitation): string {
+    if (invite.role !== 'referrer') return invite.referrerCode;
+    const match = claims.find((claim) => {
+      if (!claim.referrer_id || claim.referrer_id !== userId) return false;
+      if (invite.venueId) return claim.venue_id === invite.venueId;
+      return claim.venue?.trim().toLowerCase() === invite.venueName?.trim().toLowerCase();
+    });
+    if (!match) return invite.referrerCode;
+    return (
+      match.submitter_referral_code ||
+      claimantCodes[match.submitter_id ?? ''] ||
+      invite.referrerCode
+    );
+  }
+
+
   function getClaimStatus(claim: Claim): 'pending' | 'approved' | 'paid' | 'guestpaid' | 'refpaid' | 'paidout' | 'denied' {
     return (claim.status as any) ?? 'approved';
   }
@@ -1024,6 +1142,14 @@
           timestamp: new Date(invitation.createdAt).getTime(),
           invitation
         }))
+      : []),
+    ...(!filterPayoutsOnly && !hasClaimFilters
+      ? acceptedInvitations.map((invitation) => ({
+          kind: 'accepted_invitation' as const,
+          key: `accepted:${invitation.id}:${invitation.role}`,
+          timestamp: getInvitationTimestamp(invitation),
+          invitation
+        }))
       : [])
   ].sort((a, b) => {
     const at = Number.isFinite(a.timestamp) ? a.timestamp : 0;
@@ -1055,7 +1181,7 @@
     if (!value) return '';
     const parsed = new Date(String(value));
     if (!Number.isFinite(parsed.getTime())) return String(value);
-    return `${parsed.toLocaleDateString('en-GB')} ${parsed.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    return `${parsed.toLocaleDateString('en-GB')} ${parsed.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}`;
   }
 
   async function ensureFilterMenuClearance(allowScroll: boolean) {
@@ -1113,7 +1239,7 @@
         <circle cx="12" cy="7" r="4" />
       </svg>
     </button>
-    <p class="text-zinc-500 text-[10px] font-black uppercase tracking-[0.3em] mt-2">Member Dashboard</p>
+    <p class="text-zinc-500 text-xs font-bold uppercase tracking-widest mt-2">Member Dashboard</p>
   </header>
 
   <div class="bg-zinc-900 border border-zinc-800 p-8 rounded-[2.5rem] text-center shadow-2xl">
@@ -1309,7 +1435,7 @@
         <div transition:slide|local={{ duration: 220 }}>
           <div class="bg-black border border-zinc-800 rounded-2xl p-5">
             <div>
-              <p class="text-[11px] font-black uppercase tracking-[0.25em] text-orange-400">Invitation Pending</p>
+              <p class="text-[11px] font-black uppercase tracking-[0.25em] text-orange-500">Invitation Pending</p>
               <div class="mt-2 flex items-center justify-between gap-4">
                 <div class="min-w-0">
                   <p class="text-sm font-bold text-white">{invite.venueName || 'Venue'}</p>
@@ -1339,6 +1465,35 @@
               >
                 Delete
               </button>
+            </div>
+          </div>
+        </div>
+      {:else if item.kind === 'accepted_invitation'}
+        {@const invite = item.invitation}
+        <div transition:slide|local={{ duration: 220 }}>
+          <div class="bg-black border border-zinc-800 rounded-2xl p-5">
+            <div>
+              <div class="flex items-end justify-between gap-4">
+                <div class="min-w-0 flex flex-col">
+                  <p class="text-xl font-black uppercase tracking-widest text-orange-500 whitespace-nowrap">
+                    {invite.role === 'guest' ? 'Venue Added' : 'Guest Added'}
+                  </p>
+                  <p class="text-zinc-300 uppercase tracking-tight text-sm font-bold">
+                    {invite.role === 'guest' ? invite.venueName || 'Venue' : getInvitedCodeForInvitation(invite)}
+                  </p>
+                  <p class="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mt-1">
+                    {invite.role === 'guest' ? 'Invited by' : 'At'} {invite.role === 'guest' ? invite.referrerCode : invite.venueName || 'Venue'}
+                  </p>
+                </div>
+                <div class="shrink-0 text-right flex flex-col justify-end">
+                  <p class="text-2xl font-black text-white">
+                    {getTimeLeftLabelForInvitation(invite).split(' ').slice(0, 1).join(' ')}
+                  </p>
+                  <p class="text-[10px] font-black uppercase tracking-widest text-zinc-300">
+                    {getTimeLeftLabelForInvitation(invite).split(' ').slice(1).join(' ')}
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -1399,46 +1554,41 @@
         {@const claim = item.claim}
       <div transition:slide|local={{ duration: 220 }}>
         <details
-          class={`group bg-black border border-zinc-800 rounded-2xl overflow-hidden transition-[border-color,box-shadow] duration-1000 ease-out ${
+          class={`group bg-black border border-zinc-800 rounded-2xl overflow-hidden transition-[border-color] duration-1000 ease-out ${
             (claim.id ?? claim.created_at) === highlightClaimKey
-              ? 'border-orange-500/70 shadow-lg shadow-orange-500/20'
+              ? 'border-orange-500'
               : ''
           }`}
           data-claim-key={claim.id ?? claim.created_at}
         >
-        <summary class="list-none p-5 flex items-center justify-between gap-4 cursor-pointer active:bg-zinc-900/50">
-            <div class="flex items-center justify-between flex-1 gap-4">
-              <div class="flex flex-col justify-center">
+        <summary class="list-none py-5 pl-5 pr-4 relative cursor-pointer active:bg-zinc-900/50">
+            <div class="flex">
+              <div class="flex flex-col justify-center w-full">
               <p class={`text-xl font-black uppercase tracking-widest ${isClaimDenied(claim) ? 'text-zinc-500' : 'text-green-500'}`}>
                 +${getKickbackForClaim(claim).toFixed(2)}
               </p>
               {#if claim.referrer_id && claim.referrer_id === userId}
-                <p class="text-zinc-300 uppercase tracking-tight text-sm font-bold">
+                <p class="text-zinc-300 uppercase tracking-tight text-sm font-bold whitespace-nowrap">
                   FROM <span class="text-orange-500">{claimantCodes[claim.submitter_id ?? ''] || claim.referrer || 'REFERRAL'}</span>
                 </p>
               {:else}
                 <p class="text-zinc-300 uppercase tracking-tight text-sm font-bold">{claim.venue}</p>
               {/if}
               </div>
-            <div class="flex flex-col items-end gap-1">
-            <div class="flex items-center gap-2 shrink-0">
+            <div class="absolute right-12 top-5 flex flex-col items-end gap-1">
+            <div class="flex items-center gap-2">
               <p class="text-zinc-500 text-sm font-bold whitespace-nowrap">
-                {new Date(claim.purchased_at).toLocaleDateString()} {new Date(claim.purchased_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                {new Date(claim.purchased_at).toLocaleDateString()} {new Date(claim.purchased_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}
               </p>
             </div>
             <div class="flex items-center gap-2">
-              {#if claim.referrer_id && claim.referrer_id === userId}
-                <span class="border rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-widest border-orange-500/30 bg-orange-500/10 text-orange-400">
-                  REFERRER
-                </span>
-              {/if}
               <span class={`border rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-widest ${getStatusBadgeClass(getDisplayStatus(claim))}`}>
                 {getDisplayStatus(claim).toUpperCase()}
               </span>
             </div>
             </div>
           </div>
-          <div class="text-zinc-600 group-open:rotate-180 transition-transform">
+          <div class="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-600 group-open:rotate-180 transition-transform">
             <svg viewBox="0 0 24 24" aria-hidden="true" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M6 9l6 6 6-6" />
             </svg>
@@ -1460,14 +1610,14 @@
             </div>
             <div class="flex items-center justify-between">
               <p class="text-sm font-black uppercase text-zinc-400 tracking-widest">30-day progress</p>
-              <p class="text-sm font-black text-white">
-                {getDaysLeftAtVenueForUser(claim.venue, claim.submitter_id ?? undefined)} DAYS LEFT
+              <p class="text-sm font-bold text-white">
+                {getTimeLeftLabelForVenue(claim.venue, claim.submitter_id ?? undefined)}
               </p>
             </div>
             <div class="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden">
               <div
                 class="h-full bg-orange-500 transition-all duration-1000"
-                style="width: {getProgressPercentAtVenueForUser(claim.venue, claim.submitter_id ?? undefined)}%"
+                style="width: {getProgressBarWidth(claim.venue, claim.submitter_id ?? undefined)}%"
               ></div>
             </div>
           </div>

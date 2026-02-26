@@ -744,7 +744,7 @@
                   class:opacity-50={!canSubmit || status === 'loading'}
                 class:cursor-not-allowed={!canSubmit || status === 'loading'}
               >
-                {status === 'loading' ? 'PROCESSING...' : 'ACTIVATE'}
+                {status === 'loading' ? 'VERIFYING PAYMENT...' : 'ACTIVATE'}
               </button>
               {:else}
                 <button 

@@ -6,6 +6,7 @@
   3. `git push origin main`
 - Choose a concise, descriptive commit message based on the current diff (for example: `Add PUBLIC_APP_URL for absolute link generation`).
 - If there are no staged changes after `git add .`, skip commit and still run `git push origin main`.
+- Never ask to run `gp`; only run it when the user says `gp`.
 
 ## Local Screenshot Paths
 - Latest screenshots are typically in `/storage/emulated/0/DCIM/Screenshots/` (Android/Termux).

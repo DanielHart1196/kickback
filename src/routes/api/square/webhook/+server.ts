@@ -22,11 +22,19 @@ function normalizeReferrerCode(code: string | null): string {
 }
 
 export async function POST({ request }: RequestEvent) {
+  console.log('[square webhook] received', {
+    url: request.url,
+    hasSignature: Boolean(request.headers.get('x-square-signature')),
+    signatureLength: (request.headers.get('x-square-signature') ?? '').length,
+    hasSandboxKey: Boolean(process.env.PRIVATE_SQUARE_WEBHOOK_SIGNATURE_KEY_SANDBOX),
+    hasProdKey: Boolean(process.env.PRIVATE_SQUARE_WEBHOOK_SIGNATURE_KEY)
+  });
   const signature = request.headers.get('x-square-signature') ?? '';
   const body = await request.text();
   const signatureMatch = matchSquareSignature(request, body, signature);
 
   if (!signatureMatch.hasSandboxKey && !signatureMatch.hasProdKey) {
+    console.warn('[square webhook] missing signature key', signatureMatch);
     return json({ ok: false, error: 'missing_signature_key' }, { status: 500 });
   }
 
