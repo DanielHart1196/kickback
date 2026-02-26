@@ -1186,22 +1186,8 @@
         payoutsError = payload?.error ?? 'Failed to mark user paid';
         return;
       }
-      const claimUpdates = new Map<string, ClaimStatus>();
-      for (const entry of (payload?.claim_updates ?? []) as { id?: string; status?: string }[]) {
-        const id = String(entry.id ?? '');
-        const status = String(entry.status ?? '');
-        if (!id) continue;
-        if (!['pending', 'approved', 'paid', 'guestpaid', 'refpaid', 'paidout', 'denied'].includes(status)) {
-          continue;
-        }
-        claimUpdates.set(id, status as ClaimStatus);
-      }
-      claims = claims.map((claim) => {
-        if (!claim.id || !claimUpdates.has(claim.id)) return claim;
-        return { ...claim, status: claimUpdates.get(claim.id) ?? claim.status };
-      });
       payoutsStatus = 'success';
-      payoutsMessage = `Updated payout status for ${payload?.marked_claims ?? 0} claims.`;
+      payoutsMessage = `Paid ${payload?.paid_earnings ?? 0} earnings. Promoted ${payload?.promoted_earnings ?? 0} unpaid.`;
       await calculatePayouts();
       await loadPayoutHistory();
     } catch (error) {
@@ -1714,7 +1700,7 @@
         </section>
 
         <section class="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-5">
-          <p class="text-xs font-black uppercase tracking-widest text-zinc-500">Payouts</p>
+          <p class="text-xs font-black uppercase tracking-widest text-zinc-500">Earnings Payouts</p>
           <div class="mt-3 flex items-center gap-3">
             <button
               type="button"
@@ -1742,7 +1728,10 @@
                     <span class="text-white font-black">${payout.total_amount.toFixed(2)}</span>
                   </div>
                   <div class="mt-1 text-zinc-500 uppercase tracking-widest">
-                    PayID: <span class="text-zinc-300">{payout.pay_id ?? 'Not set'}</span>
+                    Email: <span class="text-zinc-300 normal-case tracking-normal">{payout.email ?? 'Unknown'}</span>
+                  </div>
+                  <div class="mt-1 text-zinc-500 uppercase tracking-widest">
+                    PayID: <span class="text-zinc-300 normal-case tracking-normal">{payout.pay_id ?? 'Not set'}</span>
                   </div>
                   <div class="mt-2">
                     <button
@@ -1757,7 +1746,7 @@
                 </div>
               {/each}
               {#if payouts.length === 0}
-                <p class="text-zinc-500">No paid claims waiting for payout.</p>
+                <p class="text-zinc-500">No scheduled earnings waiting for payout.</p>
               {/if}
             </div>
           {/if}

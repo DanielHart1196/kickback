@@ -47,6 +47,19 @@ export async function POST({ request }: RequestEvent) {
   }
 
   let payoutsCreated = 0;
+  if (status === 'denied') {
+    const { data: paidEarnings, error: paidEarningsError } = await supabaseAdmin
+      .from('earnings')
+      .select('id')
+      .in('claim_id', claimIds)
+      .eq('status', 'paid');
+    if (paidEarningsError) {
+      return json({ ok: false, error: paidEarningsError.message }, { status: 500 });
+    }
+    if ((paidEarnings ?? []).length > 0) {
+      return json({ ok: false, error: 'cannot_deny_paid_earnings' }, { status: 409 });
+    }
+  }
   if (status === 'paid') {
     const { data: claims, error: claimsError } = await supabaseAdmin
       .from('claims')
@@ -84,6 +97,23 @@ export async function POST({ request }: RequestEvent) {
     return json({ ok: false, error: updateError.message }, { status: 500 });
   }
 
+  if (status === 'denied') {
+    const { error: earningsError } = await supabaseAdmin
+      .from('earnings')
+      .update({ status: 'denied' })
+      .in('claim_id', claimIds);
+    if (earningsError) {
+      return json({ ok: false, error: earningsError.message }, { status: 500 });
+    }
+    const { error: feesError } = await supabaseAdmin
+      .from('venue_fees')
+      .update({ status: 'denied' })
+      .in('claim_id', claimIds);
+    if (feesError) {
+      return json({ ok: false, error: feesError.message }, { status: 500 });
+    }
+  }
+
   if (status === 'approved' || status === 'paid') {
     try {
       const origin = new URL(request.url).origin;
@@ -101,5 +131,4 @@ export async function POST({ request }: RequestEvent) {
 
   return json({ ok: true, updated: claimIds.length, status, payouts_created: payoutsCreated });
 }
-
 

@@ -107,7 +107,9 @@
   let referralOriginalCode: string | null = null;
 
   let claims: Claim[] = [];
-  let totalPending = 0;
+  let totalBalance = 0;
+  let totalScheduled = 0;
+  let totalPaid = 0;
   let highlightClaimKey: string | null = null;
   let claimantCodes: Record<string, string> = {};
   let deferredInstallPrompt: any = null;
@@ -578,8 +580,28 @@
 
     try {
       claims = await fetchClaimsForUser(session.user.id);
-      totalPending = calculateTotalPendingWithRates(claims);
       void hydrateClaimantCodes(claims);
+
+      const { data: earnings, error: earningsError } = await supabase
+        .from('earnings')
+        .select('amount, status')
+        .eq('user_id', session.user.id);
+      if (earningsError) throw earningsError;
+
+      let unpaid = 0;
+      let scheduled = 0;
+      let paid = 0;
+      for (const row of earnings ?? []) {
+        const amount = Number(row.amount ?? 0);
+        if (!Number.isFinite(amount) || amount <= 0) continue;
+        const status = String(row.status ?? '');
+        if (status === 'unpaid') unpaid += amount;
+        if (status === 'scheduled') scheduled += amount;
+        if (status === 'paid') paid += amount;
+      }
+      totalScheduled = Number(scheduled.toFixed(2));
+      totalPaid = Number(paid.toFixed(2));
+      totalBalance = Number((unpaid + scheduled).toFixed(2));
     } catch (error) {
       console.error('Error fetching claims:', error);
     }
@@ -1172,6 +1194,26 @@
         errorMessage = noMatchHelp;
         return false;
       }
+      if (session?.user?.id) {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const accessToken = sessionData?.session?.access_token;
+        if (accessToken) {
+          const earningsRes = await fetch('/api/earnings/create-from-claim', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${accessToken}`
+            },
+            body: JSON.stringify({ claim_id: insertedClaim.id })
+          });
+          const earningsPayload = await earningsRes.json().catch(() => null);
+          if (!earningsRes.ok || !earningsPayload?.ok) {
+            status = 'error';
+            errorMessage = 'Failed to create earnings for this claim.';
+            return false;
+          }
+        }
+      }
       successMessage = `Submitted ${venue} claim for $${cleanAmount.toFixed(2)}.`;
       status = 'success';
       amountInput = '';
@@ -1432,24 +1474,6 @@
     return Number(fallbackRate ?? 5) / 100;
   }
 
-  function calculateTotalPendingWithRates(claimList: Claim[]): number {
-    const currentUserId = session?.user?.id ?? userId;
-    if (!currentUserId) return 0;
-    return claimList.reduce((sum, claim) => {
-      if (claim.status === 'denied' || claim.status === 'paidout') return sum;
-      const amount = Number(claim.amount ?? 0);
-      if (!Number.isFinite(amount) || amount <= 0) return sum;
-      let earned = 0;
-      if (claim.submitter_id === currentUserId) {
-        earned += calculateKickbackWithRate(amount, getClaimRateForKind(claim, 'guest'));
-      }
-      if (claim.referrer_id === currentUserId) {
-        earned += calculateKickbackWithRate(amount, getClaimRateForKind(claim, 'referrer'));
-      }
-      return sum + earned;
-    }, 0);
-  }
-
   async function getReferrerCodeById(referrerId: string): Promise<string | null> {
     if (referrerCodeCache[referrerId]) {
       return referrerCodeCache[referrerId];
@@ -1619,7 +1643,9 @@
     <div class="mx-auto w-full max-w-6xl p-6 flex flex-col items-center">
       <Dashboard
         {claims}
-        {totalPending}
+        totalBalance={totalBalance}
+        totalScheduled={totalScheduled}
+        totalPaid={totalPaid}
         {highlightClaimKey}
         {venues}
         userEmail={session?.user?.email ?? ''}

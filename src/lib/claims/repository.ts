@@ -55,6 +55,21 @@ export async function deleteClaim(claimId: string): Promise<void> {
 }
 
 export async function updateClaimStatus(claimId: string, status: ClaimStatus): Promise<void> {
+  try {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const accessToken = sessionData?.session?.access_token;
+    if (accessToken) {
+      const response = await fetch('/api/ops/claims/status', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`
+        },
+        body: JSON.stringify({ claim_ids: [claimId], status })
+      });
+      if (response.ok) return;
+    }
+  } catch {}
   const { error } = await supabase.from('claims').update({ status }).eq('id', claimId);
   if (error) throw error;
   if ((status === 'approved' || status === 'paid') && typeof window !== 'undefined') {

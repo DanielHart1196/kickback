@@ -18,7 +18,9 @@
   };
 
   export let claims: Claim[] = [];
-  export let totalPending = 0;
+  export let totalBalance = 0;
+  export let totalScheduled = 0;
+  export let totalPaid = 0;
   export let venues: Venue[] = [];
   export let userEmail = '';
   export let userId = '';
@@ -33,8 +35,6 @@
   export let onContinueInvitation: (invite: PendingInvitation) => void = () => {};
 
   let lastHighlightKey: string | null = null;
-  let pendingTotal = 0;
-  let approvedTotal = 0;
   type PayoutHistoryItem = {
     id: string;
     amount: number;
@@ -953,21 +953,6 @@
     return status;
   }
 
-  function getStatusTotal(status: 'pending' | 'approved'): number {
-    return claims.reduce((sum, claim) => {
-      const claimStatus = getClaimStatus(claim);
-      if (status === 'pending' && claimStatus !== 'pending') return sum;
-      if (status === 'approved' && !(claimStatus === 'approved' || claimStatus === 'paid' || claimStatus === 'guestpaid' || claimStatus === 'refpaid' || claimStatus === 'paidout')) return sum;
-      return sum + getKickbackForClaim(claim);
-    }, 0);
-  }
-
-  $: {
-    claims;
-    venues;
-    pendingTotal = getStatusTotal('pending');
-    approvedTotal = getStatusTotal('approved');
-  }
   $: filteredClaims = claims.filter((claim) => {
     const status = getDisplayStatus(claim);
     const isReferred = Boolean(claim.referrer_id && claim.referrer_id === userId);
@@ -1123,16 +1108,16 @@
           i
         </span>
         <span
-          class="pointer-events-none absolute top-full left-1/2 -translate-x-1/2 mt-2 w-48 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-[11px] font-semibold uppercase tracking-widest text-zinc-400 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
+          class="pointer-events-none absolute top-full left-1/2 -translate-x-1/2 mt-2 w-64 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs font-semibold uppercase tracking-widest text-zinc-400 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
         >
-          <span class="block">Pending - ${pendingTotal.toFixed(2)}</span>
-          <span class="block mt-1">Approved - ${approvedTotal.toFixed(2)}</span>
-          <span class="block mt-2">Payouts every Wednesday</span>
+          <span class="block">Balance - ${totalBalance.toFixed(2)}</span>
+          <span class="block mt-2">Scheduled for payout on Wednesday - ${totalScheduled.toFixed(2)}</span>
+          <span class="block mt-2">Total paid - ${totalPaid.toFixed(2)}</span>
         </span>
       </span>
     </p>
     <div class="flex items-center justify-center gap-3">
-      <h2 class="text-6xl font-black tracking-normal text-green-500">${totalPending.toFixed(2)}</h2>
+      <h2 class="text-6xl font-black tracking-normal text-green-500">${totalBalance.toFixed(2)}</h2>
     </div>
   </div>
 
@@ -1148,7 +1133,7 @@
     style={`padding-bottom: calc(${historyPaddingBottomPx}px + env(safe-area-inset-bottom));`}
     bind:this={listContainer}
   >
-    <div class="flex justify-between items-end border-b border-zinc-900 pb-4 relative">
+    <div class="flex justify-between items-end border-b border-zinc-800 pb-4 relative">
       <h3 class="text-base font-black uppercase tracking-[0.18em] text-zinc-400">History</h3>
       <button
         type="button"
@@ -1295,7 +1280,7 @@
     </div>
 
     {#if historyItems.length === 0}
-      <div class="py-12 text-center border-2 border-dashed border-zinc-900 rounded-[2rem]" transition:fade|local={{ duration: 180 }}>
+      <div class="py-12 text-center border-2 border-dashed border-zinc-800 rounded-[2rem]" transition:fade|local={{ duration: 180 }}>
         <p class="text-zinc-600 text-xs font-bold uppercase tracking-widest">No activity yet</p>
       </div>
     {/if}
@@ -1303,7 +1288,7 @@
       {#if item.kind === 'invitation'}
         {@const invite = item.invitation}
         <div transition:slide|local={{ duration: 220 }}>
-          <div class="bg-zinc-900/30 border border-zinc-800 rounded-2xl p-5">
+          <div class="bg-black border border-zinc-800 rounded-2xl p-5">
             <div>
               <p class="text-[11px] font-black uppercase tracking-[0.25em] text-orange-400">Invitation Pending</p>
               <div class="mt-2 flex items-center justify-between gap-4">
@@ -1329,7 +1314,7 @@
         </div>
       {:else if item.kind === 'payout'}
         <div transition:slide|local={{ duration: 220 }}>
-          <details class="group bg-zinc-900/20 border border-zinc-900 rounded-2xl overflow-hidden">
+          <details class="group bg-black border border-zinc-800 rounded-2xl overflow-hidden">
             <summary class="list-none p-5 flex items-center justify-between gap-4 cursor-pointer active:bg-zinc-900/50">
               <div class="flex items-center justify-between flex-1 gap-4">
                 <div class="flex flex-col justify-center">
@@ -1384,7 +1369,7 @@
         {@const claim = item.claim}
       <div transition:slide|local={{ duration: 220 }}>
         <details
-          class={`group bg-zinc-900/20 border border-zinc-900 rounded-2xl overflow-hidden transition-[border-color,box-shadow] duration-1000 ease-out ${
+          class={`group bg-black border border-zinc-800 rounded-2xl overflow-hidden transition-[border-color,box-shadow] duration-1000 ease-out ${
             (claim.id ?? claim.created_at) === highlightClaimKey
               ? 'border-orange-500/70 shadow-lg shadow-orange-500/20'
               : ''
