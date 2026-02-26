@@ -33,6 +33,7 @@
   export let onRequestInstall: () => void = () => {};
   export let pendingInvitations: PendingInvitation[] = [];
   export let onContinueInvitation: (invite: PendingInvitation) => void = () => {};
+  export let onDeleteInvitation: (invite: PendingInvitation) => void = () => {};
 
   let lastHighlightKey: string | null = null;
   type PayoutHistoryItem = {
@@ -70,6 +71,8 @@
   let showDeleteWarning = false;
   let deleteStatus: 'idle' | 'loading' | 'error' = 'idle';
   let deleteError = '';
+  let showDeleteInvitationWarning = false;
+  let deleteInvitationTarget: PendingInvitation | null = null;
   let payoutPayId = '';
   let payoutFullName = '';
   let payoutDob = '';
@@ -803,6 +806,22 @@
     showDeleteWarning = false;
   }
 
+  function openDeleteInvitationWarning(invite: PendingInvitation) {
+    deleteInvitationTarget = invite;
+    showDeleteInvitationWarning = true;
+  }
+
+  function closeDeleteInvitationWarning() {
+    showDeleteInvitationWarning = false;
+    deleteInvitationTarget = null;
+  }
+
+  async function confirmDeleteInvitation() {
+    if (!deleteInvitationTarget) return;
+    await onDeleteInvitation(deleteInvitationTarget);
+    closeDeleteInvitationWarning();
+  }
+
   async function confirmDeleteAccount() {
     deleteStatus = 'loading';
     deleteError = '';
@@ -1295,21 +1314,32 @@
                 <div class="min-w-0">
                   <p class="text-sm font-bold text-white">{invite.venueName || 'Venue'}</p>
                   <p class="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mt-1">
-                    Invite by {invite.referrerCode}
+                    Invited by {invite.referrerCode}
                   </p>
                 </div>
-                <button
-                  type="button"
-                  on:click={() => onContinueInvitation(invite)}
-                  class="shrink-0 rounded-full bg-orange-500/90 text-black text-xs font-black uppercase tracking-widest px-4 py-2 hover:bg-orange-400 transition-colors"
-                >
-                  Continue
-                </button>
+                <div class="shrink-0 flex flex-col items-end gap-2">
+                  <button
+                    type="button"
+                    on:click={() => onContinueInvitation(invite)}
+                    class="rounded-full bg-orange-500/90 text-black text-xs font-black uppercase tracking-widest px-4 py-2 hover:bg-orange-400 transition-colors"
+                  >
+                    Continue
+                  </button>
+                </div>
               </div>
             </div>
-            <p class="text-[10px] font-bold uppercase tracking-widest text-zinc-600 mt-3">
-              Accepted {formatDateTimeDdMmYyyy(invite.createdAt)}
-            </p>
+            <div class="mt-3 flex items-center justify-between gap-4">
+              <p class="text-[10px] font-bold uppercase tracking-widest text-zinc-600">
+                Accepted {formatDateTimeDdMmYyyy(invite.createdAt)}
+              </p>
+              <button
+                type="button"
+                on:click={() => openDeleteInvitationWarning(invite)}
+                class="text-[10px] font-bold uppercase tracking-widest text-red-500 hover:text-red-400 transition-colors"
+              >
+                Delete
+              </button>
+            </div>
           </div>
         </div>
       {:else if item.kind === 'payout'}
@@ -1881,6 +1911,41 @@
       <button
         type="button"
         on:click={closeDeleteWarning}
+        class="mt-3 w-full rounded-xl border border-zinc-700 px-4 py-3 text-xs font-black uppercase tracking-[0.2em] text-zinc-200 hover:border-zinc-500 transition-colors"
+      >
+        Cancel
+      </button>
+    </div>
+  </div>
+{/if}
+
+{#if showDeleteInvitationWarning}
+  <div class="fixed inset-0 z-[260]">
+    <button
+      type="button"
+      on:click={closeDeleteInvitationWarning}
+      class="absolute inset-0 bg-black/70 backdrop-blur-sm"
+      aria-label="Close delete invitation warning"
+    ></button>
+    <div class="absolute left-1/2 top-1/2 w-[90vw] max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-3xl border border-zinc-800 bg-zinc-950 p-6 shadow-2xl">
+      <h3 class="text-sm font-black uppercase tracking-[0.2em] text-white">Delete invitation</h3>
+      <p class="mt-4 text-sm text-zinc-300">
+        This will remove the invitation from your history. You can still accept a new{' '}
+        <span class="text-orange-400 font-semibold">
+          {deleteInvitationTarget?.venueName || 'venue'}
+        </span>{' '}
+        invite later.
+      </p>
+      <button
+        type="button"
+        on:click={confirmDeleteInvitation}
+        class="mt-6 w-full rounded-xl bg-red-500 px-4 py-3 text-xs font-black uppercase tracking-[0.2em] text-black hover:bg-red-400 transition-colors"
+      >
+        Delete invitation
+      </button>
+      <button
+        type="button"
+        on:click={closeDeleteInvitationWarning}
         class="mt-3 w-full rounded-xl border border-zinc-700 px-4 py-3 text-xs font-black uppercase tracking-[0.2em] text-zinc-200 hover:border-zinc-500 transition-colors"
       >
         Cancel

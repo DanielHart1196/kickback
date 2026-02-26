@@ -185,6 +185,7 @@
 
   async function activateInvitation(match: { venueId?: string; referrerCode?: string }) {
     if (!userId) return;
+    if (!match.venueId || !match.referrerCode) return;
     const activatedAt = new Date();
     const expiresAt = new Date(activatedAt.getTime() + 30 * 24 * 60 * 60 * 1000);
     let query = supabase
@@ -206,6 +207,20 @@
     const { error } = await query;
     if (error) {
       console.error('Error activating invitation:', error);
+      return;
+    }
+    await fetchPendingInvitations(userId);
+  }
+
+  async function deletePendingInvitation(invite: PendingInvitation) {
+    if (!userId || !invite?.id) return;
+    const { error } = await supabase
+      .from('invitations')
+      .delete()
+      .eq('id', invite.id)
+      .eq('user_id', userId);
+    if (error) {
+      console.error('Error deleting pending invitation:', error);
       return;
     }
     await fetchPendingInvitations(userId);
@@ -1657,6 +1672,7 @@
         onOpenRefer={openReferModal}
         onRequestInstall={triggerInstallBanner}
         onContinueInvitation={handleContinueInvitation}
+        onDeleteInvitation={deletePendingInvitation}
         onLogout={handleSignOut}
       />
     </div>

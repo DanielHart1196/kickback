@@ -5,6 +5,7 @@ import { fetchSquarePayment, type SquarePayment } from '$lib/server/square/payme
 import { matchSquareSignature } from '$lib/server/square/webhook';
 import { GOAL_DAYS } from '$lib/claims/constants';
 import { getVenueRatesForTime } from '$lib/venues/happyHour';
+import { createEarningsForClaimId } from '$lib/server/earnings';
 
 const dayMs = 24 * 60 * 60 * 1000;
 
@@ -14,6 +15,10 @@ function isWithinAutoClaimWindow(firstPurchasedAt: string, paymentPurchasedAt: s
   if (!Number.isFinite(firstTime) || !Number.isFinite(paymentTime)) return false;
   const diffInDays = Math.floor((paymentTime - firstTime) / dayMs);
   return diffInDays >= 0 && diffInDays < GOAL_DAYS;
+}
+
+function normalizeReferrerCode(code: string | null): string {
+  return String(code ?? '').trim().toUpperCase();
 }
 
 export async function POST({ request }: RequestEvent) {
@@ -233,6 +238,32 @@ export async function POST({ request }: RequestEvent) {
   }
 
   const referrer = userClaims?.[0] ?? { referrer_id: null, referrer: null };
+  const referrerCode = normalizeReferrerCode(referrer.referrer ?? null);
+  if (!referrerCode) {
+    return json({ ok: true, ignored: true });
+  }
+
+  const { data: activeInvitation, error: inviteError } = await supabaseAdmin
+    .from('invitations')
+    .select('id, expires_at')
+    .eq('user_id', submitterId)
+    .eq('venue_id', venueId)
+    .eq('referrer_code', referrerCode)
+    .eq('status', 'active')
+    .maybeSingle();
+  if (inviteError) {
+    return json({ ok: false, error: inviteError.message }, { status: 500 });
+  }
+  if (!activeInvitation?.id) {
+    return json({ ok: true, ignored: true });
+  }
+  if (activeInvitation.expires_at) {
+    const expiresAtMs = new Date(activeInvitation.expires_at).getTime();
+    if (Number.isFinite(expiresAtMs) && expiresAtMs < Date.now()) {
+      return json({ ok: true, ignored: true });
+    }
+  }
+
   const windowStart = firstPurchasedAt ?? userClaims?.[0]?.purchased_at ?? null;
   if (!windowStart || !isWithinAutoClaimWindow(windowStart, purchasedAt)) {
     return json({ ok: true, ignored: true });
@@ -275,6 +306,10 @@ export async function POST({ request }: RequestEvent) {
   }
 
   try {
+    await createEarningsForClaimId(String(created.id));
+  } catch {}
+
+  try {
     const origin = new URL(request.url).origin;
     await fetch(`${origin}/api/notifications/claim-created`, {
       method: 'POST',
@@ -285,5 +320,3 @@ export async function POST({ request }: RequestEvent) {
 
   return json({ ok: true });
 }
-
-

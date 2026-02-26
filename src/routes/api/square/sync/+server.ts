@@ -4,10 +4,15 @@ import { supabaseAdmin } from '$lib/server/supabaseAdmin';
 import { getSquareApiBase, squareVersion, type SquarePayment } from '$lib/server/square/payments';
 import { GOAL_DAYS } from '$lib/claims/constants';
 import { getVenueRatesForTime } from '$lib/venues/happyHour';
+import { createEarningsForClaimId } from '$lib/server/earnings';
 const defaultSyncHours = 24;
 const overlapMinutes = 10;
 const pageLimit = 200;
 const dayMs = 24 * 60 * 60 * 1000;
+
+function normalizeReferrerCode(code: string | null): string {
+  return String(code ?? '').trim().toUpperCase();
+}
 
 function isWithinAutoClaimWindow(firstPurchasedAt: string, paymentPurchasedAt: string): boolean {
   const firstTime = new Date(firstPurchasedAt).getTime();
@@ -251,6 +256,26 @@ export async function POST({ request }: RequestEvent) {
     }
   }
 
+  const { data: activeInvites, error: activeInvitesError } = await supabaseAdmin
+    .from('invitations')
+    .select('user_id, referrer_code, expires_at')
+    .eq('venue_id', venueId)
+    .eq('status', 'active')
+    .in('user_id', userIds);
+  if (activeInvitesError) {
+    return json({ ok: false, error: activeInvitesError.message }, { status: 500 });
+  }
+  const activeInviteKeys = new Set<string>();
+  const nowMs = Date.now();
+  for (const invite of activeInvites ?? []) {
+    const userId = String(invite.user_id ?? '');
+    const referrerCode = normalizeReferrerCode(invite.referrer_code ?? null);
+    if (!userId || !referrerCode) continue;
+    const expiresAt = invite.expires_at ? new Date(invite.expires_at).getTime() : NaN;
+    if (Number.isFinite(expiresAt) && expiresAt < nowMs) continue;
+    activeInviteKeys.add(`${userId}:${referrerCode}`);
+  }
+
   const autoClaimStatus = venue.square_public === false ? 'pending' : 'approved';
 
   const claimsToInsert = validPayments
@@ -261,6 +286,10 @@ export async function POST({ request }: RequestEvent) {
       const submitterId = fingerprint ? fingerprintToUser.get(fingerprint) ?? null : null;
       if (!submitterId) return null;
       const referrer = userToReferrer.get(submitterId) ?? { referrer_id: null, referrer: null };
+      const referrerCode = normalizeReferrerCode(referrer.referrer ?? null);
+      if (!referrerCode || !activeInviteKeys.has(`${submitterId}:${referrerCode}`)) {
+        return null;
+      }
       const amount = payment.amount_money?.amount != null ? payment.amount_money.amount / 100 : null;
       const firstPurchasedAt = fingerprint ? fingerprintToFirstPurchasedAt.get(fingerprint) ?? null : null;
       if (
@@ -301,18 +330,21 @@ export async function POST({ request }: RequestEvent) {
     if (insertError) {
       return json({ ok: false, error: insertError.message }, { status: 500 });
     }
-    try {
-      const origin = new URL(request.url).origin;
-      for (const row of inserted ?? []) {
-        const id = (row as { id?: string })?.id;
-        if (!id) continue;
+    for (const row of inserted ?? []) {
+      const id = (row as { id?: string })?.id;
+      if (!id) continue;
+      try {
+        await createEarningsForClaimId(String(id));
+      } catch {}
+      try {
+        const origin = new URL(request.url).origin;
         await fetch(`${origin}/api/notifications/claim-created`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ claim_id: id })
         });
-      }
-    } catch {}
+      } catch {}
+    }
   }
 
   await supabaseAdmin
@@ -322,5 +354,3 @@ export async function POST({ request }: RequestEvent) {
 
   return json({ ok: true, created: claimsToInsert.length });
 }
-
-
