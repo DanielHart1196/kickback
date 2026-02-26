@@ -213,6 +213,7 @@
   let squareBanner: { type: 'success' | 'error'; message: string } | null = null;
   let squareConnected = false;
   let squareMerchantId = '';
+  let squareMerchantName = '';
   let squareSyncing = false;
   let squareConnecting = false;
   let squareLocations: { id: string; name: string; status?: string }[] = [];
@@ -336,11 +337,16 @@
     const squareStatus = url.searchParams.get('square');
     const reason = url.searchParams.get('reason');
     const merchant = url.searchParams.get('merchant');
+    const merchantName = url.searchParams.get('merchant_name');
 
     if (squareStatus === 'connected') {
       squareBanner = {
         type: 'success',
-        message: merchant ? `Square connected (merchant ${merchant}).` : 'Square connected.'
+        message: merchantName
+          ? `Square connected (${merchantName}).`
+          : merchant
+            ? `Square connected (merchant ${merchant}).`
+            : 'Square connected.'
       };
     } else if (squareStatus === 'error') {
       squareBanner = {
@@ -353,6 +359,7 @@
       url.searchParams.delete('square');
       url.searchParams.delete('reason');
       url.searchParams.delete('merchant');
+      url.searchParams.delete('merchant_name');
       replaceState(url.toString(), window.history.state ?? {});
     }
   });
@@ -365,6 +372,7 @@
       const data = await response.json();
       squareConnected = Boolean(data?.connected);
       squareMerchantId = data?.merchant_id ?? '';
+      squareMerchantName = data?.merchant_name ?? '';
       if (!squareConnected) {
         squareLocations = [];
         squareLocationIds = new Set();
@@ -664,6 +672,7 @@
       }
       squareConnected = false;
       squareMerchantId = '';
+      squareMerchantName = '';
       squareLocations = [];
       squareLocationIds = new Set();
       squareLocationsLoaded = false;
@@ -2106,14 +2115,25 @@
                   </div>
                   <div class="flex md:justify-end md:items-start">
                     {#if squareConnected}
-                      <button
-                        type="button"
-                        on:click={disconnectSquare}
-                        disabled={squareSyncing}
-                        class="bg-orange-500 text-black font-black px-6 py-3 rounded-xl uppercase tracking-tight disabled:opacity-50"
-                      >
-                        {squareSyncing ? 'Disconnecting...' : 'Disconnect Square'}
-                      </button>
+                      <div class="flex flex-col items-end gap-2">
+                        <button
+                          type="button"
+                          on:click={disconnectSquare}
+                          disabled={squareSyncing}
+                          class="bg-orange-500 text-black font-black px-6 py-3 rounded-xl uppercase tracking-tight disabled:opacity-50"
+                        >
+                          {squareSyncing ? 'Disconnecting...' : 'Disconnect Square'}
+                        </button>
+                        {#if squareMerchantName}
+                          <p class="text-[10px] font-bold uppercase tracking-widest text-zinc-500">
+                            {squareMerchantName} connected
+                          </p>
+                        {:else if squareMerchantId}
+                          <p class="text-[10px] font-bold uppercase tracking-widest text-zinc-500">
+                            Merchant {squareMerchantId} connected
+                          </p>
+                        {/if}
+                      </div>
                     {:else}
                       <button
                         type="button"

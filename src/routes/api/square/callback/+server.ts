@@ -15,6 +15,8 @@ const squareAppSecret = dev ? PRIVATE_SQUARE_APP_SECRET_SANDBOX : PRIVATE_SQUARE
 const squareTokenUrl = dev
   ? 'https://connect.squareupsandbox.com/oauth2/token'
   : 'https://connect.squareup.com/oauth2/token';
+const squareApiBase = dev ? 'https://connect.squareupsandbox.com' : 'https://connect.squareup.com';
+const squareVersion = '2025-01-23';
 
 function getErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
@@ -84,12 +86,35 @@ export async function GET({ url, cookies }: RequestEvent) {
     }
 
     const expiresAt = payload.expires_at ? new Date(payload.expires_at).toISOString() : null;
+    let merchantName: string | null = null;
+    if (payload.access_token) {
+      try {
+        const merchantResponse = await fetch(`${squareApiBase}/v2/merchants`, {
+          headers: {
+            Authorization: `Bearer ${payload.access_token}`,
+            Accept: 'application/json',
+            'Square-Version': squareVersion
+          }
+        });
+        const merchantPayload = await merchantResponse.json().catch(() => null);
+        if (merchantResponse.ok && Array.isArray(merchantPayload?.merchant)) {
+          const merchantMatch = merchantPayload.merchant.find(
+            (m: { id?: string }) => m?.id && m.id === payload.merchant_id
+          );
+          const merchantRecord = merchantMatch ?? merchantPayload.merchant[0];
+          merchantName = merchantRecord?.business_name ?? merchantRecord?.name ?? null;
+        }
+      } catch {
+        merchantName = null;
+      }
+    }
     const { error: upsertError } = await supabaseAdmin
       .from('square_connections')
       .upsert(
         {
           venue_id: venueId,
           merchant_id: payload.merchant_id ?? null,
+          merchant_name: merchantName,
           access_token: payload.access_token ?? null,
           refresh_token: payload.refresh_token ?? null,
           expires_at: expiresAt,
@@ -114,7 +139,11 @@ export async function GET({ url, cookies }: RequestEvent) {
       throw redirect(302, `/admin?square=error&reason=${reason}`);
     }
 
-    throw redirect(302, `/admin?square=connected&merchant=${encodeURIComponent(payload.merchant_id ?? '')}`);
+    const merchantNameParam = merchantName ? `&merchant_name=${encodeURIComponent(merchantName)}` : '';
+    throw redirect(
+      302,
+      `/admin?square=connected${merchantNameParam}&merchant=${encodeURIComponent(payload.merchant_id ?? '')}`
+    );
   } catch (error) {
     if (
       error &&
@@ -128,4 +157,3 @@ export async function GET({ url, cookies }: RequestEvent) {
     throw redirect(302, `/admin?square=error&reason=${reason}`);
   }
 }
-
