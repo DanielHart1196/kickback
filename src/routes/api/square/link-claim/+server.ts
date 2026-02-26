@@ -3,15 +3,30 @@ import type { RequestEvent } from '@sveltejs/kit';
 import { createHash, randomBytes } from 'crypto';
 import { supabaseAdmin } from '$lib/server/supabaseAdmin';
 import { listSquarePayments, type SquarePayment } from '$lib/server/square/payments';
+import { createEarningsForClaimId } from '$lib/server/earnings';
 const searchWindowMinutes = 10;
 const matchToleranceMinutes = 5;
 
 export async function POST({ request }: RequestEvent) {
   const body = await request.json().catch(() => null);
   const claimId = body?.claim_id;
+  const guestMode = Boolean(body?.guest_mode);
+  const cleanupOnFail = Boolean(body?.cleanup_on_fail);
   if (!claimId) {
     return json({ ok: false, error: 'missing_claim_id' }, { status: 400 });
   }
+
+  const cleanupClaimOnFailure = async () => {
+    if (!cleanupOnFail) return;
+    try {
+      await supabaseAdmin
+        .from('claims')
+        .delete()
+        .eq('id', claimId)
+        .is('square_payment_id', null)
+        .eq('status', 'pending');
+    } catch {}
+  };
 
   const { data: claim, error: claimError } = await supabaseAdmin
     .from('claims')
@@ -23,6 +38,7 @@ export async function POST({ request }: RequestEvent) {
     return json({ ok: false, error: claimError.message }, { status: 500 });
   }
   if (!claim?.venue_id || !claim.purchased_at || !claim.amount || !claim.last_4) {
+    await cleanupClaimOnFailure();
     return json({ ok: false, error: 'claim_missing_fields' }, { status: 400 });
   }
   if (claim.square_payment_id) {
@@ -36,9 +52,11 @@ export async function POST({ request }: RequestEvent) {
     .maybeSingle();
 
   if (connectionError) {
+    await cleanupClaimOnFailure();
     return json({ ok: false, error: connectionError.message }, { status: 500 });
   }
   if (!connection?.access_token) {
+    await cleanupClaimOnFailure();
     return json({ ok: false, error: 'square_not_connected' }, { status: 404 });
   }
 
@@ -48,6 +66,7 @@ export async function POST({ request }: RequestEvent) {
     .eq('venue_id', claim.venue_id);
 
   if (locationError) {
+    await cleanupClaimOnFailure();
     return json({ ok: false, error: locationError.message }, { status: 500 });
   }
 
@@ -66,6 +85,7 @@ export async function POST({ request }: RequestEvent) {
     limit: 200
   });
   if (!paymentsResult.ok) {
+    await cleanupClaimOnFailure();
     return json(
       { ok: false, error: 'square_payments_failed' },
       { status: 502 }
@@ -102,6 +122,7 @@ export async function POST({ request }: RequestEvent) {
   }
 
   if (!bestMatch) {
+    await cleanupClaimOnFailure();
     return json({ ok: true, linked: false });
   }
 
@@ -112,11 +133,13 @@ export async function POST({ request }: RequestEvent) {
     .limit(1);
 
   if (existingByPaymentError) {
+    await cleanupClaimOnFailure();
     return json({ ok: false, error: existingByPaymentError.message }, { status: 500 });
   }
 
   const alreadyLinkedClaim = existingByPayment?.[0] ?? null;
   if (alreadyLinkedClaim && alreadyLinkedClaim.id !== claim.id) {
+    await cleanupClaimOnFailure();
     return json({
       ok: true,
       linked: false,
@@ -125,39 +148,40 @@ export async function POST({ request }: RequestEvent) {
     });
   }
 
-  if (claim.submitter_id) {
-    const { data: binding, error: bindingError } = await supabaseAdmin
-      .from('square_card_bindings')
-      .select('user_id')
-      .eq('venue_id', claim.venue_id)
-      .eq('card_fingerprint', bestMatch.fingerprint)
-      .maybeSingle();
+  const { data: binding, error: bindingError } = await supabaseAdmin
+    .from('square_card_bindings')
+    .select('user_id')
+    .eq('venue_id', claim.venue_id)
+    .eq('card_fingerprint', bestMatch.fingerprint)
+    .maybeSingle();
 
-    if (bindingError) {
-      return json({ ok: false, error: bindingError.message }, { status: 500 });
-    }
+  if (bindingError) {
+    await cleanupClaimOnFailure();
+    return json({ ok: false, error: bindingError.message }, { status: 500 });
+  }
 
-    if (binding?.user_id && binding.user_id !== claim.submitter_id) {
+  if (binding?.user_id) {
+    if (!claim.submitter_id || binding.user_id !== claim.submitter_id) {
+      await cleanupClaimOnFailure();
       return json({ ok: false, error: 'card_bound_to_other_user' }, { status: 409 });
     }
-
-    if (!binding?.user_id) {
-      const { error: createBindingError } = await supabaseAdmin
-        .from('square_card_bindings')
-        .upsert(
-          {
-            venue_id: claim.venue_id,
-            card_fingerprint: bestMatch.fingerprint,
-            user_id: claim.submitter_id,
-            first_claim_id: claim.id,
-            first_purchased_at: claim.purchased_at,
-            updated_at: new Date().toISOString()
-          },
-          { onConflict: 'venue_id,card_fingerprint', ignoreDuplicates: true }
-        );
-      if (createBindingError) {
-        return json({ ok: false, error: createBindingError.message }, { status: 500 });
-      }
+  } else if (claim.submitter_id) {
+    const { error: createBindingError } = await supabaseAdmin
+      .from('square_card_bindings')
+      .upsert(
+        {
+          venue_id: claim.venue_id,
+          card_fingerprint: bestMatch.fingerprint,
+          user_id: claim.submitter_id,
+          first_claim_id: claim.id,
+          first_purchased_at: claim.purchased_at,
+          updated_at: new Date().toISOString()
+        },
+        { onConflict: 'venue_id,card_fingerprint', ignoreDuplicates: true }
+      );
+    if (createBindingError) {
+      await cleanupClaimOnFailure();
+      return json({ ok: false, error: createBindingError.message }, { status: 500 });
     }
   }
 
@@ -168,6 +192,7 @@ export async function POST({ request }: RequestEvent) {
     .maybeSingle();
 
   if (venueError) {
+    await cleanupClaimOnFailure();
     return json({ ok: false, error: venueError.message }, { status: 500 });
   }
 
@@ -185,8 +210,10 @@ export async function POST({ request }: RequestEvent) {
 
   if (updateError) {
     if (String(updateError.message ?? '').toLowerCase().includes('duplicate key')) {
+      await cleanupClaimOnFailure();
       return json({ ok: true, linked: false, duplicate: true, by_same_user: false });
     }
+    await cleanupClaimOnFailure();
     return json({ ok: false, error: updateError.message }, { status: 500 });
   }
 
@@ -199,6 +226,16 @@ export async function POST({ request }: RequestEvent) {
     });
   } catch {}
   if (!claim.submitter_id) {
+    if (guestMode) {
+      const earningsResult = await createEarningsForClaimId(String(claim.id), {
+        allowGuestWithoutSubmitter: true
+      });
+      if (!earningsResult.ok) {
+        await cleanupClaimOnFailure();
+        return json({ ok: false, error: earningsResult.error ?? 'failed_to_create_guest_earnings' }, { status: 500 });
+      }
+      return json({ ok: true, linked: true, guest_claim: true });
+    }
     try {
       const activationToken = randomBytes(24).toString('hex');
       const tokenHash = createHash('sha256').update(activationToken).digest('hex');

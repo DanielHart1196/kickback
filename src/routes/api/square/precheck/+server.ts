@@ -84,19 +84,19 @@ export async function POST({ request }: RequestEvent) {
     return json({ ok: true, connected: true, matched: false, duplicate: false });
   }
 
-  if (submitterId) {
-    const { data: binding, error: bindingError } = await supabaseAdmin
-      .from('square_card_bindings')
-      .select('user_id')
-      .eq('venue_id', venueId)
-      .eq('card_fingerprint', matched.fingerprint)
-      .maybeSingle();
+  const { data: binding, error: bindingError } = await supabaseAdmin
+    .from('square_card_bindings')
+    .select('user_id')
+    .eq('venue_id', venueId)
+    .eq('card_fingerprint', matched.fingerprint)
+    .maybeSingle();
 
-    if (bindingError) {
-      return json({ ok: false, error: bindingError.message }, { status: 500 });
-    }
+  if (bindingError) {
+    return json({ ok: false, error: bindingError.message }, { status: 500 });
+  }
 
-    if (binding?.user_id && binding.user_id !== submitterId) {
+  if (binding?.user_id) {
+    if (!submitterId || binding.user_id !== submitterId) {
       return json({
         ok: true,
         connected: true,

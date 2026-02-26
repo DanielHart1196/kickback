@@ -2,6 +2,7 @@ import { json } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
 import { createHash } from 'crypto';
 import { supabaseAdmin } from '$lib/server/supabaseAdmin';
+import { createEarningsForClaimId } from '$lib/server/earnings';
 
 export async function POST({ request }: RequestEvent) {
   const authHeader = request.headers.get('authorization') ?? '';
@@ -45,7 +46,7 @@ export async function POST({ request }: RequestEvent) {
 
   const { data: claim, error: claimReadError } = await supabaseAdmin
     .from('claims')
-    .select('id, submitter_id')
+    .select('id, submitter_id, venue_id, square_card_fingerprint, purchased_at')
     .eq('id', tokenRow.claim_id)
     .maybeSingle();
 
@@ -58,6 +59,55 @@ export async function POST({ request }: RequestEvent) {
 
   if (claim.submitter_id && claim.submitter_id !== userId) {
     return json({ ok: false, error: 'claim_already_attached' }, { status: 409 });
+  }
+
+  if (claim.venue_id && claim.square_card_fingerprint) {
+    const { data: existingBinding, error: bindingReadError } = await supabaseAdmin
+      .from('square_card_bindings')
+      .select('user_id')
+      .eq('venue_id', claim.venue_id)
+      .eq('card_fingerprint', claim.square_card_fingerprint)
+      .maybeSingle();
+
+    if (bindingReadError) {
+      return json({ ok: false, error: bindingReadError.message }, { status: 500 });
+    }
+
+    if (existingBinding?.user_id && existingBinding.user_id !== userId) {
+      return json({ ok: false, error: 'card_bound_to_other_user' }, { status: 409 });
+    }
+
+    if (!existingBinding?.user_id) {
+      const { error: seedBindingError } = await supabaseAdmin
+        .from('square_card_bindings')
+        .upsert(
+          {
+            venue_id: claim.venue_id,
+            card_fingerprint: claim.square_card_fingerprint,
+            user_id: userId,
+            first_claim_id: String(claim.id),
+            first_purchased_at: claim.purchased_at ?? null,
+            updated_at: new Date().toISOString()
+          },
+          { onConflict: 'venue_id,card_fingerprint', ignoreDuplicates: true }
+        );
+      if (seedBindingError) {
+        return json({ ok: false, error: seedBindingError.message }, { status: 500 });
+      }
+
+      const { data: bindingAfterSeed, error: bindingAfterSeedError } = await supabaseAdmin
+        .from('square_card_bindings')
+        .select('user_id')
+        .eq('venue_id', claim.venue_id)
+        .eq('card_fingerprint', claim.square_card_fingerprint)
+        .maybeSingle();
+      if (bindingAfterSeedError) {
+        return json({ ok: false, error: bindingAfterSeedError.message }, { status: 500 });
+      }
+      if (bindingAfterSeed?.user_id && bindingAfterSeed.user_id !== userId) {
+        return json({ ok: false, error: 'card_bound_to_other_user' }, { status: 409 });
+      }
+    }
   }
 
   if (!claim.submitter_id) {
@@ -81,6 +131,14 @@ export async function POST({ request }: RequestEvent) {
 
   if (markError) {
     return json({ ok: false, error: markError.message }, { status: 500 });
+  }
+
+  const earningsResult = await createEarningsForClaimId(String(claim.id), {
+    requesterId: userId,
+    requireOwner: true
+  });
+  if (!earningsResult.ok) {
+    return json({ ok: false, error: earningsResult.error ?? 'failed_to_create_earnings' }, { status: 500 });
   }
 
   return json({ ok: true, claim_id: claim.id });

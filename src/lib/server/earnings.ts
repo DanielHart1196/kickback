@@ -72,7 +72,7 @@ function getInitialEarningStatus(lastPaidAt: string | null, purchasedAt: string)
 
 export async function createEarningsForClaimId(
   claimId: string,
-  options?: { requesterId?: string | null; requireOwner?: boolean }
+  options?: { requesterId?: string | null; requireOwner?: boolean; allowGuestWithoutSubmitter?: boolean }
 ): Promise<{ ok: boolean; error?: string; already_exists?: boolean }> {
   const { data: claim, error: claimError } = await supabaseAdmin
     .from('claims')
@@ -90,7 +90,9 @@ export async function createEarningsForClaimId(
     return { ok: false, error: 'not_claim_owner' };
   }
 
-  if (!typedClaim.submitter_id) {
+  const guestWithoutSubmitter = Boolean(options?.allowGuestWithoutSubmitter && !typedClaim.submitter_id);
+
+  if (!typedClaim.submitter_id && !guestWithoutSubmitter) {
     return { ok: false, error: 'missing_submitter' };
   }
   if (!typedClaim.referrer_id) {
@@ -109,19 +111,21 @@ export async function createEarningsForClaimId(
   const amount = Number(typedClaim.amount ?? 0);
   const guestRate = Number(typedClaim.kickback_guest_rate ?? 0) / 100;
   const referrerRate = Number(typedClaim.kickback_referrer_rate ?? 0) / 100;
-  const guestAmount = Number((amount * guestRate).toFixed(2));
+  const guestAmount = guestWithoutSubmitter ? 0 : Number((amount * guestRate).toFixed(2));
   const referrerAmount = Number((amount * referrerRate).toFixed(2));
   const platformFee = Number((amount * 0.02).toFixed(2));
-  const venueFee = Number((guestAmount + referrerAmount + platformFee).toFixed(2));
+  const venueFee = Number((referrerAmount + platformFee + (guestWithoutSubmitter ? 0 : guestAmount)).toFixed(2));
 
-  const { data: guestLastPaid } = await supabaseAdmin
-    .from('payouts')
-    .select('paid_at')
-    .eq('user_id', typedClaim.submitter_id)
-    .eq('status', 'paid')
-    .order('paid_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  const guestLastPaid = guestWithoutSubmitter
+    ? null
+    : await supabaseAdmin
+        .from('payouts')
+        .select('paid_at')
+        .eq('user_id', typedClaim.submitter_id)
+        .eq('status', 'paid')
+        .order('paid_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
   const { data: referrerLastPaid } = await supabaseAdmin
     .from('payouts')
@@ -132,33 +136,38 @@ export async function createEarningsForClaimId(
     .limit(1)
     .maybeSingle();
 
-  const guestStatus = getInitialEarningStatus(guestLastPaid?.paid_at ?? null, typedClaim.purchased_at);
+  const guestStatus = guestWithoutSubmitter
+    ? null
+    : getInitialEarningStatus(guestLastPaid?.data?.paid_at ?? null, typedClaim.purchased_at);
   const referrerStatus = getInitialEarningStatus(referrerLastPaid?.paid_at ?? null, typedClaim.purchased_at);
+
+  const earningsRows: Array<Record<string, unknown>> = [];
+  if (!guestWithoutSubmitter) {
+    earningsRows.push({
+      claim_id: typedClaim.id,
+      user_id: typedClaim.submitter_id,
+      role: 'guest',
+      amount: guestAmount,
+      rate_pct: Number(typedClaim.kickback_guest_rate ?? 0),
+      venue_id: typedClaim.venue_id,
+      purchased_at: typedClaim.purchased_at,
+      status: guestStatus
+    });
+  }
+  earningsRows.push({
+    claim_id: typedClaim.id,
+    user_id: typedClaim.referrer_id,
+    role: 'referrer',
+    amount: referrerAmount,
+    rate_pct: Number(typedClaim.kickback_referrer_rate ?? 0),
+    venue_id: typedClaim.venue_id,
+    purchased_at: typedClaim.purchased_at,
+    status: referrerStatus
+  });
 
   const { error: earningsError } = await supabaseAdmin
     .from('earnings')
-    .insert([
-      {
-        claim_id: typedClaim.id,
-        user_id: typedClaim.submitter_id,
-        role: 'guest',
-        amount: guestAmount,
-        rate_pct: Number(typedClaim.kickback_guest_rate ?? 0),
-        venue_id: typedClaim.venue_id,
-        purchased_at: typedClaim.purchased_at,
-        status: guestStatus
-      },
-      {
-        claim_id: typedClaim.id,
-        user_id: typedClaim.referrer_id,
-        role: 'referrer',
-        amount: referrerAmount,
-        rate_pct: Number(typedClaim.kickback_referrer_rate ?? 0),
-        venue_id: typedClaim.venue_id,
-        purchased_at: typedClaim.purchased_at,
-        status: referrerStatus
-      }
-    ]);
+    .insert(earningsRows);
 
   if (earningsError) {
     return { ok: false, error: earningsError.message };

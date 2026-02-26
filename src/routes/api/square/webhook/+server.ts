@@ -74,7 +74,7 @@ export async function POST({ request }: RequestEvent) {
       return json({ ok: true, ignored: true });
     }
 
-    if (eventType !== 'payment.created' && eventType !== 'payment.updated') {
+    if (eventType !== 'payment.updated') {
       return json({ ok: true, ignored: true });
     }
 

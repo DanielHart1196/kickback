@@ -47,6 +47,7 @@
   import AutoClaimWarningModal from '$lib/components/AutoClaimWarningModal.svelte';
   import ClaimWindowExpiredModal from '$lib/components/ClaimWindowExpiredModal.svelte';
   import GuestWarningModal from '$lib/components/GuestWarningModal.svelte';
+  import PaymentVerificationModal from '$lib/components/PaymentVerificationModal.svelte';
   import ReferralModal from '$lib/components/ReferralModal.svelte';
   import PayoutSetupModal from '$lib/components/PayoutSetupModal.svelte';
   import { onDestroy } from 'svelte';
@@ -146,6 +147,8 @@
   let autoClaimWarningOverride = false;
   let showClaimWindowExpired = false;
   let claimWindowVenue = '';
+  let showPaymentVerificationWarning = false;
+  let paymentVerificationMode: 'retry' | 'nomatch' = 'retry';
 
   async function fetchPendingInvitations(uid: string) {
     if (!uid) return;
@@ -906,7 +909,16 @@
 
   function proceedAsGuest() {
     showGuestWarning = false;
-    submitClaim();
+    void submitClaim({ guestMode: true });
+  }
+
+  function showPaymentVerificationModal(mode: 'retry' | 'nomatch') {
+    paymentVerificationMode = mode;
+    showPaymentVerificationWarning = true;
+  }
+
+  function dismissPaymentVerificationModal() {
+    showPaymentVerificationWarning = false;
   }
 
   function getAutoClaimDaysLeft(venueIdValue: string, venueName: string): number | null {
@@ -1194,7 +1206,8 @@
     initialRouteReady = true;
   });
 
-  async function submitClaim(): Promise<boolean> {
+  async function submitClaim(options?: { guestMode?: boolean }): Promise<boolean> {
+    const guestMode = Boolean(options?.guestMode);
     const validationError = validateClaimInput({
       amount,
       last4,
@@ -1233,8 +1246,6 @@
       }
 
       const rates = getVenueRates(venueId, purchaseTime);
-      const noMatchHelp =
-        'We could not verify that purchase yet. Make sure purchase time is within 5 minutes and, for Apple Pay/Google Pay, use the last 4 digits shown in your wallet.';
       const precheckRes = await fetch('/api/square/precheck', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1248,18 +1259,15 @@
       });
       const precheck = await precheckRes.json().catch(() => null);
       if (!precheckRes.ok || !precheck?.ok) {
-        status = 'error';
-        errorMessage = 'Activation check failed. Please try again.';
+        showPaymentVerificationModal('retry');
         return false;
       }
       if (!precheck.connected) {
-        status = 'error';
-        errorMessage = 'This venue is not connected for auto tracking yet.';
+        showPaymentVerificationModal('retry');
         return false;
       }
       if (precheck.bound_to_other_user) {
-        status = 'error';
-        errorMessage = 'This card is already linked to another account at this venue';
+        showPaymentVerificationModal('nomatch');
         return false;
       }
       if (precheck.duplicate) {
@@ -1276,8 +1284,7 @@
         return false;
       }
       if (!precheck.matched) {
-        status = 'error';
-        errorMessage = noMatchHelp;
+        showPaymentVerificationModal('nomatch');
         return false;
       }
       const insertedClaim = await insertClaim(
@@ -1302,7 +1309,11 @@
           const response = await fetch('/api/square/link-claim', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ claim_id: insertedClaim.id })
+            body: JSON.stringify({
+              claim_id: insertedClaim.id,
+              guest_mode: guestMode,
+              cleanup_on_fail: true
+            })
           });
           const payload = await response.json().catch(() => null);
           if (response.ok) {
@@ -1316,8 +1327,7 @@
         }
       }
       if (!linkedSquare) {
-        status = 'error';
-        errorMessage = noMatchHelp;
+        showPaymentVerificationModal('nomatch');
         return false;
       }
       if (session?.user?.id) {
@@ -1836,6 +1846,12 @@
         referrerCode={normalizeReferralCode(normalizedReferrerInput) || 'your friend'}
         onDismiss={dismissGuestWarning}
         onProceed={proceedAsGuest}
+      />
+    {/if}
+    {#if showPaymentVerificationWarning}
+      <PaymentVerificationModal
+        mode={paymentVerificationMode}
+        onDismiss={dismissPaymentVerificationModal}
       />
     {/if}
     {#if showClaimWindowExpired}
