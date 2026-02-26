@@ -1131,7 +1131,7 @@
           venue_id: venueId,
           amount: cleanAmount,
           last_4: last4,
-          purchased_at: purchaseTime,
+          purchased_at: new Date(purchaseTime).toISOString(),
           submitter_id: session?.user?.id ?? null
         })
       });
