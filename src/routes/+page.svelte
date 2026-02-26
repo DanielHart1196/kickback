@@ -138,9 +138,10 @@
   async function fetchPendingInvitations(uid: string) {
     if (!uid) return;
     const { data, error } = await supabase
-      .from('pending_invitations')
+      .from('invitations')
       .select('id, venue_id, venue_name, referrer_code, created_at')
       .eq('user_id', uid)
+      .eq('status', 'pending')
       .order('created_at', { ascending: false });
     if (error) {
       console.error('Error loading pending invitations:', error);
@@ -159,13 +160,17 @@
   async function addPendingInvitation(payload: Omit<PendingInvitation, 'id' | 'createdAt'>) {
     if (!userId) return;
     const { error } = await supabase
-      .from('pending_invitations')
+      .from('invitations')
       .upsert(
         {
           user_id: userId,
           venue_id: payload.venueId,
           venue_name: payload.venueName,
-          referrer_code: payload.referrerCode
+          referrer_code: payload.referrerCode,
+          status: 'pending',
+          activated_at: null,
+          expires_at: null,
+          last_activity_at: new Date().toISOString()
         },
         { onConflict: 'user_id,venue_id,referrer_code' }
       );
@@ -176,9 +181,20 @@
     await fetchPendingInvitations(userId);
   }
 
-  async function removePendingInvitation(match: { venueId?: string; referrerCode?: string }) {
+  async function activateInvitation(match: { venueId?: string; referrerCode?: string }) {
     if (!userId) return;
-    let query = supabase.from('pending_invitations').delete().eq('user_id', userId);
+    const activatedAt = new Date();
+    const expiresAt = new Date(activatedAt.getTime() + 30 * 24 * 60 * 60 * 1000);
+    let query = supabase
+      .from('invitations')
+      .update({
+        status: 'active',
+        activated_at: activatedAt.toISOString(),
+        expires_at: expiresAt.toISOString(),
+        last_activity_at: new Date().toISOString()
+      })
+      .eq('user_id', userId)
+      .eq('status', 'pending');
     if (match.venueId) {
       query = query.eq('venue_id', match.venueId);
     }
@@ -187,7 +203,7 @@
     }
     const { error } = await query;
     if (error) {
-      console.error('Error removing pending invitation:', error);
+      console.error('Error activating invitation:', error);
       return;
     }
     await fetchPendingInvitations(userId);
@@ -930,10 +946,9 @@
     referralPresetVenueName = venueFromParams?.name ?? venueParam ?? '';
     shouldOpenReferFromUrl = Boolean(session && hasVenueOnly && referralPresetVenueId);
 
-    const allowDraft = !hasVenueOnly;
-    const urlDraft = allowDraft ? getDraftFromUrl(window.location.search) : null;
+    const urlDraft = !hasVenueOnly ? getDraftFromUrl(window.location.search) : null;
     const storedDraft = getDraftFromStorage(localStorage);
-    const draft = allowDraft ? mergeDrafts(urlDraft, storedDraft) : null;
+    const draft = !hasVenueOnly ? mergeDrafts(urlDraft, storedDraft) : null;
     const hasDraft = Boolean(
       draft &&
       (
@@ -968,6 +983,7 @@
       isReferrerLocked = Boolean(referrer);
       isVenueLocked = Boolean(getVenueIdByName(venue));
       if (session) {
+        isDirectAddVenueFlow = true;
         await tick();
         if (canSubmit) {
           const submitted = await submitClaim();
@@ -1165,7 +1181,7 @@
       if (session) {
         const submittedReferrer = normalizeReferralCode(normalizedReferrerInput);
         if (submittedReferrer) {
-          void removePendingInvitation({ venueId, referrerCode: submittedReferrer });
+          void activateInvitation({ venueId, referrerCode: submittedReferrer });
         }
         showForm = false;
         if (typeof window !== 'undefined') {
@@ -1506,6 +1522,19 @@
       .slice(0, 16);
   }
 
+  function scrollClaimFormTop() {
+    if (typeof window === 'undefined') return;
+    const applyTop = () => {
+      window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+      document.documentElement.scrollTop = 0;
+      if (document.body) document.body.scrollTop = 0;
+    };
+    applyTop();
+    requestAnimationFrame(applyTop);
+    setTimeout(applyTop, 120);
+    setTimeout(applyTop, 260);
+  }
+
   function startNewClaim() {
     isDirectAddVenueFlow = true;
     venue = '';
@@ -1558,6 +1587,7 @@
     venueRefLandingMode = false;
     showForm = true;
     showLanding = false;
+    scrollClaimFormTop();
     if (typeof window !== 'undefined' && session) {
       const state = getHistoryState();
       replaceState('', { ...state, [historyViewKey]: 'claim' });
@@ -1571,6 +1601,10 @@
       const state = getHistoryState();
       replaceState('', { ...state, [historyViewKey]: 'dashboard' });
     }
+  }
+
+  $: if (showForm) {
+    scrollClaimFormTop();
   }
 </script>
 

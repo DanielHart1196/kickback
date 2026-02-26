@@ -256,13 +256,11 @@
 <main class="min-h-screen bg-black text-white flex flex-col items-center p-6">
   <div class="w-full max-w-sm space-y-5">
     <div class="text-center pt-16 pb-16">
-      <div class="min-h-[44px] flex items-center justify-center">
-        <h1 class="text-3xl font-black italic uppercase tracking-tighter leading-none whitespace-normal md:whitespace-nowrap flex flex-wrap items-center justify-center gap-2">
-          <a href="/" aria-label="Kickback home" class="inline-flex items-center justify-center">
-            <img src="/branding/kickback-wordmark.svg" alt="Kickback" class="h-7 w-auto align-middle" loading="eager" decoding="sync" />
-          </a>
-          <span>Venue Sign-In</span>
-        </h1>
+      <div class="min-h-[44px] flex flex-col items-center justify-center gap-2">
+        <a href="/" aria-label="Kickback home" class="inline-flex items-center justify-center">
+          <img src="/branding/kickback-wordmark.svg" alt="Kickback" class="h-7 w-auto align-middle" loading="eager" decoding="sync" />
+        </a>
+        <span class="text-[1.375rem] font-semibold uppercase tracking-tighter text-white">Venue Sign-In</span>
       </div>
     </div>
 

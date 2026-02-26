@@ -188,10 +188,16 @@
   $: if (!venueRefLandingMode || !selectedVenue || !normalizedReferrerCode) {
     invitationOnly = false;
   }
-  $: showInvitedByReferrer = Boolean(normalizedReferrerCode && !referrerEditing);
-  $: showVenueRefInviteHeader = Boolean(venueRefLandingMode && selectedVenue && normalizedReferrerCode);
+  $: showInvitedByReferrer = Boolean(normalizedReferrerCode && !referrerEditing && !isVenueLocked);
+  $: showVenueRefInviteHeader = Boolean(
+    selectedVenue && normalizedReferrerCode && (venueRefLandingMode || isVenueLocked)
+  );
   $: showGenericHeaderSubtitle = !showVenueRefInviteHeader;
-  $: headerSpacingClass = venueRefLandingMode || showGenericHeaderSubtitle ? 'space-y-6' : 'space-y-8';
+  $: venueName = selectedVenue?.name ?? 'this venue';
+  $: headerSpacingClass = showVenueRefInviteHeader
+    ? 'space-y-0'
+    : 'space-y-5';
+  $: containerSpacingClass = showVenueRefInviteHeader ? 'space-y-0' : 'space-y-5';
 
   function handleReferrerInput(event: Event & { currentTarget: HTMLInputElement }) {
     const raw = event.currentTarget.value;
@@ -265,12 +271,12 @@
 {/if}
 
 <div
-  class="w-full max-w-sm space-y-8"
+  class={`w-full max-w-sm ${containerSpacingClass}`}
   style={keyboardPad ? 'padding-bottom: 40vh;' : ''}
   in:fly={{ y: 20 }}
 >
   {#if showBack}
-    <button on:click={onBack} class="text-zinc-600 font-bold text-xs uppercase tracking-widest flex items-center gap-2 mb-4">
+    <button on:click={onBack} class="text-zinc-600 font-bold text-xs uppercase tracking-widest flex items-center gap-2 mb-7">
       <svg aria-hidden="true" viewBox="0 0 20 20" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M12.5 4.5L7 10l5.5 5.5" />
       </svg>
@@ -299,58 +305,90 @@
   </div>
 
   <div class={`w-full max-w-sm ${headerSpacingClass}`}>
-    <div class="text-center">
-      <a href="/" aria-label="Kickback home" class="inline-flex items-center justify-center">
+    <div class={`text-center ${showVenueRefInviteHeader ? 'space-y-4' : 'space-y-5'}`}>
+      <a
+        href="/"
+        aria-label="Kickback home"
+        class="inline-flex items-center justify-center"
+        on:click|preventDefault={() => {
+          if (typeof window !== 'undefined') {
+            window.location.href = '/';
+          }
+        }}
+      >
         <img src="/branding/kickback-wordmark.svg" alt="Kickback" class="mx-auto h-7 w-auto" loading="eager" decoding="sync" />
       </a>
+
+      {#if showGenericHeaderSubtitle}
+        <div class="text-center space-y-2">
+          {#if selectedVenue?.square_public}
+            {#if autoClaimsActive}
+              <p class="text-base text-zinc-400">
+                Earning 5% at
+                {#if progressiveAddVenueFlow && !venueRefLandingMode}
+                  <span class="text-orange-500 font-semibold"> {venueName}</span>
+                {:else}
+                  {' '}{venueName}
+                {/if}
+                for {Math.max(autoClaimDaysLeft ?? 0, 0)} more day{Math.max(autoClaimDaysLeft ?? 0, 0) === 1 ? '' : 's'}
+              </p>
+            {:else}
+              <p class="text-base text-zinc-400">
+                Get 5% for 30 days at
+                {#if progressiveAddVenueFlow && !venueRefLandingMode}
+                  <span class="text-orange-500 font-semibold"> {venueName}</span>
+                {:else}
+                  {' '}{venueName}
+                {/if}
+              </p>
+            {/if}
+          {:else}
+            <p class="text-base text-zinc-400">Get 5% for 30 days</p>
+          {/if}
+        </div>
+      {/if}
+
+      {#if showVenueRefInviteHeader}
+        <div class="text-center">
+          <p class="text-base text-zinc-400">
+            <span class="text-orange-500 font-semibold">{normalizedReferrerCode}</span> invited you to {selectedVenue.name}
+          </p>
+        </div>
+      {/if}
     </div>
-
-    {#if showGenericHeaderSubtitle}
-      <div class="text-center space-y-2">
-        <p class="text-base text-zinc-400">
-          {selectedVenue?.square_public
-            ? autoClaimsActive
-              ? `Earning 5% at ${selectedVenue?.name ?? 'this venue'} for ${Math.max(autoClaimDaysLeft ?? 0, 0)} more day${Math.max(autoClaimDaysLeft ?? 0, 0) === 1 ? '' : 's'}`
-              : `Get 5% for 30 days at ${selectedVenue?.name ?? 'this venue'}`
-            : 'Get 5% for 30 days'}
-        </p>
-      </div>
-    {/if}
-
     {#if showVenueRefInviteHeader}
-      <div class="text-center space-y-2">
-        <p class="text-base text-zinc-400">
-          <span class="text-orange-500 font-semibold">{normalizedReferrerCode}</span> invited you to {selectedVenue.name}
-        </p>
-      </div>
+      <div class="h-5"></div>
     {/if}
 
     {#if selectedVenue?.logo_url}
-      <div class="flex items-center justify-center relative">
-        <img
-          src={selectedVenue.logo_url}
-          alt={selectedVenue.name}
-          on:load={() => (logoLoaded = true)}
-          class="h-48 w-auto max-w-full object-contain rounded-2xl border-2 transition-opacity duration-200 {logoLoaded ? 'border-orange-500/80 opacity-100' : 'border-transparent opacity-0'}"
-          loading="lazy"
-        />
-        {#if progressiveAddVenueFlow && !venueRefLandingMode}
-          <button
-            type="button"
-            on:click={clearVenueSelection}
-            class="absolute -right-2 top-2 rounded-full border border-zinc-700 bg-zinc-950/90 p-1 text-zinc-300 hover:text-white hover:border-zinc-500 transition-colors"
-            aria-label="Change venue"
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M6 6l12 12" />
-              <path d="M18 6l-12 12" />
-            </svg>
-          </button>
-        {/if}
+      <div class="flex items-center justify-center">
+        <div class="relative inline-block">
+          <img
+            src={selectedVenue.logo_url}
+            alt={selectedVenue.name}
+            on:load={() => (logoLoaded = true)}
+            class="h-48 w-auto max-w-full object-contain rounded-2xl border-2 transition-opacity duration-200 {logoLoaded ? 'border-orange-500 opacity-100' : 'border-transparent opacity-0'}"
+            loading="lazy"
+          />
+          {#if progressiveAddVenueFlow && !venueRefLandingMode}
+            <button
+              type="button"
+              on:click={clearVenueSelection}
+              class="absolute right-0 top-0 translate-x-1/2 -translate-y-1/2 rounded-full border border-zinc-700 bg-zinc-950/90 p-1 text-zinc-300 hover:text-white hover:border-zinc-500 transition-colors"
+              aria-label="Change venue"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M6 6l12 12" />
+                <path d="M18 6l-12 12" />
+              </svg>
+            </button>
+          {/if}
+        </div>
       </div>
-      {#if venueRefLandingMode && normalizedReferrerCode}
-        <div class="mt-4">
-          <div class="relative mx-auto max-w-sm px-7">
+      {#if showVenueRefInviteHeader}
+        <div class="h-5"></div>
+        <div>
+          <div class="relative mx-auto max-w-sm px-6">
             <div class="relative">
               <p class="text-center text-base text-zinc-400">
                 Confirm your first visit to unlock 5% cashback for 30 days
@@ -361,7 +399,7 @@
                 on:click={toggleAutoClaimInfo}
                 aria-expanded={showAutoClaimInfo}
                 aria-controls="auto-claim-help"
-                class="absolute -right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-white transition-colors flex items-center justify-center w-4 h-4"
+                class="absolute -right-6 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-white transition-colors flex items-center justify-center w-4 h-4"
               >
                 <span class="sr-only">More info</span>
                 <svg aria-hidden="true" viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -371,14 +409,16 @@
                 </svg>
               </button>
             </div>
-            <button
-              type="button"
-              class="mt-2 block w-fit mx-auto text-[11px] font-bold uppercase tracking-widest text-orange-500/80 hover:text-orange-400 transition-colors"
-              aria-expanded={invitationOnly}
-              on:click={() => (invitationOnly = !invitationOnly)}
-            >
-              {invitationOnly ? 'Here now' : 'Not there yet?'}
-            </button>
+            {#if venueRefLandingMode || !isVenueLocked}
+              <button
+                type="button"
+                class="mt-2 block w-fit mx-auto text-[11px] font-bold uppercase tracking-widest text-orange-500/80 hover:text-orange-400 transition-colors"
+                aria-expanded={invitationOnly}
+                on:click={() => (invitationOnly = !invitationOnly)}
+              >
+                {invitationOnly ? 'Here now' : 'Not there yet?'}
+              </button>
+            {/if}
           </div>
           {#if showAutoClaimInfo}
             <div
@@ -391,10 +431,11 @@
             </div>
           {/if}
         </div>
+        <div class="h-5"></div>
       {/if}
     {/if}
 
-    {#if !venueRefLandingMode && (!progressiveAddVenueFlow || !selectedVenue?.logo_url)}
+    {#if !venueRefLandingMode && (!progressiveAddVenueFlow || !selectedVenue?.logo_url) && !isVenueLocked}
     <div>
       <div class="relative" bind:this={venueWrap}>
         <input 
@@ -451,7 +492,7 @@
     </div>
     {/if}
 
-    {#if canShowReferrerStep && !venueRefLandingMode}
+    {#if canShowReferrerStep && !venueRefLandingMode && !isVenueLocked}
     {#if showInvitedByReferrer}
       <p class="text-center text-base text-zinc-400">
         Invited by
@@ -472,7 +513,7 @@
         {/if}
       </p>
     {:else}
-      <p class="text-center text-[12px] font-black uppercase tracking-widest text-zinc-500">Who sent you?</p>
+      <p class="text-center text-base text-zinc-400">Who sent you?</p>
     {/if}
     {#if !showInvitedByReferrer || referrerEditing}
     <div class="relative flex items-center justify-center gap-2 text-lg font-black uppercase tracking-[0.6em] text-center">
@@ -533,7 +574,6 @@
     {/if}
 
     {#if canShowReferrerStep && !canShowTransactionStep}
-      <p class="text-center text-sm text-zinc-400">Enter a valid referral code to continue.</p>
     {/if}
 
     {#if canShowTransactionStep || !progressiveAddVenueFlow}

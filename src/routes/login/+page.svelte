@@ -332,16 +332,12 @@
 
 <main class="min-h-screen bg-black text-white flex flex-col items-center p-6">
   <div class={`w-full max-w-sm space-y-5`}>
-    <div class={`text-center pt-16 ${venuePromo ? 'pb-0' : 'pb-16'}`}>
-      <div class="min-h-[44px] flex items-center justify-center">
-        <h1 class="text-3xl font-black uppercase tracking-tighter leading-none">
-          <span class="block">Welcome to</span>
-          <span class="mt-1 block">
-            <a href="/" aria-label="Kickback home" class="inline-flex items-center justify-center">
-              <img src="/branding/kickback-wordmark.svg" alt="Kickback" class="inline-block h-7 w-auto align-middle" loading="eager" decoding="sync" />
-            </a>
-          </span>
-        </h1>
+    <div class={`text-center pt-12 ${venuePromo ? 'pb-0' : 'pb-10'}`}>
+      <div class="min-h-[44px] flex flex-col items-center justify-center gap-1">
+        <span class="text-[1.375rem] font-semibold uppercase tracking-tighter text-white">Welcome to</span>
+        <a href="/" aria-label="Kickback home" class="inline-flex items-center justify-center">
+          <img src="/branding/kickback-wordmark.svg" alt="Kickback" class="inline-block h-7 w-auto align-middle" loading="eager" decoding="sync" />
+        </a>
       </div>
       {#if venuePromo}
         <div class="mt-6 flex flex-col items-center justify-center gap-6">
