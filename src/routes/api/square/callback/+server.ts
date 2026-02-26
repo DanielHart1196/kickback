@@ -6,16 +6,20 @@ import {
 } from '$env/static/private';
 import {
   PUBLIC_SQUARE_APP_ID_PROD,
-  PUBLIC_SQUARE_APP_ID_SANDBOX
+  PUBLIC_SQUARE_APP_ID_SANDBOX,
+  PUBLIC_SQUARE_ENVIRONMENT
 } from '$env/static/public';
 import { supabaseAdmin } from '$lib/server/supabaseAdmin';
 
-const squareAppId = dev ? PUBLIC_SQUARE_APP_ID_SANDBOX : PUBLIC_SQUARE_APP_ID_PROD;
-const squareAppSecret = dev ? PRIVATE_SQUARE_APP_SECRET_SANDBOX : PRIVATE_SQUARE_APP_SECRET_PROD;
-const squareTokenUrl = dev
+const squareEnv = 'sandbox';
+
+const squareAppId = squareEnv === 'sandbox' ? PUBLIC_SQUARE_APP_ID_SANDBOX : PUBLIC_SQUARE_APP_ID_PROD;
+const squareAppSecret =
+  squareEnv === 'sandbox' ? PRIVATE_SQUARE_APP_SECRET_SANDBOX : PRIVATE_SQUARE_APP_SECRET_PROD;
+const squareTokenUrl = squareEnv === 'sandbox'
   ? 'https://connect.squareupsandbox.com/oauth2/token'
   : 'https://connect.squareup.com/oauth2/token';
-const squareApiBase = dev ? 'https://connect.squareupsandbox.com' : 'https://connect.squareup.com';
+const squareApiBase = squareEnv === 'sandbox' ? 'https://connect.squareupsandbox.com' : 'https://connect.squareup.com';
 const squareVersion = '2025-01-23';
 
 function getErrorMessage(error: unknown): string {

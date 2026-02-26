@@ -1,9 +1,12 @@
 import { json } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
 import { dev } from '$app/environment';
+import { PUBLIC_SQUARE_ENVIRONMENT } from '$env/static/public';
 import { supabaseAdmin } from '$lib/server/supabaseAdmin';
 
-const squareApiBase = dev ? 'https://connect.squareupsandbox.com' : 'https://connect.squareup.com';
+const squareEnv = 'sandbox';
+
+const squareApiBase = squareEnv === 'sandbox' ? 'https://connect.squareupsandbox.com' : 'https://connect.squareup.com';
 const squareVersion = '2025-01-23';
 
 export async function GET({ url }: RequestEvent) {
@@ -47,5 +50,3 @@ export async function GET({ url }: RequestEvent) {
 
   return json({ locations });
 }
-
-
