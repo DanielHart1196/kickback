@@ -27,7 +27,7 @@ export async function POST({ request }: RequestEvent) {
     hasSignature: Boolean(request.headers.get('x-square-signature')),
     signatureLength: (request.headers.get('x-square-signature') ?? '').length,
     hasSandboxKey: Boolean(process.env.PRIVATE_SQUARE_WEBHOOK_SIGNATURE_KEY_SANDBOX),
-    hasProdKey: Boolean(process.env.PRIVATE_SQUARE_WEBHOOK_SIGNATURE_KEY)
+    hasProdKey: Boolean(process.env.PRIVATE_SQUARE_WEBHOOK_SIGNATURE_KEY_PROD)
   });
   const signature = request.headers.get('x-square-signature') ?? '';
   const body = await request.text();
@@ -251,17 +251,19 @@ export async function POST({ request }: RequestEvent) {
     return json({ ok: true, ignored: true });
   }
 
-  const { data: activeInvitation, error: inviteError } = await supabaseAdmin
+  const { data: activeInvitations, error: inviteError } = await supabaseAdmin
     .from('invitations')
     .select('id, expires_at')
     .eq('user_id', submitterId)
     .eq('venue_id', venueId)
     .eq('referrer_code', referrerCode)
     .eq('status', 'active')
-    .maybeSingle();
+    .order('created_at', { ascending: false })
+    .limit(1);
   if (inviteError) {
     return json({ ok: false, error: inviteError.message }, { status: 500 });
   }
+  const activeInvitation = activeInvitations?.[0] ?? null;
   if (!activeInvitation?.id) {
     return json({ ok: true, ignored: true });
   }
