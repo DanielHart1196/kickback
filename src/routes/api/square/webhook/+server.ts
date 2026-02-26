@@ -22,6 +22,14 @@ function normalizeReferrerCode(code: string | null): string {
   return String(code ?? '').trim().toUpperCase();
 }
 
+function isMissingOnConflictConstraintError(message: string | null | undefined): boolean {
+  const normalized = String(message ?? '').toLowerCase();
+  return (
+    normalized.includes('no unique or exclusion constraint') &&
+    normalized.includes('on conflict')
+  );
+}
+
 export async function POST({ request }: RequestEvent) {
   const traceId = randomUUID();
   const logPrefix = `[square webhook][${traceId}]`;
@@ -325,39 +333,64 @@ export async function POST({ request }: RequestEvent) {
     const autoClaimStatus = venue.square_public === false ? 'pending' : 'approved';
     const effectiveRates = getVenueRatesForTime(venue, purchasedAt, 5);
 
-    const { data: created, error: insertError } = await supabaseAdmin
+    const claimPayload = {
+      venue: venue.name,
+      venue_id: venueId,
+      submitter_id: submitterId,
+      referrer_id: referrer.referrer_id ?? null,
+      referrer: referrer.referrer ?? null,
+      amount: amount / 100,
+      last_4: last4,
+      purchased_at: purchasedAt,
+      created_at: new Date().toISOString(),
+      status: autoClaimStatus,
+      kickback_guest_rate: effectiveRates.guestRate,
+      kickback_referrer_rate: effectiveRates.referrerRate,
+      square_payment_id: payment.id,
+      square_card_fingerprint: fingerprint,
+      square_location_id: payment.location_id ?? null
+    };
+
+    const { data: createdUpsert, error: insertError } = await supabaseAdmin
       .from('claims')
       .upsert(
-        {
-          venue: venue.name,
-          venue_id: venueId,
-          submitter_id: submitterId,
-          referrer_id: referrer.referrer_id ?? null,
-          referrer: referrer.referrer ?? null,
-          amount: amount / 100,
-          last_4: last4,
-          purchased_at: purchasedAt,
-          created_at: new Date().toISOString(),
-          status: autoClaimStatus,
-          kickback_guest_rate: effectiveRates.guestRate,
-          kickback_referrer_rate: effectiveRates.referrerRate,
-          square_payment_id: payment.id,
-          square_card_fingerprint: fingerprint,
-          square_location_id: payment.location_id ?? null
-        },
+        claimPayload,
         { onConflict: 'square_payment_id', ignoreDuplicates: true }
       )
       .select('id')
       .maybeSingle();
 
+    let created = createdUpsert;
     if (insertError) {
-      console.error(`${logPrefix} claim upsert failed`, {
-        venueId,
-        submitterId,
-        paymentId: payment.id,
-        error: insertError.message
-      });
-      return json({ ok: false, error: insertError.message }, { status: 500 });
+      if (isMissingOnConflictConstraintError(insertError.message)) {
+        console.error(`${logPrefix} missing square_payment_id unique index, falling back to plain insert`, {
+          paymentId: payment.id,
+          error: insertError.message
+        });
+        const { data: createdInsert, error: fallbackInsertError } = await supabaseAdmin
+          .from('claims')
+          .insert(claimPayload)
+          .select('id')
+          .maybeSingle();
+        if (fallbackInsertError) {
+          console.error(`${logPrefix} claim fallback insert failed`, {
+            venueId,
+            submitterId,
+            paymentId: payment.id,
+            error: fallbackInsertError.message
+          });
+          return json({ ok: false, error: fallbackInsertError.message }, { status: 500 });
+        }
+        created = createdInsert;
+      } else {
+        console.error(`${logPrefix} claim upsert failed`, {
+          venueId,
+          submitterId,
+          paymentId: payment.id,
+          error: insertError.message
+        });
+        return json({ ok: false, error: insertError.message }, { status: 500 });
+      }
     }
 
     if (!created?.id) {
