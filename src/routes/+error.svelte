@@ -9,7 +9,9 @@
 <main class="min-h-screen bg-black text-white flex flex-col items-center justify-center p-6">
   <div class="w-full max-w-sm space-y-6 text-center">
     <h1 class="text-3xl font-black uppercase tracking-tighter leading-none">
-      <img src="/branding/kickback-wordmark.svg" alt="Kickback" class="mx-auto h-7 w-auto" loading="eager" decoding="sync" />
+      <a href="/" aria-label="Kickback home" class="inline-flex items-center justify-center">
+        <img src="/branding/kickback-wordmark.svg" alt="Kickback" class="mx-auto h-7 w-auto" loading="eager" decoding="sync" />
+      </a>
     </h1>
 
     <div class="space-y-3">

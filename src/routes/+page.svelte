@@ -70,6 +70,7 @@
   let successMessage = '';
 
   let showReferModal = false;
+  let referModalIgnoreStoredVenue = false;
   let showPayoutSetup = false;
   let showLanding = false;
   let venueRefLandingMode = false;
@@ -257,6 +258,11 @@
       const nextView = state?.[historyViewKey];
       showForm = nextView === 'claim';
       showReferModal = Boolean(state?.[historyReferKey]);
+      if (showReferModal) {
+        referModalIgnoreStoredVenue = !(referralPresetVenueId || referralPresetVenueName);
+      } else {
+        referModalIgnoreStoredVenue = false;
+      }
     };
     const handleBeforeInstall = (event: Event) => {
       event.preventDefault();
@@ -1005,6 +1011,7 @@
       await dashboardLoadPromise;
 
       if (shouldOpenReferFromUrl) {
+        referModalIgnoreStoredVenue = false;
         showReferModal = true;
       }
 
@@ -1300,6 +1307,7 @@
   $: autoClaimsActive = Boolean(autoClaimDaysLeft);
 
   function openReferModal() {
+    referModalIgnoreStoredVenue = !(referralPresetVenueId || referralPresetVenueName);
     showReferModal = true;
     if (typeof window === 'undefined') return;
     const state = getHistoryState();
@@ -1310,6 +1318,7 @@
 
   function closeReferModal() {
     showReferModal = false;
+    referModalIgnoreStoredVenue = false;
     if (typeof window === 'undefined') return;
     const state = getHistoryState();
     if (state[historyReferKey]) {
@@ -1662,6 +1671,7 @@
       referralEditLocked={referralEditLocked}
       initialVenueId={referralPresetVenueId}
       initialVenueName={referralPresetVenueName}
+      disableStoredVenuePrefill={referModalIgnoreStoredVenue}
       onUpdateReferralCode={updateReferralCode}
       onClose={closeReferModal}
     />

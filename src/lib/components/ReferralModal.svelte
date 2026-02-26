@@ -10,6 +10,7 @@
   export let venues: { id: string; name: string; short_code?: string | null; logo_url?: string | null }[] = [];
   export let initialVenueId: string | null = null;
   export let initialVenueName: string | null = null;
+  export let disableStoredVenuePrefill = false;
   export let onClose: () => void = () => {};
   export let onUpdateReferralCode: (code: string) => Promise<{ ok: boolean; message?: string; code?: string }> =
     async () => ({ ok: false, message: 'Code update unavailable.' });
@@ -83,8 +84,10 @@
 
   async function shareLink() {
     const shareData = {
-      title: 'Kickback Pilot',
-      text: `Join me at ${referralVenueName || 'Kickback'} and get 5% back on your bill!`,
+      title: 'Kickback',
+      text: referralVenueName
+        ? `Join me at ${referralVenueName} and get 5% back on your bill!`
+        : 'Join me on Kickback and get 5% back on your bill!',
       url: referralLink
     };
 
@@ -271,18 +274,24 @@
   }
 
   $: if (!hasAppliedDefault && !referralVenueId && venues.length > 0) {
-    const storedId =
-      typeof localStorage !== 'undefined' ? localStorage.getItem(lastSelectedVenueKey) : null;
-    if (storedId === '') {
-      referralVenueId = '';
-    } else if (storedId && venues.some((venue) => venue.id === storedId)) {
-      referralVenueId = storedId;
+    if (disableStoredVenuePrefill) {
+      hasAppliedDefault = true;
+    } else {
+      const storedId =
+        typeof localStorage !== 'undefined' ? localStorage.getItem(lastSelectedVenueKey) : null;
+      if (storedId === '') {
+        referralVenueId = '';
+      } else if (storedId && venues.some((venue) => venue.id === storedId)) {
+        referralVenueId = storedId;
+      }
+      hasAppliedDefault = true;
     }
-    hasAppliedDefault = true;
   }
 
   $: if (typeof localStorage !== 'undefined') {
-    localStorage.setItem(lastSelectedVenueKey, referralVenueId);
+    if (!(disableStoredVenuePrefill && !venueDirty && !referralVenueId)) {
+      localStorage.setItem(lastSelectedVenueKey, referralVenueId);
+    }
   }
 
 </script>
@@ -305,19 +314,19 @@
 
     <div class="px-8">
       <header class="text-center mb-6">
-        <h2 class="text-2xl font-black uppercase tracking-tighter text-white">
-          Share the <img src="/branding/kickback-wordmark.svg" alt="Kickback" class="inline-block h-5 w-auto align-middle" loading="eager" decoding="sync" />
+        <h2 class="text-[1.375rem] font-semibold uppercase tracking-tighter text-white">
+          Share the
         </h2>
+        <img src="/branding/kickback-wordmark.svg" alt="Kickback" class="inline-block h-6 w-auto align-middle" loading="eager" decoding="sync" />
       </header>
 
       <div class="mb-4">
-        <label for="ref-venue" class="block text-[10px] font-black uppercase text-zinc-500 tracking-widest mb-4 px-1 text-center">Which venue?</label>
         <div class="relative" bind:this={venueWrap}>
           <input
             id="ref-venue"
             type="text"
             bind:value={venueSearch}
-            placeholder="General invite"
+            placeholder="Select venue"
             autocomplete="off"
             spellcheck="false"
             on:focus={handleVenueFocus}
@@ -352,13 +361,6 @@
           {/if}
           {#if venueOpen}
             <div class="absolute z-20 mt-2 w-full rounded-2xl border border-zinc-800 bg-zinc-900/95 backdrop-blur-xl shadow-xl max-h-56 overflow-auto">
-              <button
-                type="button"
-                on:click={() => clearVenueSelection(false)}
-                class="w-full text-left px-4 py-3 text-xs font-bold uppercase tracking-widest text-zinc-400 hover:bg-zinc-800/60 transition-colors"
-              >
-                General Invite
-              </button>
               {#if filteredVenues.length === 0}
                 <div class="px-4 py-3 text-xs font-bold uppercase tracking-widest text-zinc-500">No matches</div>
               {:else}

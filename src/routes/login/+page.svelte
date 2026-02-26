@@ -336,7 +336,11 @@
       <div class="min-h-[44px] flex items-center justify-center">
         <h1 class="text-3xl font-black uppercase tracking-tighter leading-none">
           <span class="block">Welcome to</span>
-          <span class="mt-1 block"><img src="/branding/kickback-wordmark.svg" alt="Kickback" class="inline-block h-7 w-auto align-middle" loading="eager" decoding="sync" /></span>
+          <span class="mt-1 block">
+            <a href="/" aria-label="Kickback home" class="inline-flex items-center justify-center">
+              <img src="/branding/kickback-wordmark.svg" alt="Kickback" class="inline-block h-7 w-auto align-middle" loading="eager" decoding="sync" />
+            </a>
+          </span>
         </h1>
       </div>
       {#if venuePromo}

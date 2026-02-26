@@ -300,7 +300,9 @@
 
   <div class={`w-full max-w-sm ${headerSpacingClass}`}>
     <div class="text-center">
-      <img src="/branding/kickback-wordmark.svg" alt="Kickback" class="mx-auto h-7 w-auto" loading="eager" decoding="sync" />
+      <a href="/" aria-label="Kickback home" class="inline-flex items-center justify-center">
+        <img src="/branding/kickback-wordmark.svg" alt="Kickback" class="mx-auto h-7 w-auto" loading="eager" decoding="sync" />
+      </a>
     </div>
 
     {#if showGenericHeaderSubtitle}
@@ -530,9 +532,14 @@
     {/if}
     {/if}
 
-    <div class="bg-zinc-900 border border-zinc-800 p-6 rounded-3xl shadow-2xl">
-      <div class={invitationOnly ? 'space-y-0' : 'space-y-5'}>
-        {#if canShowTransactionStep}
+    {#if canShowReferrerStep && !canShowTransactionStep}
+      <p class="text-center text-sm text-zinc-400">Enter a valid referral code to continue.</p>
+    {/if}
+
+    {#if canShowTransactionStep || !progressiveAddVenueFlow}
+      <div class="bg-zinc-900 border border-zinc-800 p-6 rounded-3xl shadow-2xl">
+        <div class={invitationOnly ? 'space-y-0' : 'space-y-5'}>
+          {#if canShowTransactionStep}
           <div
             class={`space-y-5 overflow-hidden transition-[max-height,opacity] duration-350 ease-in-out ${
               invitationOnly ? 'max-h-0 opacity-0 pointer-events-none' : 'max-h-[900px] opacity-100'
@@ -666,13 +673,9 @@
               </div>
             {/if}
           </div>
-        {:else if !canShowReferrerStep}
-          <p class="text-center text-sm text-zinc-400">Select a venue to continue.</p>
-        {:else}
-          <p class="text-center text-sm text-zinc-400">Enter a valid referral code to continue.</p>
-        {/if}
+          {/if}
 
-        {#if canShowTransactionStep}
+          {#if canShowTransactionStep}
           <div class="space-y-4">
             {#if invitationOnly}
               {#if session}
@@ -741,9 +744,10 @@
               {/if}
             {/if}
           </div>
-        {/if}
+          {/if}
+        </div>
       </div>
-    </div>
+    {/if}
   </div>
 
   
@@ -775,5 +779,3 @@
     -moz-appearance: auto;
   }
 </style>
-
-

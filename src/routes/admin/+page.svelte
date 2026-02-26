@@ -297,8 +297,7 @@
     const redirectUri = `${window.location.origin}/api/square/callback`;
     const scopeParam = encodeURIComponent(SQUARE_SCOPES);
     const redirectParam = encodeURIComponent(redirectUri);
-    const sessionParam = dev ? '' : '&session=false';
-    const target = `${squareOauthBase}?client_id=${squareAppId}&response_type=code&scope=${scopeParam}&state=${state}&redirect_uri=${redirectParam}${sessionParam}`;
+    const target = `${squareOauthBase}?client_id=${squareAppId}&response_type=code&scope=${scopeParam}&state=${state}&redirect_uri=${redirectParam}`;
     if (window.top) {
       window.top.location.href = target;
     } else {

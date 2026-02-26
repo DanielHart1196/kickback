@@ -294,12 +294,82 @@
 
   
 
-  function openSettings() {
+  let settingsPanelEl: HTMLDivElement | null = null;
+  let settingsSwipeStartX = 0;
+  let settingsSwipeStartY = 0;
+  let settingsSwipeOffset = 0;
+  let settingsSwipeActive = false;
+  let settingsSwipeLock: 'horizontal' | 'vertical' | null = null;
+  const SETTINGS_SWIPE_THRESHOLD_PX = 90;
+  const SETTINGS_SWIPE_ANIM_MS = 200;
+
+  function getSettingsPanelWidth() {
+    return settingsPanelEl?.offsetWidth ?? 320;
+  }
+
+  async function openSettings() {
+    settingsSwipeOffset = getSettingsPanelWidth();
     showSettings = true;
+    await tick();
+    requestAnimationFrame(() => {
+      settingsSwipeOffset = 0;
+    });
     void ensurePayoutProfileLoaded();
   }
   function closeSettings() {
     showSettings = false;
+    settingsSwipeOffset = 0;
+    settingsSwipeActive = false;
+    settingsSwipeLock = null;
+  }
+
+  function animateSettingsClose() {
+    settingsSwipeOffset = getSettingsPanelWidth();
+    settingsSwipeActive = false;
+    settingsSwipeLock = null;
+    setTimeout(() => {
+      showSettings = false;
+      settingsSwipeOffset = 0;
+    }, SETTINGS_SWIPE_ANIM_MS);
+  }
+
+  function handleSettingsTouchStart(event: TouchEvent) {
+    if (event.touches.length !== 1) return;
+    const touch = event.touches[0];
+    settingsSwipeActive = true;
+    settingsSwipeStartX = touch.clientX;
+    settingsSwipeStartY = touch.clientY;
+    settingsSwipeOffset = 0;
+    settingsSwipeLock = null;
+  }
+
+  function handleSettingsTouchMove(event: TouchEvent) {
+    if (!settingsSwipeActive || event.touches.length !== 1) return;
+    const touch = event.touches[0];
+    const dx = touch.clientX - settingsSwipeStartX;
+    const dy = touch.clientY - settingsSwipeStartY;
+
+    if (!settingsSwipeLock) {
+      if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+      settingsSwipeLock = Math.abs(dx) > Math.abs(dy) ? 'horizontal' : 'vertical';
+    }
+
+    if (settingsSwipeLock !== 'horizontal') return;
+    event.preventDefault();
+    settingsSwipeOffset = Math.max(0, dx);
+  }
+
+  function handleSettingsTouchEnd() {
+    if (!settingsSwipeActive) return;
+    settingsSwipeActive = false;
+    const width = getSettingsPanelWidth();
+    const threshold = Math.min(SETTINGS_SWIPE_THRESHOLD_PX, width * 0.35);
+    if (settingsSwipeOffset > threshold) {
+      animateSettingsClose();
+    } else {
+      settingsSwipeOffset = 0;
+    }
+    settingsSwipeLock = null;
   }
 
   async function ensurePayoutProfileLoaded(background = false) {
@@ -1448,8 +1518,13 @@
       aria-label="Close user settings"
     ></button>
     <aside
+      bind:this={settingsPanelEl}
       class="absolute right-0 top-0 h-full w-[320px] max-w-[88vw] bg-zinc-950 border-l border-zinc-800 p-6 shadow-2xl flex flex-col"
-      transition:fly={{ x: 320, duration: 220 }}
+      style={`transform: translateX(${settingsSwipeOffset}px); transition: ${settingsSwipeActive ? 'none' : `transform ${SETTINGS_SWIPE_ANIM_MS}ms ease`}; touch-action: pan-y;`}
+      on:touchstart={handleSettingsTouchStart}
+      on:touchmove={handleSettingsTouchMove}
+      on:touchend={handleSettingsTouchEnd}
+      on:touchcancel={handleSettingsTouchEnd}
     >
       <div class="flex items-center justify-between flex-shrink-0">
         <h2 class="text-sm font-black uppercase tracking-[0.2em] text-white">User Settings</h2>
@@ -1527,7 +1602,7 @@
                 on:click={togglePasswordChange}
                 class="text-[11px] font-black uppercase tracking-[0.2em] text-orange-400 hover:text-orange-300 transition-colors"
               >
-                {showPasswordChange ? 'Hide password update' : 'Change password'}
+                {showPasswordChange ? 'Cancel' : 'Change password'}
               </button>
             </div>
             {#if showPasswordChange}
