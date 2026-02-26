@@ -13,8 +13,7 @@
   import { env as publicEnv } from '$env/dynamic/public';
   import {
     PUBLIC_SQUARE_APP_ID_PROD,
-    PUBLIC_SQUARE_APP_ID_SANDBOX,
-    PUBLIC_SQUARE_ENVIRONMENT
+    PUBLIC_SQUARE_APP_ID_SANDBOX
   } from '$env/static/public';
 
   let claims: Claim[] = [];
@@ -276,12 +275,10 @@
   let gatewayError = '';
   let gatewaySuccess = '';
   const SQUARE_SCOPES = 'ORDERS_READ PAYMENTS_READ MERCHANT_PROFILE_READ';
-  const squareEnv = 'sandbox';
-  const squareAppId = squareEnv === 'sandbox' ? PUBLIC_SQUARE_APP_ID_SANDBOX : PUBLIC_SQUARE_APP_ID_PROD;
-  const squareOauthBase =
-    squareEnv === 'sandbox'
-      ? 'https://connect.squareupsandbox.com/oauth2/authorize'
-      : 'https://connect.squareup.com/oauth2/authorize';
+  const squareAppId = dev ? PUBLIC_SQUARE_APP_ID_SANDBOX : PUBLIC_SQUARE_APP_ID_PROD;
+  const squareOauthBase = dev
+    ? 'https://connect.squareupsandbox.com/oauth2/authorize'
+    : 'https://connect.squareup.com/oauth2/authorize';
 
 
   function connectSquare() {
