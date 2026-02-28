@@ -35,7 +35,7 @@
     const { data, error } = await supabase
       .from('profiles')
       .select('id')
-      .eq('referral_code', normalized)
+      .or(`referral_code.ilike.${normalized},referral_code_original.ilike.${normalized}`)
       .maybeSingle();
     if (error) throw error;
     if (!data?.id) return true;

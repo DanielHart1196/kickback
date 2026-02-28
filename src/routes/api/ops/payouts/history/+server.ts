@@ -9,6 +9,9 @@ type BalanceRow = {
   claim_ids: string[] | null;
   claim_count: number | null;
   pay_id: string | null;
+  bsb: string | null;
+  account_number: string | null;
+  payout_method: string | null;
   paid_at: string | null;
   created_at: string | null;
 };
@@ -39,7 +42,7 @@ export const GET: RequestHandler = async ({ request }) => {
 
   const { data: rows, error } = await supabaseAdmin
     .from('payouts')
-    .select('id, user_id, amount, currency, claim_ids, claim_count, pay_id, paid_at, created_at')
+    .select('id, user_id, amount, currency, claim_ids, claim_count, pay_id, bsb, account_number, payout_method, paid_at, created_at')
     .eq('status', 'paid')
     .order('paid_at', { ascending: false })
     .limit(5000);
@@ -53,18 +56,24 @@ export const GET: RequestHandler = async ({ request }) => {
       ? supabaseAdmin.from('profiles').select('id, referral_code, email').in('id', userIds)
       : Promise.resolve({ data: [] as any[] }),
     userIds.length > 0
-      ? supabaseAdmin.from('payout_profiles').select('user_id, pay_id').in('user_id', userIds)
+      ? supabaseAdmin.from('payout_profiles').select('user_id, pay_id, bsb, account_number, payout_method').in('user_id', userIds)
       : Promise.resolve({ data: [] as any[] })
   ]);
 
   const profileById = new Map((profiles ?? []).map((p) => [String(p.id), p]));
   const payIdByUser = new Map((payoutProfiles ?? []).map((p) => [String(p.user_id), String(p.pay_id ?? '')]));
+  const bsbByUser = new Map((payoutProfiles ?? []).map((p) => [String(p.user_id), String(p.bsb ?? '')]));
+  const accountByUser = new Map((payoutProfiles ?? []).map((p) => [String(p.user_id), String(p.account_number ?? '')]));
+  const methodByUser = new Map((payoutProfiles ?? []).map((p) => [String(p.user_id), String(p.payout_method ?? '')]));
 
   const payouts = payoutsRows
     .map((entry) => {
       const userId = String(entry.user_id ?? '');
       const profile = profileById.get(userId);
       const fallbackPayId = payIdByUser.get(userId) ?? '';
+      const fallbackBsb = bsbByUser.get(userId) ?? '';
+      const fallbackAccount = accountByUser.get(userId) ?? '';
+      const fallbackMethod = methodByUser.get(userId) ?? '';
       const claimIds = (Array.isArray(entry.claim_ids) ? entry.claim_ids : []).map((id) => String(id));
       return {
         id: entry.id,
@@ -72,6 +81,9 @@ export const GET: RequestHandler = async ({ request }) => {
         referral_code: profile?.referral_code ?? null,
         email: profile?.email ?? null,
         pay_id: entry.pay_id || fallbackPayId || null,
+        bsb: entry.bsb || fallbackBsb || null,
+        account_number: entry.account_number || fallbackAccount || null,
+        payout_method: entry.payout_method || fallbackMethod || null,
         amount: Number(Number(entry.amount ?? 0).toFixed(2)),
         currency: String(entry.currency ?? 'aud').toLowerCase(),
         paid_at: entry.paid_at ?? entry.created_at ?? new Date().toISOString(),

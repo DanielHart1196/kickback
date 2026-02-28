@@ -36,6 +36,7 @@
   export let venueRefLandingMode = false;
   export let progressiveAddVenueFlow = false;
   export let isInvitationActive = false;
+  export let pendingInvitationStorageKey = '';
   export let onBack: () => void = () => {};
   export let onSubmit: () => void = () => {};
   export let onConfirmGuest: () => void = () => {};
@@ -761,7 +762,21 @@
               {:else}
                 <button
                   type="button"
-                  on:click={() => goto(loginUrl)}
+                  on:click={() => {
+                    if (pendingInvitationStorageKey && typeof window !== 'undefined') {
+                      try {
+                        window.localStorage.setItem(
+                          pendingInvitationStorageKey,
+                          JSON.stringify({
+                            venueId: selectedVenue?.id ?? '',
+                            venueName: selectedVenue?.name ?? venueName ?? '',
+                            referrerCode: normalizedReferrerCode
+                          })
+                        );
+                      } catch {}
+                    }
+                    goto(loginUrl);
+                  }}
                   class="w-full bg-white text-black font-black py-4 rounded-2xl text-lg active:scale-95 transition-all shadow-xl shadow-white/5"
                 >
                   SIGN UP & ACCEPT INVITATION

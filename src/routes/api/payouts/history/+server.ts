@@ -63,6 +63,9 @@ type HistoryRow = {
   amount: number | null;
   currency: string | null;
   pay_id: string | null;
+  bsb: string | null;
+  account_number: string | null;
+  payout_method: string | null;
   paid_at: string | null;
   claim_count: number | null;
   created_at: string | null;
@@ -95,7 +98,7 @@ export const GET: RequestHandler = async ({ request }) => {
   const userId = requesterData.user.id;
   const { data: rows, error } = await supabaseAdmin
     .from('payouts')
-    .select('id, claim_ids, amount, currency, pay_id, paid_at, claim_count, created_at')
+    .select('id, claim_ids, amount, currency, pay_id, bsb, account_number, payout_method, paid_at, claim_count, created_at')
     .eq('user_id', userId)
     .eq('status', 'paid')
     .order('paid_at', { ascending: false })
@@ -180,6 +183,9 @@ export const GET: RequestHandler = async ({ request }) => {
         currency: String(row.currency ?? 'aud').toLowerCase(),
         paid_at: paidAtFallbackIso,
         pay_id: String(row.pay_id ?? ''),
+        bsb: String(row.bsb ?? ''),
+        account_number: String(row.account_number ?? ''),
+        payout_method: String(row.payout_method ?? ''),
         claim_count: Number(row.claim_count ?? claimIds.length),
         period_start: payoutWeek.period_start,
         period_end: payoutWeek.period_end,

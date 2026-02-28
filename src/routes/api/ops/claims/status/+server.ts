@@ -150,6 +150,17 @@ export async function POST({ request }: RequestEvent) {
       const expiresAtIso = new Date(activatedAtMs + GOAL_DAYS * dayMs).toISOString();
       const venueName = String(row.venue ?? '').trim();
 
+      const { data: existingActive } = await supabaseAdmin
+        .from('invitations')
+        .select('id')
+        .eq('user_id', row.submitter_id)
+        .eq('venue_id', row.venue_id)
+        .eq('status', 'active')
+        .maybeSingle();
+      if (existingActive?.id) {
+        continue;
+      }
+
       const { data: updatedRows, error: updateInviteError } = await supabaseAdmin
         .from('invitations')
         .update({
@@ -187,6 +198,12 @@ export async function POST({ request }: RequestEvent) {
           return json({ ok: false, error: insertError.message }, { status: 500 });
         }
       }
+      await supabaseAdmin
+        .from('invitations')
+        .delete()
+        .eq('user_id', row.submitter_id)
+        .eq('venue_id', row.venue_id)
+        .eq('status', 'pending');
     }
   }
 

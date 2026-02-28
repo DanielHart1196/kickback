@@ -1,6 +1,6 @@
 <script lang="ts">
   import { supabase } from '$lib/supabase';
-  import { onMount, tick } from 'svelte';
+  import { onDestroy, onMount, tick } from 'svelte';
 
   const MIN_PASSWORD_LENGTH = 6;
   let loading = false;
@@ -9,10 +9,14 @@
   let password = '';
   let usePassword = false;
   let magicLinkLoading = false;
+  let magicLinkSentOnce = false;
+  let magicLinkCooldown = 0;
+  let magicLinkTimer: ReturnType<typeof setInterval> | null = null;
   let passwordAuthLoading = false;
   let adminSignupCode = '';
   let showAdminSignupCode = false;
   const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const magicLinkCooldownKey = 'kickback:admin_magic_link_cooldown_until';
 
   function forceScrollTop() {
     if (typeof window === 'undefined') return;
@@ -118,12 +122,37 @@
         message = error.message;
       } else {
         message = 'MAGIC LINK SENT, CHECK YOUR INBOX';
+        startMagicLinkCooldown();
       }
     } catch (error) {
       message = error instanceof Error ? error.message : 'Failed to send magic link';
     } finally {
       magicLinkLoading = false;
     }
+  }
+
+  function startMagicLinkCooldown() {
+    magicLinkSentOnce = true;
+    const until = Date.now() + 60_000;
+    magicLinkCooldown = 60;
+    try {
+      window.localStorage.setItem(magicLinkCooldownKey, String(until));
+    } catch {}
+    if (magicLinkTimer) {
+      clearInterval(magicLinkTimer);
+      magicLinkTimer = null;
+    }
+    magicLinkTimer = setInterval(() => {
+      const remaining = Math.max(0, Math.ceil((until - Date.now()) / 1000));
+      magicLinkCooldown = remaining;
+      if (remaining === 0 && magicLinkTimer) {
+        clearInterval(magicLinkTimer);
+        magicLinkTimer = null;
+        try {
+          window.localStorage.removeItem(magicLinkCooldownKey);
+        } catch {}
+      }
+    }, 1000);
   }
 
   async function handlePasswordAuth() {
@@ -226,9 +255,45 @@
     }
   }
 
+  onDestroy(() => {
+    if (magicLinkTimer) {
+      clearInterval(magicLinkTimer);
+      magicLinkTimer = null;
+    }
+  });
+
   onMount(async () => {
     await tick();
     forceScrollTop();
+
+    const storedCooldown = window.localStorage.getItem(magicLinkCooldownKey);
+    if (storedCooldown) {
+      const until = Number(storedCooldown);
+      const remaining = Math.max(0, Math.ceil((until - Date.now()) / 1000));
+      if (remaining > 0) {
+        magicLinkSentOnce = true;
+        magicLinkCooldown = remaining;
+        if (magicLinkTimer) {
+          clearInterval(magicLinkTimer);
+          magicLinkTimer = null;
+        }
+        magicLinkTimer = setInterval(() => {
+          const nextRemaining = Math.max(0, Math.ceil((until - Date.now()) / 1000));
+          magicLinkCooldown = nextRemaining;
+          if (nextRemaining === 0 && magicLinkTimer) {
+            clearInterval(magicLinkTimer);
+            magicLinkTimer = null;
+            try {
+              window.localStorage.removeItem(magicLinkCooldownKey);
+            } catch {}
+          }
+        }, 1000);
+      } else {
+        try {
+          window.localStorage.removeItem(magicLinkCooldownKey);
+        } catch {}
+      }
+    }
 
     const params = new URLSearchParams(window.location.search);
     if (params.get('error') === 'admin_code_required') {
@@ -319,13 +384,19 @@
       <button
         type="button"
         on:click={usePassword ? handlePasswordAuth : handleMagicLink}
-        disabled={magicLinkLoading || passwordAuthLoading}
+        disabled={magicLinkLoading || passwordAuthLoading || (!usePassword && magicLinkCooldown > 0)}
         class="w-full h-10 rounded-full bg-orange-500 text-black text-[14px] leading-[20px] font-black inline-flex items-center justify-center active:scale-95 transition-all disabled:opacity-50 hover:bg-orange-600"
       >
         {#if usePassword}
           {passwordAuthLoading ? 'SIGNING IN / UP...' : 'SIGN IN / UP'}
         {:else}
-          {magicLinkLoading ? 'SENDING...' : 'SEND MAGIC LINK'}
+          {magicLinkLoading
+            ? 'SENDING...'
+            : magicLinkCooldown > 0
+              ? `RESEND (${magicLinkCooldown})`
+              : magicLinkSentOnce
+                ? 'RESEND'
+                : 'SEND MAGIC LINK'}
         {/if}
       </button>
       {#if usePassword}
@@ -338,6 +409,11 @@
           Forgot password?
         </button>
       {/if}
+
+      {#if message}
+        <p class="text-center text-xs font-bold text-zinc-400 uppercase">{message}</p>
+      {/if}
+
       <button
         type="button"
         on:click={() => {
@@ -350,10 +426,6 @@
       >
         {usePassword ? 'Use magic link instead' : 'Use a password instead'}
       </button>
-
-      {#if message}
-        <p class="text-center text-xs font-bold text-zinc-400 uppercase">{message}</p>
-      {/if}
     </div>
 
     <p class="text-center text-[10px] text-zinc-500 leading-snug">

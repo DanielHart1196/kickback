@@ -48,6 +48,7 @@
   import ClaimWindowExpiredModal from '$lib/components/ClaimWindowExpiredModal.svelte';
   import GuestWarningModal from '$lib/components/GuestWarningModal.svelte';
   import PaymentVerificationModal from '$lib/components/PaymentVerificationModal.svelte';
+  import InvitationExistsModal from '$lib/components/InvitationExistsModal.svelte';
   import ReferralModal from '$lib/components/ReferralModal.svelte';
   import PayoutSetupModal from '$lib/components/PayoutSetupModal.svelte';
   import { onDestroy } from 'svelte';
@@ -130,6 +131,8 @@
   const installPromptKey = 'kickback:install_prompt_shown';
   const payoutSetupPromptKey = 'kickback:payout_setup_dismissed';
   const activationTokenStorageKey = 'kickback:activation_token';
+  const pendingInvitationStorageKey = 'kickback:pending_invitation';
+  const pendingUrlParamsStorageKey = 'kickback:pending_url_params';
   let installedHandlerAdded = false;
   
   let autoClaimDaysLeft: number | null = null;
@@ -150,6 +153,8 @@
   let claimWindowVenue = '';
   let showPaymentVerificationWarning = false;
   let paymentVerificationMode: 'retry' | 'nomatch' = 'retry';
+  let showInvitationExistsWarning = false;
+  let invitationExistsVenue = '';
 
   async function fetchPendingInvitations(uid: string) {
     if (!uid) return;
@@ -237,13 +242,30 @@
 
   async function addPendingInvitation(payload: Omit<PendingInvitation, 'id' | 'createdAt'>) {
     if (!userId) return;
+    const venueIdValue = payload.venueId || getVenueIdByName(payload.venueName);
+    const venueNameValue = payload.venueName || getVenueNameById(venueIdValue);
+    if (!venueIdValue || !venueNameValue) return;
+    const existingStatus = await getInvitationStatusForVenue(userId, venueIdValue, venueNameValue);
+    if (existingStatus && existingStatus !== 'pending') {
+      invitationExistsVenue = venueNameValue;
+      showInvitationExistsWarning = true;
+      return;
+    }
+    if (existingStatus === 'pending') {
+      await supabase
+        .from('invitations')
+        .delete()
+        .eq('user_id', userId)
+        .eq('venue_id', venueIdValue)
+        .eq('status', 'pending');
+    }
     const { error } = await supabase
       .from('invitations')
       .upsert(
         {
           user_id: userId,
-          venue_id: payload.venueId,
-          venue_name: payload.venueName,
+          venue_id: venueIdValue,
+          venue_name: venueNameValue,
           referrer_code: payload.referrerCode,
           status: 'pending',
           activated_at: null,
@@ -300,6 +322,94 @@
       }
     } catch (error) {
       console.error('Error claiming pending activation token:', error);
+    }
+  }
+
+  async function claimStoredPendingInvitation(): Promise<void> {
+    if (typeof window === 'undefined' || !session?.user?.id) return;
+    const raw = window.localStorage.getItem(pendingInvitationStorageKey);
+    if (!raw) return;
+    try {
+      const parsed = JSON.parse(raw) as {
+        venueId?: string;
+        venueName?: string;
+        referrerCode?: string;
+      };
+      let venueIdValue = String(parsed?.venueId ?? '').trim();
+      let venueNameValue = String(parsed?.venueName ?? '').trim();
+      const referrerCodeValue = normalizeReferralCode(parsed?.referrerCode ?? '');
+      if (!venueIdValue && venueNameValue) {
+        venueIdValue = getVenueIdByName(venueNameValue);
+      }
+      if (!venueNameValue && venueIdValue) {
+        venueNameValue = getVenueNameById(venueIdValue);
+      }
+      if (!referrerCodeValue || !venueIdValue || !venueNameValue) {
+        window.localStorage.removeItem(pendingInvitationStorageKey);
+        return;
+      }
+      const existingStatus = await getInvitationStatusForVenue(session.user.id, venueIdValue, venueNameValue);
+      if (existingStatus && existingStatus !== 'pending') {
+        window.localStorage.removeItem(pendingInvitationStorageKey);
+        return;
+      }
+      if (existingStatus === 'pending') {
+        await supabase
+          .from('invitations')
+          .delete()
+          .eq('user_id', session.user.id)
+          .eq('venue_id', venueIdValue)
+          .eq('status', 'pending');
+      }
+      await supabase
+        .from('invitations')
+        .upsert(
+          {
+            user_id: session.user.id,
+            venue_id: venueIdValue,
+            venue_name: venueNameValue,
+            referrer_code: referrerCodeValue,
+            status: 'pending',
+            activated_at: null,
+            expires_at: null,
+            last_activity_at: new Date().toISOString()
+          },
+          { onConflict: 'user_id,venue_id,referrer_code' }
+        );
+    } catch (error) {
+      console.error('Error claiming stored pending invitation:', error);
+    } finally {
+      try {
+        window.localStorage.removeItem(pendingInvitationStorageKey);
+      } catch {}
+    }
+  }
+
+  async function getInvitationStatusForVenue(
+    userId: string,
+    venueIdValue: string,
+    venueNameValue: string
+  ): Promise<string | null> {
+    try {
+      let query = supabase
+        .from('invitations')
+        .select('status')
+        .eq('user_id', userId)
+        .limit(1);
+      if (venueIdValue) {
+        query = query.eq('venue_id', venueIdValue);
+      } else if (venueNameValue) {
+        query = query.ilike('venue_name', venueNameValue);
+      }
+      const { data, error } = await query.maybeSingle();
+      if (error) {
+        console.error('Error checking invitations:', error);
+        return null;
+      }
+      return data?.status ?? null;
+    } catch (error) {
+      console.error('Error checking invitations:', error);
+      return null;
     }
   }
 
@@ -847,6 +957,11 @@
     showPaymentVerificationWarning = false;
   }
 
+  function dismissInvitationExistsWarning() {
+    showInvitationExistsWarning = false;
+  }
+
+
   function handleVerificationFailure(mode: 'retry' | 'nomatch') {
     status = 'idle';
     showPaymentVerificationModal(mode);
@@ -959,16 +1074,16 @@
       document.body.style.overflow = 'auto';
       document.documentElement.style.overflow = 'auto';
     }
-    const urlParams =
+    let urlParams =
       typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
-    const refParam = urlParams?.get('ref')?.trim() ?? '';
-    const venueParam = urlParams?.get('venue')?.trim() ?? '';
-    const venueIdParam = urlParams?.get('venue_id')?.trim() ?? '';
-    const hasRef = Boolean(refParam);
-    const hasVenueParam = Boolean(venueParam || venueIdParam);
-    const hasRefAndVenue = hasRef && hasVenueParam;
-    const hasVenueOnly = hasVenueParam && !hasRef;
-    const hasRefOnly = hasRef && !hasVenueParam;
+    let refParam = urlParams?.get('ref')?.trim() ?? '';
+    let venueParam = urlParams?.get('venue')?.trim() ?? '';
+    let venueIdParam = urlParams?.get('venue_id')?.trim() ?? '';
+    let hasRef = Boolean(refParam);
+    let hasVenueParam = Boolean(venueParam || venueIdParam);
+    let hasRefAndVenue = hasRef && hasVenueParam;
+    let hasVenueOnly = hasVenueParam && !hasRef;
+    let hasRefOnly = hasRef && !hasVenueParam;
     venueRefLandingMode = hasRefAndVenue;
 
     const localNow = getLocalNowInputValue();
@@ -979,8 +1094,37 @@
     const { data } = await supabase.auth.getSession();
     session = data.session;
     userId = session?.user?.id ?? null;
+
+    if (session && typeof window !== 'undefined' && !hasRef && !hasVenueParam) {
+      try {
+        const storedParamsRaw = window.localStorage.getItem(pendingUrlParamsStorageKey);
+        if (storedParamsRaw) {
+          const storedParams = new URLSearchParams(storedParamsRaw);
+          const storedRef = storedParams.get('ref')?.trim() ?? '';
+          const storedVenue = storedParams.get('venue')?.trim() ?? '';
+          const storedVenueId = storedParams.get('venue_id')?.trim() ?? '';
+          if (storedRef || storedVenue || storedVenueId) {
+            urlParams = storedParams;
+            refParam = storedRef;
+            venueParam = storedVenue;
+            venueIdParam = storedVenueId;
+            hasRef = Boolean(refParam);
+            hasVenueParam = Boolean(venueParam || venueIdParam);
+            hasRefAndVenue = hasRef && hasVenueParam;
+            hasVenueOnly = hasVenueParam && !hasRef;
+            hasRefOnly = hasRef && !hasVenueParam;
+            venueRefLandingMode = hasRefAndVenue;
+          }
+          window.localStorage.removeItem(pendingUrlParamsStorageKey);
+        }
+      } catch {}
+    }
     if (userId) {
       await claimStoredActivationToken();
+      if (typeof window !== 'undefined' && window.localStorage.getItem(pendingInvitationStorageKey)) {
+        await venuesPromise;
+      }
+      await claimStoredPendingInvitation();
       await fetchPendingInvitations(userId);
     }
     if (userId) {
@@ -1017,6 +1161,11 @@
 
     if (!session) {
       if (hasVenueOnly) {
+        if (typeof window !== 'undefined') {
+          try {
+            window.localStorage.setItem(pendingUrlParamsStorageKey, urlParams?.toString() ?? '');
+          } catch {}
+        }
         window.location.href = `/login?${urlParams?.toString() ?? ''}`;
         return;
       }
@@ -1075,6 +1224,21 @@
         String(draft.last4 ?? '').trim()
       )
     );
+
+    if (!hasDraft) {
+      const normalizedRef = normalizeReferralCode(refParam);
+      if (hasRef && normalizedRef) {
+        referrer = normalizedRef;
+        isReferrerLocked = true;
+      }
+      if (hasVenueParam) {
+        const resolvedVenue = venueFromParams?.name ?? venueParam;
+        if (resolvedVenue) {
+          venue = resolvedVenue;
+          isVenueLocked = true;
+        }
+      }
+    }
 
     if (hasDraft && draft) {
       amountInput = String(draft.amount ?? '');
@@ -1632,6 +1796,16 @@
     if (!normalizedVenue) return null;
     const venueIdMatch = getVenueIdByName(venueName);
 
+    for (const invite of pendingInvitations) {
+      if (!invite) continue;
+      if (venueIdMatch && invite.venueId && invite.venueId === venueIdMatch) {
+        return { id: null, code: invite.referrerCode };
+      }
+      if (!venueIdMatch && invite.venueName?.trim().toLowerCase() === normalizedVenue) {
+        return { id: null, code: invite.referrerCode };
+      }
+    }
+
     let earliestTime = Number.POSITIVE_INFINITY;
     let referrerId: string | null = null;
     let referrerCode: string | null = null;
@@ -1760,6 +1934,7 @@
   {:else if session && !showForm}
     <div class="mx-auto w-full max-w-6xl p-6 flex flex-col items-center">
       <Dashboard
+        bind:this={dashboardComponent}
         {claims}
         totalBalance={totalBalance}
         totalScheduled={totalScheduled}
@@ -1786,6 +1961,7 @@
         {session}
         {venueRefLandingMode}
         progressiveAddVenueFlow={isDirectAddVenueFlow}
+        {pendingInvitationStorageKey}
         showBack={Boolean(session)}
         {status}
         {errorMessage}
@@ -1841,6 +2017,12 @@
       <PaymentVerificationModal
         mode={paymentVerificationMode}
         onDismiss={dismissPaymentVerificationModal}
+      />
+    {/if}
+    {#if showInvitationExistsWarning}
+      <InvitationExistsModal
+        venue={invitationExistsVenue || venue}
+        onDismiss={dismissInvitationExistsWarning}
       />
     {/if}
     {#if showClaimWindowExpired}

@@ -8,20 +8,26 @@
 
   let fullName = '';
   let payId = '';
-  let isHobbyist = false;
-  let hobbyistConfirmedAt: string | null = null;
+  let bsb = '';
+  let accountNumber = '';
+  let useBankDetails = false;
+  let payoutMethod: 'payid' | 'bank' = 'payid';
   let status: 'idle' | 'saving' | 'success' | 'error' = 'idle';
   let errorMessage = '';
   let successMessage = '';
 
+  function onlyDigits(value: string, maxLen: number) {
+    return value.replace(/\D/g, '').slice(0, maxLen);
+  }
+
+  function formatBsbInput(value: string) {
+    const digits = onlyDigits(value, 6);
+    if (digits.length <= 3) return digits;
+    return `${digits.slice(0, 3)}-${digits.slice(3)}`;
+  }
+
   async function handleSave() {
     if (!userId) return;
-
-    if (isHobbyist && !hobbyistConfirmedAt) {
-      hobbyistConfirmedAt = new Date().toISOString();
-    } else if (!isHobbyist) {
-      hobbyistConfirmedAt = null;
-    }
 
     status = 'saving';
     errorMessage = '';
@@ -29,9 +35,8 @@
 
     try {
       const trimmedPayId = payId.trim();
-      
-      if (trimmedPayId) {
-        // Check if pay_id is already used by another user
+
+      if (!useBankDetails && trimmedPayId) {
         const { data: existing, error: checkError } = await supabase
           .from('payout_profiles')
           .select('user_id')
@@ -45,12 +50,14 @@
         }
       }
 
+      payoutMethod = useBankDetails ? 'bank' : 'payid';
       const payload = {
         user_id: userId,
         pay_id: trimmedPayId || null,
+        bsb: onlyDigits(bsb, 6) || null,
+        account_number: onlyDigits(accountNumber, 9) || null,
+        payout_method: payoutMethod,
         full_name: fullName.trim() || null,
-        is_hobbyist: isHobbyist,
-        hobbyist_confirmed_at: hobbyistConfirmedAt,
         updated_at: new Date().toISOString()
       };
 
@@ -92,14 +99,15 @@
   >
     <div class="text-center mb-8">
       <h2 class="text-xl font-black uppercase tracking-widest text-white">Payout Details</h2>
-      <p class="mt-2 text-xs font-bold uppercase tracking-widest text-zinc-500">Set up how you'll get paid</p>
+      <p class="mt-2 text-sm font-semibold text-zinc-500">Set up how you'll get paid</p>
     </div>
 
-    <div class="space-y-6">
+    <div class="space-y-0">
       <div>
-        <label for="modal-full-name" class="mb-1 block text-[10px] font-black uppercase tracking-widest text-zinc-500">
+        <label for="modal-full-name" class="block text-[10px] font-black uppercase tracking-widest text-zinc-500">
           Full Name
         </label>
+        <div class="h-2"></div>
         <input
           id="modal-full-name"
           type="text"
@@ -109,46 +117,79 @@
         />
       </div>
 
-      <div>
-        <label for="modal-payid" class="mb-1 block text-[10px] font-black uppercase tracking-widest text-zinc-500">
-          PayID
-        </label>
-        <input
-          id="modal-payid"
-          type="text"
-          bind:value={payId}
-          placeholder="Phone or email"
-          class="w-full rounded-2xl border border-zinc-800 bg-zinc-900/50 px-4 py-4 text-sm text-white placeholder-zinc-600 focus:border-orange-500/50 focus:outline-none focus:ring-1 focus:ring-orange-500/50 transition-all"
-        />
+      <div class="h-6"></div>
+
+      <div class="space-y-0">
+        {#if !useBankDetails}
+          <div class="flex items-center justify-between min-h-[18px]">
+            <label class="block text-[10px] font-black uppercase tracking-widest text-zinc-500">
+              PayID
+            </label>
+            <button
+              type="button"
+              on:click={() => (useBankDetails = !useBankDetails)}
+              class="text-[10px] font-black uppercase tracking-widest text-orange-500/80 hover:text-orange-500 underline decoration-orange-500/30 transition-colors"
+            >
+              BSB + account no.
+            </button>
+          </div>
+          <div class="h-2"></div>
+          <input
+            id="modal-payid"
+            type="text"
+            bind:value={payId}
+            placeholder="Phone or email"
+            class="w-full rounded-2xl border border-zinc-800 bg-zinc-900/50 px-4 py-4 text-sm text-white placeholder-zinc-600 focus:border-orange-500/50 focus:outline-none focus:ring-1 focus:ring-orange-500/50 transition-all"
+          />
+        {:else}
+          <div class="space-y-0">
+            <div>
+              <div class="flex items-center justify-between min-h-[18px]">
+                <label for="modal-bsb" class="block text-[10px] font-black uppercase tracking-widest text-zinc-500">
+                  BSB
+                </label>
+                <button
+                  type="button"
+                  on:click={() => (useBankDetails = !useBankDetails)}
+                  class="text-[10px] font-black uppercase tracking-widest text-orange-500/80 hover:text-orange-500 underline decoration-orange-500/30 transition-colors"
+                >
+                  PayID
+                </button>
+              </div>
+              <div class="h-2"></div>
+              <input
+                id="modal-bsb"
+                type="text"
+                inputmode="numeric"
+                bind:value={bsb}
+                maxlength="7"
+                on:input={(event) => (bsb = formatBsbInput((event.currentTarget as HTMLInputElement).value))}
+                placeholder="000-000"
+                class="w-full rounded-2xl border border-zinc-800 bg-zinc-900/50 px-4 py-4 text-sm text-white placeholder-zinc-600 focus:border-orange-500/50 focus:outline-none focus:ring-1 focus:ring-orange-500/50 transition-all"
+              />
+            </div>
+            <div class="h-4"></div>
+            <div>
+              <label for="modal-account" class="block text-[10px] font-black uppercase tracking-widest text-zinc-500">
+                Account No.
+              </label>
+              <div class="h-2"></div>
+              <input
+                id="modal-account"
+                type="text"
+                inputmode="numeric"
+                bind:value={accountNumber}
+                maxlength="9"
+                on:input={(event) => (accountNumber = onlyDigits((event.currentTarget as HTMLInputElement).value, 9))}
+                placeholder="Account number"
+                class="w-full rounded-2xl border border-zinc-800 bg-zinc-900/50 px-4 py-4 text-sm text-white placeholder-zinc-600 focus:border-orange-500/50 focus:outline-none focus:ring-1 focus:ring-orange-500/50 transition-all"
+              />
+            </div>
+          </div>
+        {/if}
       </div>
 
-      <label class="flex items-start gap-4 cursor-pointer group pt-2">
-        <div class="relative flex items-center pt-1">
-          <input
-            type="checkbox"
-            bind:checked={isHobbyist}
-            class="peer h-5 w-5 rounded-lg border-zinc-800 bg-zinc-900 text-orange-500 focus:ring-orange-500/20 focus:ring-offset-0 transition-all cursor-pointer appearance-none border"
-          />
-          <svg 
-            class="absolute h-5 w-5 text-orange-500 opacity-0 peer-checked:opacity-100 transition-opacity pointer-events-none p-1" 
-            fill="none" 
-            viewBox="0 0 24 24" 
-            stroke="currentColor" 
-            stroke-width="4"
-          >
-            <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
-          </svg>
-        </div>
-        <div class="flex-1">
-          <p class="text-[11px] font-black uppercase tracking-widest text-white group-hover:text-orange-500 transition-colors">
-            I confirm I'm a Hobbyist
-          </p>
-          <p class="mt-1 text-[10px] leading-relaxed font-bold text-zinc-500 uppercase tracking-tight">
-            I agree that my referrals are a social/recreational activity and not a business. 
-            <a href="/terms" target="_blank" class="text-orange-500/80 hover:text-orange-500 underline decoration-orange-500/30 transition-colors">Terms</a>
-          </p>
-        </div>
-      </label>
+      <div class="h-6"></div>
 
       {#if errorMessage}
         <p class="text-[10px] font-black uppercase tracking-widest text-red-500 text-center">{errorMessage}</p>
@@ -157,12 +198,14 @@
         <p class="text-[10px] font-black uppercase tracking-widest text-green-500 text-center">{successMessage}</p>
       {/if}
 
-      <div class="pt-4 space-y-4">
+      <div class="h-4"></div>
+
+      <div class="space-y-4">
         <button
           type="button"
           on:click={handleSave}
           disabled={status === 'saving'}
-          class="w-full rounded-2xl bg-white py-4 text-sm font-black uppercase tracking-widest text-black hover:bg-orange-500 hover:text-white transition-all disabled:opacity-50 disabled:cursor-not-allowed active:scale-95"
+          class="w-full rounded-2xl bg-white py-4 text-sm font-black uppercase tracking-widest text-black hover:bg-white/90 transition-all disabled:opacity-50 disabled:cursor-not-allowed active:scale-95"
         >
           {status === 'saving' ? 'Saving...' : 'Save Details'}
         </button>

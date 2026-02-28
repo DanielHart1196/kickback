@@ -5,8 +5,14 @@ import { supabaseAdmin } from '$lib/server/supabaseAdmin';
 import { listSquarePayments, type SquarePayment } from '$lib/server/square/payments';
 import { isFingerprintBlocked } from '$lib/server/square/fingerprints';
 import { createEarningsForClaimId } from '$lib/server/earnings';
+import { GOAL_DAYS } from '$lib/claims/constants';
 const searchWindowMinutes = 10;
 const matchToleranceMinutes = 5;
+const dayMs = 24 * 60 * 60 * 1000;
+
+function normalizeReferrerCode(code: string | null): string {
+  return String(code ?? '').trim().toUpperCase();
+}
 
 export async function POST({ request }: RequestEvent) {
   const body = await request.json().catch(() => null);
@@ -31,7 +37,7 @@ export async function POST({ request }: RequestEvent) {
 
   const { data: claim, error: claimError } = await supabaseAdmin
     .from('claims')
-    .select('id,venue_id,purchased_at,amount,last_4,square_payment_id,submitter_id')
+    .select('id,venue_id,venue,referrer,purchased_at,amount,last_4,square_payment_id,submitter_id')
     .eq('id', claimId)
     .maybeSingle();
 
@@ -236,6 +242,70 @@ export async function POST({ request }: RequestEvent) {
     }
     await cleanupClaimOnFailure();
     return json({ ok: false, error: updateError.message }, { status: 500 });
+  }
+
+  if (autoClaimStatus === 'approved') {
+    try {
+      const submitterId = claim.submitter_id ?? null;
+      const venueId = claim.venue_id ?? null;
+      const referrerCode = normalizeReferrerCode(claim.referrer ?? null);
+      if (submitterId && venueId && referrerCode) {
+        const { data: existingActive } = await supabaseAdmin
+          .from('invitations')
+          .select('id')
+          .eq('user_id', submitterId)
+          .eq('venue_id', venueId)
+          .eq('status', 'active')
+          .maybeSingle();
+        if (existingActive?.id) {
+          return json({ ok: true, linked: true, activation_skipped: true });
+        }
+        const activatedAtIso = claim.purchased_at ?? bestMatch.payment.created_at ?? new Date().toISOString();
+        const activatedAtMs = new Date(activatedAtIso).getTime();
+        if (Number.isFinite(activatedAtMs)) {
+          const expiresAtIso = new Date(activatedAtMs + GOAL_DAYS * dayMs).toISOString();
+          const venueName = String(claim.venue ?? '').trim();
+          const { data: updatedRows, error: updateInviteError } = await supabaseAdmin
+            .from('invitations')
+            .update({
+              status: 'active',
+              activated_at: activatedAtIso,
+              expires_at: expiresAtIso,
+              last_activity_at: new Date().toISOString()
+            })
+            .eq('user_id', submitterId)
+            .eq('venue_id', venueId)
+            .eq('referrer_code', referrerCode)
+            .eq('status', 'pending')
+            .select('id');
+          if (!updateInviteError && (!updatedRows || updatedRows.length === 0)) {
+            if (venueName) {
+              await supabaseAdmin
+                .from('invitations')
+                .insert(
+                  {
+                    user_id: submitterId,
+                    venue_id: venueId,
+                    venue_name: venueName,
+                    referrer_code: referrerCode,
+                    status: 'active',
+                    activated_at: activatedAtIso,
+                    expires_at: expiresAtIso,
+                    last_activity_at: new Date().toISOString()
+                  },
+                  { onConflict: 'user_id,venue_id,referrer_code', ignoreDuplicates: true }
+                );
+            }
+          }
+          await supabaseAdmin
+            .from('invitations')
+            .delete()
+            .eq('user_id', submitterId)
+            .eq('venue_id', venueId)
+            .eq('status', 'pending');
+        }
+      }
+    } catch {}
   }
 
   try {

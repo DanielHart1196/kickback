@@ -121,7 +121,7 @@ export const POST: RequestHandler = async ({ request, fetch }) => {
 
   const [{ data: profiles }, { data: payoutProfiles }, { data: venues }] = await Promise.all([
     supabaseAdmin.from('profiles').select('id, referral_code, email, notify_payout_confirmation').in('id', userIds),
-    supabaseAdmin.from('payout_profiles').select('user_id, pay_id').in('user_id', userIds)
+    supabaseAdmin.from('payout_profiles').select('user_id, pay_id, bsb, account_number, payout_method').in('user_id', userIds)
     ,
     venueIds.size > 0
       ? supabaseAdmin.from('venues').select('id, name').in('id', Array.from(venueIds))
@@ -130,6 +130,9 @@ export const POST: RequestHandler = async ({ request, fetch }) => {
 
   const profileById = new Map((profiles ?? []).map((p) => [String(p.id), p]));
   const payIdByUser = new Map((payoutProfiles ?? []).map((p) => [String(p.user_id), String(p.pay_id ?? '')]));
+  const bsbByUser = new Map((payoutProfiles ?? []).map((p) => [String(p.user_id), String(p.bsb ?? '')]));
+  const accountByUser = new Map((payoutProfiles ?? []).map((p) => [String(p.user_id), String(p.account_number ?? '')]));
+  const methodByUser = new Map((payoutProfiles ?? []).map((p) => [String(p.user_id), String(p.payout_method ?? '')]));
   const venueNameById = new Map((venues ?? []).map((v: any) => [String(v.id), String(v.name ?? '')]));
   const payoutEmailsConfigured = Boolean(env.PRIVATE_SMTP_PASS);
 
@@ -147,8 +150,12 @@ export const POST: RequestHandler = async ({ request, fetch }) => {
         user_id: userId,
         referral_code: profile?.referral_code ?? null,
         email: profile?.email ?? null,
+        notify_payout_confirmation: Boolean(profile?.notify_payout_confirmation),
         payout_email_enabled: payoutEmailEnabled,
         pay_id: payIdByUser.get(userId) ?? null,
+        bsb: bsbByUser.get(userId) ?? null,
+        account_number: accountByUser.get(userId) ?? null,
+        payout_method: methodByUser.get(userId) ?? null,
         total_amount: Number(agg.amount.toFixed(2)),
         claim_ids: Array.from(agg.claim_ids),
         currency: agg.currency,
@@ -182,6 +189,9 @@ export const POST: RequestHandler = async ({ request, fetch }) => {
   const claimIds = Array.from(aggregate.claim_ids).filter(Boolean);
   const payoutAmount = Number(aggregate.amount.toFixed(2));
   const payoutPayId = payIdByUser.get(targetUserId) ?? '';
+  const payoutBsb = bsbByUser.get(targetUserId) ?? '';
+  const payoutAccountNumber = accountByUser.get(targetUserId) ?? '';
+  const payoutMethod = methodByUser.get(targetUserId) ?? '';
   const paidAt = new Date().toISOString();
 
   const { data: scheduledUpdate, error: scheduledUpdateError } = await supabaseAdmin
@@ -212,6 +222,9 @@ export const POST: RequestHandler = async ({ request, fetch }) => {
     claim_count: claimIds.length,
     status: 'paid',
     pay_id: payoutPayId || null,
+    bsb: payoutBsb || null,
+    account_number: payoutAccountNumber || null,
+    payout_method: payoutMethod || null,
     paid_at: paidAt,
     updated_at: paidAt
   });

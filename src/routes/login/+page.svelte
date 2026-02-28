@@ -25,6 +25,10 @@
   let password = '';
   let usePassword = false;
   let magicLinkLoading = false;
+  let magicLinkSentOnce = false;
+  let magicLinkCooldown = 0;
+  let magicLinkTimer: ReturnType<typeof setInterval> | null = null;
+  const magicLinkCooldownKey = 'kickback:magic_link_cooldown_until';
   let passwordAuthLoading = false;
   let venuePromo: { name: string; logo_url: string | null; rate_pct: number } | null = null;
   let promoLogoLoaded = false;
@@ -81,6 +85,35 @@
     if (data?.session?.user) {
       window.location.href = '/';
       return;
+    }
+
+    const storedCooldown = window.localStorage.getItem(magicLinkCooldownKey);
+    if (storedCooldown) {
+      const until = Number(storedCooldown);
+      const remaining = Math.max(0, Math.ceil((until - Date.now()) / 1000));
+      if (remaining > 0) {
+        magicLinkSentOnce = true;
+        magicLinkCooldown = remaining;
+        if (magicLinkTimer) {
+          clearInterval(magicLinkTimer);
+          magicLinkTimer = null;
+        }
+        magicLinkTimer = setInterval(() => {
+          const nextRemaining = Math.max(0, Math.ceil((until - Date.now()) / 1000));
+          magicLinkCooldown = nextRemaining;
+          if (nextRemaining === 0 && magicLinkTimer) {
+            clearInterval(magicLinkTimer);
+            magicLinkTimer = null;
+            try {
+              window.localStorage.removeItem(magicLinkCooldownKey);
+            } catch {}
+          }
+        }, 1000);
+      } else {
+        try {
+          window.localStorage.removeItem(magicLinkCooldownKey);
+        } catch {}
+      }
     }
 
     const params = new URLSearchParams(window.location.search);
@@ -224,6 +257,7 @@
         message = error.message;
       } else {
         message = 'MAGIC LINK SENT, CHECK YOUR INBOX';
+        startMagicLinkCooldown();
       }
     } catch (error) {
       message = error instanceof Error ? error.message : 'Failed to send magic link';
@@ -231,6 +265,37 @@
       magicLinkLoading = false;
     }
   }
+
+  function startMagicLinkCooldown() {
+    magicLinkSentOnce = true;
+    const until = Date.now() + 60_000;
+    magicLinkCooldown = 60;
+    try {
+      window.localStorage.setItem(magicLinkCooldownKey, String(until));
+    } catch {}
+    if (magicLinkTimer) {
+      clearInterval(magicLinkTimer);
+      magicLinkTimer = null;
+    }
+    magicLinkTimer = setInterval(() => {
+      const remaining = Math.max(0, Math.ceil((until - Date.now()) / 1000));
+      magicLinkCooldown = remaining;
+      if (remaining === 0 && magicLinkTimer) {
+        clearInterval(magicLinkTimer);
+        magicLinkTimer = null;
+        try {
+          window.localStorage.removeItem(magicLinkCooldownKey);
+        } catch {}
+      }
+    }, 1000);
+  }
+
+  onDestroy(() => {
+    if (magicLinkTimer) {
+      clearInterval(magicLinkTimer);
+      magicLinkTimer = null;
+    }
+  });
 
   async function handlePasswordAuth() {
     const normalizedEmail = email.trim();
@@ -407,26 +472,20 @@
       <button
         type="button"
         on:click={usePassword ? handlePasswordAuth : handleMagicLink}
-        disabled={magicLinkLoading || passwordAuthLoading}
+        disabled={magicLinkLoading || passwordAuthLoading || (!usePassword && magicLinkCooldown > 0)}
         class="w-full h-10 rounded-full bg-orange-500 text-black text-[14px] leading-[20px] font-black inline-flex items-center justify-center active:scale-95 transition-all disabled:opacity-50 hover:bg-orange-600"
       >
         {#if usePassword}
           {passwordAuthLoading ? 'SIGNING IN...' : 'SIGN IN / UP'}
         {:else}
-          {magicLinkLoading ? 'SENDING...' : 'SEND MAGIC LINK'}
+          {magicLinkLoading
+            ? 'SENDING...'
+            : magicLinkCooldown > 0
+              ? `RESEND (${magicLinkCooldown})`
+              : magicLinkSentOnce
+                ? 'RESEND'
+                : 'SEND MAGIC LINK'}
         {/if}
-      </button>
-      <button
-        type="button"
-        on:click={() => {
-          usePassword = !usePassword;
-          message = '';
-          if (!usePassword) password = '';
-        }}
-        disabled={magicLinkLoading || passwordAuthLoading}
-        class="text-xs font-semibold text-zinc-400 hover:text-zinc-200 transition-colors disabled:opacity-50"
-      >
-        {usePassword ? 'Use magic link instead' : 'Use a password instead'}
       </button>
       {#if usePassword}
         <button
@@ -442,6 +501,19 @@
       {#if message}
         <p transition:fade class="text-center text-xs font-bold text-zinc-400 uppercase">{message}</p>
       {/if}
+
+      <button
+        type="button"
+        on:click={() => {
+          usePassword = !usePassword;
+          message = '';
+          if (!usePassword) password = '';
+        }}
+        disabled={magicLinkLoading || passwordAuthLoading}
+        class="text-xs font-semibold text-zinc-400 hover:text-zinc-200 transition-colors disabled:opacity-50"
+      >
+        {usePassword ? 'Use magic link instead' : 'Use a password instead'}
+      </button>
     </div>
 
     <p class="text-center text-[10px] text-zinc-500 leading-snug">

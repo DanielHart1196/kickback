@@ -114,7 +114,11 @@
         referral_code: string | null;
         email: string | null;
         payout_email_enabled?: boolean;
+        notify_payout_confirmation?: boolean;
         pay_id: string | null;
+        bsb?: string | null;
+        account_number?: string | null;
+        payout_method?: string | null;
         total_amount: number;
         claim_ids: string[];
         claim_count: number;
@@ -134,6 +138,9 @@
         referral_code: string | null;
         email: string | null;
         pay_id: string | null;
+        bsb?: string | null;
+        account_number?: string | null;
+        payout_method?: string | null;
         amount: number;
         currency: string;
         paid_at: string;
@@ -1737,6 +1744,12 @@
                     Email: <span class="text-zinc-300 normal-case tracking-normal">{payout.email ?? 'Unknown'}</span>
                   </div>
                   <div class="mt-1 text-zinc-500 uppercase tracking-widest">
+                    Payout notifications:{' '}
+                    <span class={`normal-case tracking-normal ${payout.notify_payout_confirmation ? 'text-green-300' : 'text-zinc-400'}`}>
+                      {payout.notify_payout_confirmation ? 'On' : 'Off'}
+                    </span>
+                  </div>
+                  <div class="mt-1 text-zinc-500 uppercase tracking-widest">
                     Payout emails:{' '}
                     <span class={`normal-case tracking-normal ${payout.payout_email_enabled ? 'text-green-300' : 'text-zinc-400'}`}>
                       {payout.payout_email_enabled ? 'On' : 'Off'}
@@ -1744,6 +1757,18 @@
                   </div>
                   <div class="mt-1 text-zinc-500 uppercase tracking-widest">
                     PayID: <span class="text-zinc-300 normal-case tracking-normal">{payout.pay_id ?? 'Not set'}</span>
+                  </div>
+                  <div class="mt-1 text-zinc-500 uppercase tracking-widest">
+                    BSB/Account:{' '}
+                    <span class="text-zinc-300 normal-case tracking-normal">
+                      {payout.bsb || payout.account_number ? `${payout.bsb ?? ''} ${payout.account_number ?? ''}`.trim() : 'Not set'}
+                    </span>
+                  </div>
+                  <div class="mt-1 text-zinc-500 uppercase tracking-widest">
+                    Payout method:{' '}
+                    <span class="text-zinc-300 normal-case tracking-normal">
+                      {payout.payout_method ? payout.payout_method.toUpperCase() : 'Not set'}
+                    </span>
                   </div>
                   {#if payout.payout_email_enabled && payout.breakdown}
                     <div class="mt-3 text-[10px] text-zinc-400 normal-case tracking-normal space-y-1">
@@ -1860,7 +1885,7 @@
               <th class="px-4 py-3 font-semibold">Paid At</th>
               <th class="px-4 py-3 font-semibold">User</th>
               <th class="px-4 py-3 font-semibold">Email</th>
-              <th class="px-4 py-3 font-semibold">PayID</th>
+              <th class="px-4 py-3 font-semibold">Payout</th>
               <th class="px-4 py-3 font-semibold text-right">Claims</th>
               <th class="px-4 py-3 font-semibold text-right">Amount</th>
             </tr>
@@ -1880,7 +1905,13 @@
                     {row.referral_code ?? row.user_id}
                   </td>
                   <td class="px-4 py-3 text-sm text-zinc-300">{row.email ?? 'Unknown'}</td>
-                  <td class="px-4 py-3 text-sm text-zinc-300">{row.pay_id ?? 'Not set'}</td>
+                  <td class="px-4 py-3 text-sm text-zinc-300">
+                    {row.payout_method === 'bank'
+                      ? row.bsb && row.account_number
+                        ? `${row.bsb}-${row.account_number}`
+                        : 'Not set'
+                      : row.pay_id ?? 'Not set'}
+                  </td>
                   <td class="px-4 py-3 text-sm text-right text-zinc-300">{row.claim_count}</td>
                   <td class="px-4 py-3 text-sm text-right font-mono text-cyan-300">
                     ${row.amount.toFixed(2)} {row.currency.toUpperCase()}

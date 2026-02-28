@@ -53,6 +53,9 @@ import { onMount, tick } from 'svelte';
     currency: string;
     paid_at: string;
     pay_id: string;
+    bsb?: string;
+    account_number?: string;
+    payout_method?: string;
     claim_count?: number;
     period_start: string;
     period_end: string;
@@ -89,6 +92,9 @@ import { onMount, tick } from 'svelte';
   let showDeleteInvitationWarning = false;
   let deleteInvitationTarget: PendingInvitation | null = null;
   let payoutPayId = '';
+  let payoutBsb = '';
+  let payoutAccountNumber = '';
+  let payoutUseBankDetails = false;
   let payoutFullName = '';
   let payoutDob = '';
   let payoutAddress = '';
@@ -122,6 +128,16 @@ import { onMount, tick } from 'svelte';
   let notifyPayoutConfirmation = false;
   let isPwaInstalled = false;
   let isMobileScreen = false;
+
+  function onlyDigits(value: string, maxLen: number) {
+    return value.replace(/\D/g, '').slice(0, maxLen);
+  }
+
+  function formatBsbInput(value: string) {
+    const digits = onlyDigits(value, 6);
+    if (digits.length <= 3) return digits;
+    return `${digits.slice(0, 3)}-${digits.slice(3)}`;
+  }
   const pwaInstalledKey = 'kickback:pwa_installed';
   function urlBase64ToUint8Array(base64String: string) {
     const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
@@ -427,13 +443,22 @@ import { onMount, tick } from 'svelte';
       // Load payout profile data
       const { data: payoutData, error: payoutErrorData } = await supabase
         .from('payout_profiles')
-        .select('pay_id, full_name, dob, address, abn, is_hobbyist, hobbyist_confirmed_at')
+        .select('pay_id, bsb, account_number, payout_method, full_name, dob, address, abn, is_hobbyist, hobbyist_confirmed_at')
         .eq('user_id', userId)
         .maybeSingle();
       
       if (payoutErrorData) throw payoutErrorData;
       
       payoutPayId = payoutData?.pay_id ?? '';
+      payoutBsb = payoutData?.bsb ?? '';
+      payoutAccountNumber = payoutData?.account_number ?? '';
+      if (payoutData?.payout_method === 'bank') {
+        payoutUseBankDetails = true;
+      } else if (payoutData?.payout_method === 'payid') {
+        payoutUseBankDetails = false;
+      } else {
+        payoutUseBankDetails = Boolean((payoutBsb || payoutAccountNumber) && !payoutPayId);
+      }
       payoutFullName = payoutData?.full_name ?? '';
       payoutDob = payoutData?.dob ?? '';
       payoutAddress = payoutData?.address ?? '';
@@ -506,6 +531,10 @@ import { onMount, tick } from 'svelte';
     } finally {
       payoutProfileLoading = false;
     }
+  }
+
+  export async function loadPayoutProfile() {
+    await loadPayoutProfileInternal(true);
   }
 
   async function saveNotificationPreferences() {
@@ -700,6 +729,9 @@ import { onMount, tick } from 'svelte';
 
   $: payoutProfileCurrent = JSON.stringify({
     pay_id: payoutPayId.trim(),
+    bsb: onlyDigits(payoutBsb, 6),
+    account_number: onlyDigits(payoutAccountNumber, 9),
+    payout_use_bank: payoutUseBankDetails,
     full_name: payoutFullName.trim(),
     dob: payoutDob,
     address: payoutAddress.trim(),
@@ -729,7 +761,7 @@ import { onMount, tick } from 'svelte';
     try {
       const trimmedPayId = payoutPayId.trim();
 
-      if (trimmedPayId) {
+      if (!payoutUseBankDetails && trimmedPayId) {
         // Check if pay_id is already used by another user
         const { data: existing, error: checkError } = await supabase
           .from('payout_profiles')
@@ -747,6 +779,9 @@ import { onMount, tick } from 'svelte';
       const payoutPayload = {
         user_id: userId,
         pay_id: trimmedPayId || null,
+        bsb: onlyDigits(payoutBsb, 6) || null,
+        account_number: onlyDigits(payoutAccountNumber, 9) || null,
+        payout_method: payoutUseBankDetails ? 'bank' : 'payid',
         full_name: payoutFullName.trim() || null,
         dob: payoutDob || null,
         address: payoutAddress.trim() || null,
@@ -1651,9 +1686,26 @@ import { onMount, tick } from 'svelte';
             <div class="px-5 pb-6 pt-2 space-y-4">
               <div class="grid grid-cols-1 gap-3 pt-2 border-t border-zinc-800/50">
                 <div class="flex items-center justify-between">
-                  <p class="text-xs font-black text-zinc-400 uppercase">PayID</p>
-                  <p class="text-sm font-bold text-white">{item.payout.pay_id || 'Not set'}</p>
+                  <p class="text-xs font-black text-zinc-400 uppercase">Payout Method</p>
+                  <p class="text-sm font-bold text-white">
+                    {item.payout.payout_method ? item.payout.payout_method.toUpperCase() : 'PayID'}
+                  </p>
                 </div>
+                {#if (item.payout.payout_method ?? '') === 'bank'}
+                  <div class="flex items-center justify-between">
+                    <p class="text-xs font-black text-zinc-400 uppercase">BSB/Account</p>
+                    <p class="text-sm font-bold text-white">
+                      {item.payout.bsb && item.payout.account_number
+                        ? `${item.payout.bsb}-${item.payout.account_number}`
+                        : 'Not set'}
+                    </p>
+                  </div>
+                {:else}
+                  <div class="flex items-center justify-between">
+                    <p class="text-xs font-black text-zinc-400 uppercase">PayID</p>
+                    <p class="text-sm font-bold text-white">{item.payout.pay_id || 'Not set'}</p>
+                  </div>
+                {/if}
                 <div class="flex items-center justify-between">
                   <p class="text-xs font-black text-zinc-400 uppercase">Total Amount</p>
                   <p class="text-sm font-bold text-[#0D9CFF]">${Number(item.payout.amount ?? 0).toFixed(2)} {String(item.payout.currency ?? 'aud').toUpperCase()}</p>
@@ -1952,63 +2004,109 @@ import { onMount, tick } from 'svelte';
                 />
               </div>
               <div>
-                <label for="payout-payid" class="mb-1 block text-[11px] font-black uppercase tracking-[0.2em] text-white">
-                  PayID
-                </label>
-                <input
-                  id="payout-payid"
-                  type="text"
-                  bind:value={payoutPayId}
-                  placeholder="Phone or email"
-                  class="w-full rounded-xl border border-zinc-800 bg-black/40 px-4 py-3 text-sm text-white placeholder-zinc-600 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500 transition-all"
-                />
-              </div>
-
-              <div class="space-y-3 pt-2">
-                <label class="flex items-start gap-3 cursor-pointer group">
-                  <div class="relative flex items-center pt-0.5">
-                    <input
-                      type="checkbox"
-                      bind:checked={payoutIsHobbyist}
-                      on:change={() => (payoutHobbyistInteracted = true)}
-                      class="peer h-4 w-4 rounded border-zinc-800 bg-black/40 text-orange-500 focus:ring-orange-500/20 focus:ring-offset-0 transition-all cursor-pointer appearance-none border"
-                    />
-                    <svg 
-                      class="absolute h-4 w-4 text-orange-500 opacity-0 peer-checked:opacity-100 transition-opacity pointer-events-none p-0.5" 
-                      fill="none" 
-                      viewBox="0 0 24 24" 
-                      stroke="currentColor" 
-                      stroke-width="4"
-                    >
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
-                    </svg>
-                  </div>
-                  <div class="flex-1">
-                    <p class="text-[10px] font-black uppercase tracking-widest text-white group-hover:text-orange-500 transition-colors">
-                      I confirm I'm a Hobbyist
-                    </p>
-                    {#if !payoutIsHobbyist}
-                      <p class="mt-1 text-[10px] leading-relaxed font-bold text-zinc-500 uppercase tracking-tight" transition:slide|local>
-                        I agree that my referrals are a social/recreational activity and not a business. <a href="/terms" target="_blank" class="text-orange-500/80 hover:text-orange-500 underline decoration-orange-500/30 transition-colors">Terms</a>
-                      </p>
-                    {/if}
-                  </div>
-                </label>
-              </div>
-
-              {#if !payoutIsHobbyist && payoutHobbyistInteracted}
-                <div>
-                  <label for="payout-abn" class="mb-1 block text-[11px] font-black uppercase tracking-[0.2em] text-white">
-                    ABN
+                <div class="flex items-center justify-between mb-1">
+                  <label for="payout-payid" class="block text-[11px] font-black uppercase tracking-[0.2em] text-white">
+                    PayID
                   </label>
+                  <button
+                    type="button"
+                    on:click={() => (payoutUseBankDetails = !payoutUseBankDetails)}
+                    class="text-[10px] font-black uppercase tracking-widest text-orange-400 hover:text-orange-300 transition-colors"
+                  >
+                    {payoutUseBankDetails ? 'PayID' : 'BSB + account no.'}
+                  </button>
+                </div>
+                {#if !payoutUseBankDetails}
                   <input
-                    id="payout-abn"
+                    id="payout-payid"
                     type="text"
-                    bind:value={payoutAbn}
-                    placeholder="Australian Business Number"
+                    bind:value={payoutPayId}
+                    placeholder="Phone or email"
                     class="w-full rounded-xl border border-zinc-800 bg-black/40 px-4 py-3 text-sm text-white placeholder-zinc-600 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500 transition-all"
                   />
+                {:else}
+                  <div class="space-y-3">
+                    <div>
+                      <label for="payout-bsb" class="mb-1 block text-[11px] font-black uppercase tracking-[0.2em] text-white">
+                        BSB
+                      </label>
+                      <input
+                        id="payout-bsb"
+                        type="text"
+                        inputmode="numeric"
+                        bind:value={payoutBsb}
+                        maxlength="7"
+                        on:input={(event) => (payoutBsb = formatBsbInput((event.currentTarget as HTMLInputElement).value))}
+                        placeholder="000-000"
+                        class="w-full rounded-xl border border-zinc-800 bg-black/40 px-4 py-3 text-sm text-white placeholder-zinc-600 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500 transition-all"
+                      />
+                    </div>
+                    <div>
+                      <label for="payout-account" class="mb-1 block text-[11px] font-black uppercase tracking-[0.2em] text-white">
+                        Account No.
+                      </label>
+                      <input
+                        id="payout-account"
+                        type="text"
+                        inputmode="numeric"
+                        bind:value={payoutAccountNumber}
+                        maxlength="9"
+                        on:input={(event) => (payoutAccountNumber = onlyDigits((event.currentTarget as HTMLInputElement).value, 9))}
+                        placeholder="Account number"
+                        class="w-full rounded-xl border border-zinc-800 bg-black/40 px-4 py-3 text-sm text-white placeholder-zinc-600 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500 transition-all"
+                      />
+                    </div>
+                  </div>
+                {/if}
+              </div>
+
+              {#if false}
+                <div class="space-y-3 pt-2">
+                  <label class="flex items-start gap-3 cursor-pointer group">
+                    <div class="relative flex items-center pt-0.5">
+                      <input
+                        type="checkbox"
+                        bind:checked={payoutIsHobbyist}
+                        on:change={() => (payoutHobbyistInteracted = true)}
+                        class="peer h-4 w-4 rounded border-zinc-800 bg-black/40 text-orange-500 focus:ring-orange-500/20 focus:ring-offset-0 transition-all cursor-pointer appearance-none border"
+                      />
+                      <svg 
+                        class="absolute h-4 w-4 text-orange-500 opacity-0 peer-checked:opacity-100 transition-opacity pointer-events-none p-0.5" 
+                        fill="none" 
+                        viewBox="0 0 24 24" 
+                        stroke="currentColor" 
+                        stroke-width="4"
+                      >
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+                      </svg>
+                    </div>
+                    <div class="flex-1">
+                      <p class="text-[10px] font-black uppercase tracking-widest text-white group-hover:text-orange-500 transition-colors">
+                        I confirm I'm a Hobbyist
+                      </p>
+                      {#if !payoutIsHobbyist}
+                        <p class="mt-1 text-[10px] leading-relaxed font-bold text-zinc-500 uppercase tracking-tight" transition:slide|local>
+                          I agree that my referrals are a social/recreational activity and not a business. <a href="/terms" target="_blank" class="text-orange-500/80 hover:text-orange-500 underline decoration-orange-500/30 transition-colors">Terms</a>
+                        </p>
+                      {/if}
+                    </div>
+                  </label>
                 </div>
+
+                {#if !payoutIsHobbyist && payoutHobbyistInteracted}
+                  <div>
+                    <label for="payout-abn" class="mb-1 block text-[11px] font-black uppercase tracking-[0.2em] text-white">
+                      ABN
+                    </label>
+                    <input
+                      id="payout-abn"
+                      type="text"
+                      bind:value={payoutAbn}
+                      placeholder="Australian Business Number"
+                      class="w-full rounded-xl border border-zinc-800 bg-black/40 px-4 py-3 text-sm text-white placeholder-zinc-600 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500 transition-all"
+                    />
+                  </div>
+                {/if}
               {/if}
 
               {#if payoutError}

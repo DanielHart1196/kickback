@@ -7,6 +7,9 @@ create table if not exists public.payouts (
   claim_count integer not null default 0,
   status text not null default 'unpaid' check (status in ('unpaid', 'paid')),
   pay_id text,
+  bsb text,
+  account_number text,
+  payout_method text,
   paid_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
