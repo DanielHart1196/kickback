@@ -11,6 +11,7 @@
   import { buildVenueBase, generateVenueCode } from '$lib/venues/code';
   import { dev } from '$app/environment';
   import { env as publicEnv } from '$env/dynamic/public';
+  import QRCode from 'qrcode';
   import {
     PUBLIC_SQUARE_APP_ID_PROD,
     PUBLIC_SQUARE_APP_ID_SANDBOX
@@ -84,6 +85,8 @@
   let venueShareUrl = '';
   let venueQrUrl = '';
   let venueQrLogoUrl = '';
+  let venueQrGenerating = false;
+  let venueQrRequestId = 0;
   let csvFileName = '';
   let csvSourceText = '';
   let csvParsedCount = 0;
@@ -240,12 +243,102 @@
   }
 
   $: venueShareUrl = venueCode.trim() ? `${appOrigin()}/?venue=${encodeURIComponent(venueCode.trim())}` : '';
-  $: venueQrUrl = venueShareUrl
-    ? `https://api.qrserver.com/v1/create-qr-code/?size=360x360&data=${encodeURIComponent(venueShareUrl)}`
-    : '';
-  $: venueQrLogoUrl = venueShareUrl && venue?.logo_url
-    ? `https://quickchart.io/qr?text=${encodeURIComponent(venueShareUrl)}&size=360&centerImageUrl=${encodeURIComponent(venue.logo_url)}&centerImageSizeRatio=0.25`
-    : '';
+
+  async function generateVenueQrCodes(url: string, logoUrl: string | null) {
+    const requestId = ++venueQrRequestId;
+    if (!url) {
+      venueQrUrl = '';
+      venueQrLogoUrl = '';
+      return;
+    }
+    venueQrGenerating = true;
+    try {
+      const baseDataUrl = await QRCode.toDataURL(url, {
+        margin: 2,
+        scale: 8,
+        color: { dark: '#000000', light: '#ffffff' }
+      });
+      if (venueQrRequestId !== requestId) return;
+      venueQrUrl = baseDataUrl;
+
+      if (!logoUrl) {
+        venueQrLogoUrl = '';
+        return;
+      }
+
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        venueQrLogoUrl = '';
+        return;
+      }
+
+      const qrImage = new Image();
+      qrImage.crossOrigin = 'anonymous';
+      await new Promise<void>((resolve, reject) => {
+        qrImage.onload = () => resolve();
+        qrImage.onerror = () => reject(new Error('Failed to load QR image'));
+        qrImage.src = baseDataUrl;
+      });
+      if (venueQrRequestId !== requestId) return;
+
+      canvas.width = qrImage.width;
+      canvas.height = qrImage.height;
+      ctx.drawImage(qrImage, 0, 0);
+
+      const logoImage = new Image();
+      logoImage.crossOrigin = 'anonymous';
+      await new Promise<void>((resolve, reject) => {
+        logoImage.onload = () => resolve();
+        logoImage.onerror = () => reject(new Error('Failed to load logo'));
+        logoImage.src = logoUrl;
+      });
+      if (venueQrRequestId !== requestId) return;
+
+      const logoScale = 0.24;
+      const logoSize = Math.round(canvas.width * logoScale);
+      const x = Math.round((canvas.width - logoSize) / 2);
+      const y = Math.round((canvas.height - logoSize) / 2);
+      ctx.save();
+      ctx.beginPath();
+      const radius = Math.round(logoSize * 0.18);
+      ctx.moveTo(x + radius, y);
+      ctx.lineTo(x + logoSize - radius, y);
+      ctx.quadraticCurveTo(x + logoSize, y, x + logoSize, y + radius);
+      ctx.lineTo(x + logoSize, y + logoSize - radius);
+      ctx.quadraticCurveTo(x + logoSize, y + logoSize, x + logoSize - radius, y + logoSize);
+      ctx.lineTo(x + radius, y + logoSize);
+      ctx.quadraticCurveTo(x, y + logoSize, x, y + logoSize - radius);
+      ctx.lineTo(x, y + radius);
+      ctx.quadraticCurveTo(x, y, x + radius, y);
+      ctx.closePath();
+      ctx.fillStyle = '#ffffff';
+      ctx.fill();
+      ctx.clip();
+      ctx.drawImage(logoImage, x, y, logoSize, logoSize);
+      ctx.restore();
+
+      venueQrLogoUrl = canvas.toDataURL('image/png');
+    } catch {
+      if (venueQrRequestId === requestId) {
+        venueQrUrl = '';
+        venueQrLogoUrl = '';
+      }
+    } finally {
+      if (venueQrRequestId === requestId) {
+        venueQrGenerating = false;
+      }
+    }
+  }
+
+  $: if (typeof window !== 'undefined') {
+    if (!venueShareUrl) {
+      venueQrUrl = '';
+      venueQrLogoUrl = '';
+    } else {
+      void generateVenueQrCodes(venueShareUrl, venue?.logo_url ?? null);
+    }
+  }
 
   async function fetchVenueInvoices() {
     if (!venue?.id) {
@@ -1132,7 +1225,10 @@
     emailChangeStatus = 'saving';
     emailChangeMessage = '';
     try {
-      const { error } = await supabase.auth.updateUser({ email: nextEmail });
+      const { error } = await supabase.auth.updateUser(
+        { email: nextEmail },
+        { emailRedirectTo: `${appOrigin()}/admin` }
+      );
       if (error) throw error;
       emailChangeStatus = 'success';
       emailChangeMessage = 'Check your inbox to confirm your new email.';
