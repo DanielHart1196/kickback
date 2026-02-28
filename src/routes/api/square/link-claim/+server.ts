@@ -3,6 +3,7 @@ import type { RequestEvent } from '@sveltejs/kit';
 import { createHash, randomBytes } from 'crypto';
 import { supabaseAdmin } from '$lib/server/supabaseAdmin';
 import { listSquarePayments, type SquarePayment } from '$lib/server/square/payments';
+import { isFingerprintBlocked } from '$lib/server/square/fingerprints';
 import { createEarningsForClaimId } from '$lib/server/earnings';
 const searchWindowMinutes = 10;
 const matchToleranceMinutes = 5;
@@ -187,13 +188,33 @@ export async function POST({ request }: RequestEvent) {
 
   const { data: venue, error: venueError } = await supabaseAdmin
     .from('venues')
-    .select('square_public')
+    .select('square_public,new_customers_only')
     .eq('id', claim.venue_id)
     .maybeSingle();
 
   if (venueError) {
     await cleanupClaimOnFailure();
     return json({ ok: false, error: venueError.message }, { status: 500 });
+  }
+
+  if (venue?.new_customers_only) {
+    try {
+      const blocked = await isFingerprintBlocked({
+        venueId: claim.venue_id,
+        fingerprint: bestMatch.fingerprint
+      });
+      if (blocked) {
+        await cleanupClaimOnFailure();
+        return json({
+          ok: true,
+          linked: false,
+          new_customer_only_blocked: true
+        });
+      }
+    } catch (error: any) {
+      await cleanupClaimOnFailure();
+      return json({ ok: false, error: error?.message ?? 'fingerprint_check_failed' }, { status: 500 });
+    }
   }
 
   const autoClaimStatus = venue?.square_public === false ? 'pending' : 'approved';
@@ -263,5 +284,3 @@ export async function POST({ request }: RequestEvent) {
 
   return json({ ok: true, linked: true });
 }
-
-

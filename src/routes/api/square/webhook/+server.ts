@@ -3,6 +3,7 @@ import type { RequestEvent } from '@sveltejs/kit';
 import { randomUUID } from 'crypto';
 import { supabaseAdmin } from '$lib/server/supabaseAdmin';
 import { fetchSquarePayment, type SquarePayment } from '$lib/server/square/payments';
+import { cleanupOldFingerprints, getFingerprintCutoffs, upsertVenueFingerprints } from '$lib/server/square/fingerprints';
 import { matchSquareSignature } from '$lib/server/square/webhook';
 import { GOAL_DAYS } from '$lib/claims/constants';
 import { getVenueRatesForTime } from '$lib/venues/happyHour';
@@ -171,6 +172,48 @@ export async function POST({ request }: RequestEvent) {
 
     if (candidateVenues.length === 0) {
       return json({ ok: true, ignored: true });
+    }
+
+    const { data: fingerprintVenues, error: fingerprintVenueError } = await supabaseAdmin
+      .from('venues')
+      .select('id,new_customers_only')
+      .in('id', candidateVenues);
+    if (fingerprintVenueError) {
+      console.error(`${logPrefix} fingerprint venues query failed`, {
+        candidateVenues,
+        error: fingerprintVenueError.message
+      });
+      return json({ ok: false, error: fingerprintVenueError.message }, { status: 500 });
+    }
+    const fingerprintVenueIds = (fingerprintVenues ?? [])
+      .filter((row) => row.new_customers_only)
+      .map((row) => row.id)
+      .filter(Boolean) as string[];
+
+    if (fingerprintVenueIds.length > 0) {
+      const { sixMonthsAgo } = getFingerprintCutoffs();
+      try {
+        await Promise.all(
+          fingerprintVenueIds.map((candidateVenue) =>
+            upsertVenueFingerprints({
+              venueId: candidateVenue,
+              payments: [payment],
+              allowedLocationIds: venueToLocations.get(candidateVenue)
+            })
+          )
+        );
+        await Promise.all(
+          fingerprintVenueIds.map((candidateVenue) =>
+            cleanupOldFingerprints(candidateVenue, sixMonthsAgo)
+          )
+        );
+      } catch (error: any) {
+        console.error(`${logPrefix} fingerprint upsert failed`, {
+          candidateVenues: fingerprintVenueIds,
+          error: error?.message ?? error
+        });
+        return json({ ok: false, error: 'fingerprint_upsert_failed' }, { status: 500 });
+      }
     }
 
     const { data: bindings, error: bindingsError } = await supabaseAdmin

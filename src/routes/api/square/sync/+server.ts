@@ -2,6 +2,7 @@ import { json } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
 import { supabaseAdmin } from '$lib/server/supabaseAdmin';
 import { getSquareApiBase, squareVersion, type SquarePayment } from '$lib/server/square/payments';
+import { cleanupOldFingerprints, getFingerprintCutoffs, upsertVenueFingerprints } from '$lib/server/square/fingerprints';
 import { GOAL_DAYS } from '$lib/claims/constants';
 import { getVenueRatesForTime } from '$lib/venues/happyHour';
 import { createEarningsForClaimId } from '$lib/server/earnings';
@@ -40,7 +41,7 @@ export async function POST({ request }: RequestEvent) {
 
   const { data: venue, error: venueError } = await supabaseAdmin
     .from('venues')
-    .select('name,kickback_guest,kickback_referrer,square_public,happy_hour_start_time,happy_hour_end_time,happy_hour_days')
+    .select('name,kickback_guest,kickback_referrer,square_public,new_customers_only,happy_hour_start_time,happy_hour_end_time,happy_hour_days')
     .eq('id', venueId)
     .maybeSingle();
 
@@ -127,6 +128,21 @@ export async function POST({ request }: RequestEvent) {
       .update({ last_sync_at: now.toISOString() })
       .eq('venue_id', venueId);
     return json({ ok: true, created: 0 });
+  }
+
+  if (venue.new_customers_only) {
+    try {
+      const { sixMonthsAgo } = getFingerprintCutoffs(now);
+      await upsertVenueFingerprints({
+        venueId,
+        payments: validPayments,
+        allowedLocationIds,
+        now
+      });
+      await cleanupOldFingerprints(venueId, sixMonthsAgo);
+    } catch (error: any) {
+      return json({ ok: false, error: error?.message ?? 'fingerprint_upsert_failed' }, { status: 500 });
+    }
   }
 
   const paymentIds = validPayments.map((payment) => payment.id);

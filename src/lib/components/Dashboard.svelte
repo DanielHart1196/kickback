@@ -109,6 +109,9 @@ import { onMount, tick } from 'svelte';
   let payoutStripeAccountStatus: 'pending' | 'verified' | 'rejected' | null = null;
   let payoutStripeAccountLink = '';
   let payoutStripeRequirements: any[] = [];
+  let payoutProfileSnapshot = '';
+  let payoutProfileDirty = false;
+  let payoutProfileCurrent = '';
   const SUPPORT_MESSAGE_MAX_LENGTH = 500;
   let supportMessageInput = '';
   let supportSubmitting = false;
@@ -439,6 +442,8 @@ import { onMount, tick } from 'svelte';
       payoutHobbyistConfirmedAt = payoutData?.hobbyist_confirmed_at ?? null;
       payoutHobbyistInteracted = Boolean(payoutData);
       payoutProfileLoaded = true;
+      await tick();
+      payoutProfileSnapshot = payoutProfileCurrent;
 
       // Load notification preferences from profiles
       const { data: profileData, error: profileError } = await supabase
@@ -693,6 +698,19 @@ import { onMount, tick } from 'svelte';
     }
   }
 
+  $: payoutProfileCurrent = JSON.stringify({
+    pay_id: payoutPayId.trim(),
+    full_name: payoutFullName.trim(),
+    dob: payoutDob,
+    address: payoutAddress.trim(),
+    abn: payoutAbn.trim(),
+    is_hobbyist: payoutIsHobbyist,
+    hobbyist_confirmed_at: payoutHobbyistConfirmedAt,
+    stripe_account_id: payoutStripeAccountId || null
+  });
+
+  $: payoutProfileDirty = payoutProfileLoaded && payoutProfileSnapshot !== payoutProfileCurrent;
+
   async function savePayoutProfile() {
     if (!userId) {
       console.warn('savePayoutProfile: No userId available');
@@ -744,6 +762,7 @@ import { onMount, tick } from 'svelte';
 
       payoutStatus = 'success';
       payoutMessage = 'Payout details saved';
+      payoutProfileSnapshot = payoutProfileCurrent;
       setTimeout(() => {
         if (payoutStatus === 'success') {
           payoutStatus = 'idle';
@@ -1998,14 +2017,16 @@ import { onMount, tick } from 'svelte';
               {#if payoutMessage}
                 <p class="text-[10px] font-bold uppercase tracking-widest text-green-400">{payoutMessage}</p>
               {/if}
-              <button
-                type="button"
-                on:click={savePayoutProfile}
-                disabled={payoutStatus === 'saving'}
-                class="w-full rounded-xl bg-white px-4 py-3 text-xs font-black uppercase tracking-[0.2em] text-black hover:bg-zinc-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {payoutStatus === 'saving' ? 'Saving...' : 'Save'}
-              </button>
+              {#if payoutProfileDirty}
+                <button
+                  type="button"
+                  on:click={savePayoutProfile}
+                  disabled={payoutStatus === 'saving'}
+                  class="w-full rounded-xl bg-white px-4 py-3 text-xs font-black uppercase tracking-[0.2em] text-black hover:bg-zinc-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {payoutStatus === 'saving' ? 'Saving...' : 'Save'}
+                </button>
+              {/if}
             {/if}
           </div>
         </div>

@@ -1203,7 +1203,7 @@
   }
 </script>
 
-<main class="min-h-screen bg-zinc-950 text-white p-6 md:p-10">
+<main class="min-h-screen bg-black text-white p-6 md:p-10">
   <div class="max-w-6xl mx-auto space-y-6">
     <header class="flex flex-col gap-2">
       <p class="text-[10px] uppercase tracking-[0.3em] text-zinc-500 font-black">Ops Console</p>

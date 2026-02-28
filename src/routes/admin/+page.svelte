@@ -46,6 +46,7 @@
   let canEditAuthEmail = false;
   let showMoreSettings = false;
   let pauseClaims = false;
+  let newCustomersOnly = false;
   let emailEditMode = false;
   let emailDraft = '';
   let emailChangeStatus: 'idle' | 'saving' | 'success' | 'error' = 'idle';
@@ -785,7 +786,7 @@
       const { data: directVenues, error: directError } = await supabase
       .from('venues')
       .select(
-        'id, name, short_code, logo_url, kickback_guest, kickback_referrer, happy_hour_start_time, happy_hour_end_time, happy_hour_days, payment_methods, square_public, billing_email, billing_contact_first_name, billing_contact_last_name, billing_phone, billing_company, billing_country_code, billing_state, billing_postal_code, billing_city, billing_address, billing_abn, active, created_by'
+        'id, name, short_code, logo_url, kickback_guest, kickback_referrer, happy_hour_start_time, happy_hour_end_time, happy_hour_days, payment_methods, square_public, new_customers_only, billing_email, billing_contact_first_name, billing_contact_last_name, billing_phone, billing_company, billing_country_code, billing_state, billing_postal_code, billing_city, billing_address, billing_abn, active, created_by'
       )
       .eq('created_by', user.id)
       .limit(1);
@@ -811,7 +812,7 @@
         const { data: linkedVenues, error: linkedError } = await supabase
           .from('venues')
         .select(
-          'id, name, short_code, logo_url, kickback_guest, kickback_referrer, happy_hour_start_time, happy_hour_end_time, happy_hour_days, payment_methods, square_public, billing_email, billing_contact_first_name, billing_contact_last_name, billing_phone, billing_company, billing_country_code, billing_state, billing_postal_code, billing_city, billing_address, billing_abn, active, created_by'
+          'id, name, short_code, logo_url, kickback_guest, kickback_referrer, happy_hour_start_time, happy_hour_end_time, happy_hour_days, payment_methods, square_public, new_customers_only, billing_email, billing_contact_first_name, billing_contact_last_name, billing_phone, billing_company, billing_country_code, billing_state, billing_postal_code, billing_city, billing_address, billing_abn, active, created_by'
         )
         .in('id', venueIds)
         .limit(1);
@@ -832,6 +833,7 @@
     happyHourEnd = sanitizeHappyHourTime(venue?.happy_hour_end_time ?? '19:00');
     happyHourDays = normalizeHappyHourDays(venue?.happy_hour_days);
     pauseClaims = venue?.square_public === false;
+    newCustomersOnly = Boolean(venue?.new_customers_only);
     paymentMethods = ['gateway'];
     selectedPaymentMethod = 'gateway';
     billingEmail = venue?.billing_email ?? userEmail ?? '';
@@ -882,6 +884,7 @@
         short_code: shortCode,
         payment_methods: paymentMethods,
         square_public: !pauseClaims,
+        new_customers_only: newCustomersOnly,
         billing_email: billingEmail.trim() || user.email,
         billing_contact_first_name: billingFirstName.trim() || null,
         billing_contact_last_name: billingLastName.trim() || null,
@@ -914,6 +917,7 @@
     savingError = '';
     savingSuccess = '';
     try {
+      const wasNewCustomersOnly = Boolean(venue?.new_customers_only);
       const trimmedName = venueName.trim();
       const nameChanged = trimmedName !== venue.name;
       const desiredCode = normalizeVenueCode(venueCode);
@@ -942,6 +946,7 @@
         short_code: shortCode,
         payment_methods: paymentMethods,
         square_public: !pauseClaims && squareConnected,
+        new_customers_only: newCustomersOnly,
         billing_email: billingEmail.trim() || null,
         billing_contact_first_name: billingFirstName.trim() || null,
         billing_contact_last_name: billingLastName.trim() || null,
@@ -959,11 +964,31 @@
         venue = { ...venue, ...payload };
         venueCode = venue.short_code ?? '';
         savingSuccess = 'Venue details saved.';
+        if (newCustomersOnly && !wasNewCustomersOnly && squareConnected) {
+          void backfillVenueFingerprints(venue.id);
+        }
       } catch (error) {
         console.error('Error saving venue:', error);
         savingError = 'Failed to save venue.';
       } finally {
       savingVenue = false;
+    }
+  }
+
+  async function backfillVenueFingerprints(venueId: string) {
+    try {
+      const { data, error } = await supabase.auth.getSession();
+      if (error || !data.session?.access_token) return;
+      await fetch('/api/venue-fingerprints/backfill', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${data.session.access_token}`
+        },
+        body: JSON.stringify({ venue_id: venueId })
+      });
+    } catch (error) {
+      console.error('Error backfilling venue fingerprints:', error);
     }
   }
 
@@ -1813,7 +1838,7 @@
 
 </script>
 
-<div class="p-4 md:p-10 bg-zinc-950 min-h-screen text-zinc-100 font-sans">
+<div class="p-4 md:p-10 bg-black min-h-screen text-zinc-100 font-sans">
 <div class="max-w-4xl mx-auto space-y-10">
   {#if squareBanner}
     <div class={`rounded-2xl border px-4 py-3 text-sm font-bold uppercase tracking-widest flex items-center justify-between gap-4 ${squareBanner.type === 'success' ? 'border-green-500/30 bg-green-500/10 text-green-200' : 'border-red-500/30 bg-red-500/10 text-red-200'}`}>
@@ -1892,6 +1917,17 @@
                   <div class="h-5 w-9 rounded-full bg-zinc-800 transition-colors peer-checked:bg-orange-500 after:absolute after:left-[2px] after:top-[2px] after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-all peer-checked:after:translate-x-full"></div>
                 </label>
               </div>
+              <div class="rounded-xl border border-zinc-800 bg-zinc-950/70 px-4 py-3 flex items-center justify-between gap-4">
+                <div class="min-w-0">
+                  <p class="text-[11px] font-black uppercase tracking-[0.2em] text-zinc-400">New customers only</p>
+                  <p class="text-[10px] font-bold uppercase tracking-widest text-zinc-600">Block cards used before at this venue</p>
+                  <p class="text-[10px] font-bold uppercase tracking-widest text-zinc-600">Card not used at venue for last 6 months</p>
+                </div>
+                <label class="relative inline-flex cursor-pointer items-center">
+                  <input type="checkbox" bind:checked={newCustomersOnly} class="peer sr-only" />
+                  <div class="h-5 w-9 rounded-full bg-zinc-800 transition-colors peer-checked:bg-orange-500 after:absolute after:left-[2px] after:top-[2px] after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-all peer-checked:after:translate-x-full"></div>
+                </label>
+              </div>
               <button
                 type="button"
                 on:click={saveVenue}
@@ -1936,9 +1972,9 @@
             <div transition:slide class="rounded-2xl border border-zinc-800 bg-zinc-950/60 p-4 space-y-4">
               <div class="grid gap-4 md:grid-cols-2 items-start">
                 <div class="space-y-3">
-                  <label class="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
+                  <label class="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-zinc-500 w-full">
                     <span>Venue Code</span>
-                    <span class="relative inline-flex items-center">
+                    <span class="relative inline-flex items-center w-full max-w-full">
                       <button
                         type="button"
                         class="inline-flex h-4 w-4 items-center justify-center rounded-full border border-zinc-600 text-[10px] leading-none text-zinc-400"
@@ -1952,7 +1988,7 @@
                       >
                         i
                       </button>
-                      <span class={`absolute left-1/2 top-full mt-2 -translate-x-1/2 whitespace-nowrap bg-zinc-900 border border-zinc-700 text-zinc-300 text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded-lg pointer-events-none z-10 ${showVenueCodeTip ? 'opacity-100' : 'opacity-0'}`}>
+                      <span class={`absolute left-0 top-full mt-2 w-full max-w-full whitespace-normal text-left bg-zinc-900 border border-zinc-700 text-zinc-300 text-[10px] font-bold uppercase tracking-widest px-3 py-2 rounded-lg pointer-events-none z-10 ${showVenueCodeTip ? 'opacity-100' : 'opacity-0'}`}>
                         We'll show your full venue name throughout the website, this code is just used in URLs
                       </span>
                     </span>
@@ -1987,9 +2023,9 @@
                   {/if}
                 </div>
                 <div class="rounded-xl border border-zinc-800 bg-black/30 p-3 space-y-3">
-                  <label class="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
+                  <label class="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-zinc-500 w-full">
                     <span>Happy Hour</span>
-                    <span class="relative inline-flex items-center">
+                    <span class="relative inline-flex items-center w-full max-w-full">
                       <button
                         type="button"
                         class="inline-flex h-4 w-4 items-center justify-center rounded-full border border-zinc-600 text-[10px] leading-none text-zinc-400"
@@ -2003,7 +2039,7 @@
                       >
                         i
                       </button>
-                      <span class={`absolute left-1/2 top-full mt-2 -translate-x-1/2 whitespace-nowrap bg-zinc-900 border border-zinc-700 text-zinc-300 text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded-lg pointer-events-none z-10 ${showHappyHourTip ? 'opacity-100' : 'opacity-0'}`}>
+                      <span class={`absolute left-0 top-full mt-2 w-full max-w-full whitespace-normal text-left bg-zinc-900 border border-zinc-700 text-zinc-300 text-[10px] font-bold uppercase tracking-widest px-3 py-2 rounded-lg pointer-events-none z-10 ${showHappyHourTip ? 'opacity-100' : 'opacity-0'}`}>
                         Double kickbacks between these hours on these days. 10% referrer, 10% new customer.
                       </span>
                     </span>

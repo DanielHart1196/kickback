@@ -1244,6 +1244,11 @@
         errorMessage = 'This transaction has already been claimed';
         return false;
       }
+      if (precheck.new_customer_only_blocked) {
+        status = 'error';
+        errorMessage = 'This card has been used before at this venue. Please use a new card.';
+        return false;
+      }
       if (!precheck.matched) {
         handleVerificationFailure('nomatch');
         return false;
@@ -1278,6 +1283,11 @@
           });
           const payload = await response.json().catch(() => null);
           if (response.ok) {
+            if (payload?.new_customer_only_blocked) {
+              status = 'error';
+              errorMessage = 'This card has been used before at this venue. Please use a new card.';
+              return false;
+            }
             linkedSquare = Boolean(payload?.linked);
             activationToken = typeof payload?.activation_token === 'string'
               ? payload.activation_token

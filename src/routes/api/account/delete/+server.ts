@@ -17,13 +17,24 @@ export async function POST({ request }: RequestEvent) {
 
   const userId = userData.user.id;
 
+  const nonPendingStatuses = ['approved', 'denied', 'paid', 'guestpaid', 'refpaid', 'paidout'];
+
   const { error: claimsError } = await supabaseAdmin
     .from('claims')
     .delete()
     .eq('submitter_id', userId)
-    .in('status', ['pending', 'approved', 'denied']);
+    .eq('status', 'pending');
   if (claimsError) {
     return json({ ok: false, error: claimsError.message }, { status: 500 });
+  }
+
+  const { error: retainClaimsError } = await supabaseAdmin
+    .from('claims')
+    .update({ submitter_id: null })
+    .eq('submitter_id', userId)
+    .in('status', nonPendingStatuses);
+  if (retainClaimsError) {
+    return json({ ok: false, error: retainClaimsError.message }, { status: 500 });
   }
 
   const { error: ownersError } = await supabaseAdmin
@@ -49,5 +60,4 @@ export async function POST({ request }: RequestEvent) {
 
   return json({ ok: true });
 }
-
 

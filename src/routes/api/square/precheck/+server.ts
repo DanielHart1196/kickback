@@ -2,6 +2,7 @@ import { json } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
 import { supabaseAdmin } from '$lib/server/supabaseAdmin';
 import { listSquarePayments, type SquarePayment } from '$lib/server/square/payments';
+import { isFingerprintBlocked } from '$lib/server/square/fingerprints';
 
 const searchWindowMinutes = 10;
 
@@ -17,13 +18,24 @@ export async function POST({ request }: RequestEvent) {
     return json({ ok: false, error: 'missing_fields' }, { status: 400 });
   }
 
-  const { data: connection, error: connectionError } = await supabaseAdmin
-    .from('square_connections')
-    .select('access_token')
-    .eq('venue_id', venueId)
-    .maybeSingle();
+  const [{ data: connection, error: connectionError }, { data: venue, error: venueError }] =
+    await Promise.all([
+      supabaseAdmin
+        .from('square_connections')
+        .select('access_token')
+        .eq('venue_id', venueId)
+        .maybeSingle(),
+      supabaseAdmin
+        .from('venues')
+        .select('new_customers_only')
+        .eq('id', venueId)
+        .maybeSingle()
+    ]);
   if (connectionError) {
     return json({ ok: false, error: connectionError.message }, { status: 500 });
+  }
+  if (venueError) {
+    return json({ ok: false, error: venueError.message }, { status: 500 });
   }
   if (!connection?.access_token) {
     return json({ ok: true, connected: false, matched: false, duplicate: false });
@@ -61,7 +73,12 @@ export async function POST({ request }: RequestEvent) {
   }
 
   const payments = (paymentsResult.payload?.payments ?? []) as SquarePayment[];
-  let matched: { paymentId: string; fingerprint: string; locationId: string | null } | null = null;
+  let matched: {
+    paymentId: string;
+    fingerprint: string;
+    locationId: string | null;
+    createdAt: string;
+  } | null = null;
 
   for (const payment of payments) {
     if (payment.status && payment.status !== 'COMPLETED') continue;
@@ -76,7 +93,12 @@ export async function POST({ request }: RequestEvent) {
     if (allowedLocationIds.size > 0 && payment.location_id) {
       if (!allowedLocationIds.has(payment.location_id)) continue;
     }
-    matched = { paymentId: payment.id, fingerprint, locationId: payment.location_id ?? null };
+    matched = {
+      paymentId: payment.id,
+      fingerprint,
+      locationId: payment.location_id ?? null,
+      createdAt
+    };
     break;
   }
 
@@ -121,6 +143,28 @@ export async function POST({ request }: RequestEvent) {
   const bySameUser =
     alreadyLinked && submitterId ? (existing?.[0]?.submitter_id ?? null) === submitterId : false;
 
+  if (venue?.new_customers_only) {
+    try {
+      const blocked = await isFingerprintBlocked({
+        venueId,
+        fingerprint: matched.fingerprint
+      });
+      if (blocked) {
+        return json({
+          ok: true,
+          connected: true,
+          matched: true,
+          duplicate: false,
+          by_same_user: false,
+          bound_to_other_user: false,
+          new_customer_only_blocked: true
+        });
+      }
+    } catch (error: any) {
+      return json({ ok: false, error: error?.message ?? 'fingerprint_check_failed' }, { status: 500 });
+    }
+  }
+
   return json({
     ok: true,
     connected: true,
@@ -131,5 +175,3 @@ export async function POST({ request }: RequestEvent) {
     matched_payment_id: matched.paymentId
   });
 }
-
-

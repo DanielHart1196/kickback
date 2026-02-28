@@ -2,7 +2,7 @@
   <title>Kickback - Terms of Service</title>
 </svelte:head>
 
-<main class="min-h-screen bg-zinc-950 text-white px-6 py-16">
+<main class="min-h-screen bg-black text-white px-6 py-16">
   <div class="mx-auto w-full max-w-3xl space-y-10">
     <header class="space-y-3">
       <p class="text-xs font-bold uppercase tracking-[0.3em] text-zinc-500"><a href="/">KICKBACK</a></p>
