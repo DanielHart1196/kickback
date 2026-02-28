@@ -216,10 +216,6 @@
   }
 
   function removeHappyHour(index: number) {
-    if (happyHours.length <= 1) {
-      happyHours = [createHappyHour()];
-      return;
-    }
     happyHours = happyHours.filter((_, i) => i !== index);
   }
 
@@ -245,10 +241,10 @@
 
   $: venueShareUrl = venueCode.trim() ? `${appOrigin()}/?venue=${encodeURIComponent(venueCode.trim())}` : '';
   $: venueQrUrl = venueShareUrl
-    ? `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(venueShareUrl)}`
+    ? `https://api.qrserver.com/v1/create-qr-code/?size=360x360&data=${encodeURIComponent(venueShareUrl)}`
     : '';
   $: venueQrLogoUrl = venueShareUrl && venue?.logo_url
-    ? `https://quickchart.io/qr?text=${encodeURIComponent(venueShareUrl)}&size=180&centerImageUrl=${encodeURIComponent(venue.logo_url)}&centerImageSizeRatio=0.25`
+    ? `https://quickchart.io/qr?text=${encodeURIComponent(venueShareUrl)}&size=360&centerImageUrl=${encodeURIComponent(venue.logo_url)}&centerImageSizeRatio=0.25`
     : '';
 
   async function fetchVenueInvoices() {
@@ -2161,8 +2157,8 @@
                     <div class="relative rounded-xl border border-zinc-800 bg-black/30 p-3 space-y-3">
                       <button
                         type="button"
-                        on:click={() => removeHappyHour(index)}
-                        class="absolute right-2 top-2 inline-flex h-7 w-7 items-center justify-center rounded-full border border-zinc-700 text-zinc-400 hover:text-white hover:border-zinc-400 transition-colors"
+                        on:click|stopPropagation={() => removeHappyHour(index)}
+                        class="absolute right-2 top-2 z-10 inline-flex h-7 w-7 items-center justify-center rounded-full border border-zinc-700 text-zinc-400 hover:text-white hover:border-zinc-400 transition-colors"
                         aria-label="Remove happy hour"
                       >
                         <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2">
