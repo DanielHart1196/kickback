@@ -771,14 +771,14 @@
         provider = String(provider || '').toLowerCase();
         canEditAuthEmail = provider === 'email';
         if (provider === 'email') {
-          authProviderLabel = 'Signed in with Email';
+          authProviderLabel = 'Signed up with email';
         } else if (provider) {
-          authProviderLabel = 'Signed in with ' + (provider.charAt(0).toUpperCase() + provider.slice(1));
+          authProviderLabel = 'Signed up with ' + (provider.charAt(0).toUpperCase() + provider.slice(1));
         } else {
-          authProviderLabel = 'Signed in';
+          authProviderLabel = 'Signed up';
         }
       } catch {
-        authProviderLabel = 'Signed in';
+        authProviderLabel = 'Signed up';
       }
       if (!user) return;
 
@@ -1055,11 +1055,38 @@
     }
   }
 
+  async function isSquareImage(file: File): Promise<boolean> {
+    if (typeof window === 'undefined') return false;
+    if ('createImageBitmap' in window) {
+      const bitmap = await createImageBitmap(file);
+      const isSquare = bitmap.width === bitmap.height;
+      bitmap.close?.();
+      return isSquare;
+    }
+    const url = URL.createObjectURL(file);
+    try {
+      const img = new Image();
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = () => reject(new Error('Image load failed'));
+        img.src = url;
+      });
+      return img.width === img.height;
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+
   async function handleLogoUpload(file: File) {
     if (!venue) return;
     logoUploading = true;
     logoError = '';
     try {
+      const squareOk = await isSquareImage(file);
+      if (!squareOk) {
+        logoError = 'Logo must be a square image (equal width and height).';
+        return;
+      }
       const fileExt = file.name.split('.').pop() || 'png';
       const filePath = `venues/${venue.id}/${Date.now()}.${fileExt}`;
       const { error: uploadError } = await supabase.storage

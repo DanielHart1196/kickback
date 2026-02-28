@@ -89,6 +89,7 @@
   let pendingInvitations: PendingInvitation[] = [];
   type AcceptedInvitation = {
     id: string;
+    userId?: string;
     venueId: string;
     venueName: string;
     referrerCode: string;
@@ -185,7 +186,7 @@
     );
     const guestQuery = supabase
       .from('invitations')
-      .select('id, venue_id, venue_name, referrer_code, activated_at, expires_at, created_at')
+      .select('id, user_id, venue_id, venue_name, referrer_code, activated_at, expires_at, created_at')
       .eq('user_id', uid)
       .eq('status', 'active')
       .order('activated_at', { ascending: false });
@@ -193,7 +194,7 @@
     const referrerQuery = referrerCodes.length > 0
       ? supabase
           .from('invitations')
-          .select('id, venue_id, venue_name, referrer_code, activated_at, expires_at, created_at')
+          .select('id, user_id, venue_id, venue_name, referrer_code, activated_at, expires_at, created_at')
           .in('referrer_code', referrerCodes)
           .eq('status', 'active')
           .order('activated_at', { ascending: false })
@@ -210,6 +211,7 @@
 
     const guestInvites = (guestRows ?? []).map((row) => ({
       id: row.id,
+      userId: row.user_id ?? uid,
       venueId: row.venue_id ?? '',
       venueName: row.venue_name ?? '',
       referrerCode: row.referrer_code ?? '',
@@ -219,6 +221,7 @@
     }));
     const referrerInvites = (referrerRows ?? []).map((row) => ({
       id: row.id,
+      userId: row.user_id ?? '',
       venueId: row.venue_id ?? '',
       venueName: row.venue_name ?? '',
       referrerCode: row.referrer_code ?? '',
@@ -254,83 +257,6 @@
       return;
     }
     await fetchPendingInvitations(userId);
-  }
-
-  async function activateInvitation(match: { venueId?: string; referrerCode?: string }) {
-    if (!userId) return;
-    if (!match.venueId || !match.referrerCode) return;
-    const activatedAt = new Date();
-    const expiresAt = new Date(activatedAt.getTime() + 30 * 24 * 60 * 60 * 1000);
-    let query = supabase
-      .from('invitations')
-      .update({
-        status: 'active',
-        activated_at: activatedAt.toISOString(),
-        expires_at: expiresAt.toISOString(),
-        last_activity_at: new Date().toISOString()
-      })
-      .eq('user_id', userId)
-      .eq('status', 'pending')
-      .select('id');
-    if (match.venueId) {
-      query = query.eq('venue_id', match.venueId);
-    }
-    if (match.referrerCode) {
-      query = query.eq('referrer_code', match.referrerCode);
-    }
-    const { data: updatedRows, error } = await query;
-    if (error) {
-      console.error('Error activating invitation:', error);
-      return;
-    }
-    if (!updatedRows || updatedRows.length === 0) {
-      const venueName = getVenueNameById(match.venueId) || venue;
-      const { error: insertError } = await supabase
-        .from('invitations')
-        .upsert(
-          {
-            user_id: userId,
-            venue_id: match.venueId,
-            venue_name: venueName,
-            referrer_code: match.referrerCode,
-            status: 'active',
-            activated_at: activatedAt.toISOString(),
-            expires_at: expiresAt.toISOString(),
-            last_activity_at: new Date().toISOString()
-          },
-          { onConflict: 'user_id,venue_id,referrer_code' }
-        );
-      if (insertError) {
-        console.error('Error creating active invitation:', insertError);
-        return;
-      }
-    }
-    await fetchPendingInvitations(userId);
-    await fetchAcceptedInvitations(userId, userRefCode, referralOriginalCode);
-  }
-
-  async function updateInvitationTimingFromClaim(claim: Claim) {
-    if (!userId || !claim?.venue_id || !claim?.referrer) return;
-    const activatedAtIso = claim.purchased_at;
-    const activatedAt = new Date(activatedAtIso);
-    if (Number.isNaN(activatedAt.getTime())) return;
-    const expiresAt = new Date(activatedAt.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString();
-    const { error } = await supabase
-      .from('invitations')
-      .update({
-        status: 'active',
-        activated_at: activatedAtIso,
-        expires_at: expiresAt,
-        last_activity_at: new Date().toISOString()
-      })
-      .eq('user_id', userId)
-      .eq('venue_id', claim.venue_id)
-      .eq('referrer_code', normalizeReferralCode(claim.referrer));
-    if (error) {
-      console.error('Error updating invitation timing:', error);
-      return;
-    }
-    await fetchAcceptedInvitations(userId, userRefCode, referralOriginalCode);
   }
 
   async function deletePendingInvitation(invite: PendingInvitation) {
@@ -513,7 +439,7 @@
   $: purchaseTimeTooOld =
     purchaseTime.trim().length > 0 && isPurchaseTimeOlderThanMaxAge(purchaseTime);
   $: if (session && venue.trim()) {
-    const lockedReferrer = getVenueLockedReferrer(venue);
+    const lockedReferrer = getVenueLockedReferrer(venue, session.user.id);
     if (lockedReferrer) {
       if (lockedReferrer.id !== lockedReferrerId || lockedReferrer.code !== lockedReferrerCode) {
         lockedReferrerId = lockedReferrer.id;
@@ -921,6 +847,39 @@
     showPaymentVerificationWarning = false;
   }
 
+  function handleVerificationFailure(mode: 'retry' | 'nomatch') {
+    status = 'idle';
+    showPaymentVerificationModal(mode);
+  }
+
+  function findActiveInvitationForVenue(
+    venueIdValue: string,
+    venueName: string
+  ): AcceptedInvitation | null {
+    const normalizedName = venueName.trim().toLowerCase();
+    if (!venueIdValue && !normalizedName) return null;
+    const matches = acceptedInvitations.filter((invite) => {
+      if (invite.role !== 'guest') return false;
+      if (venueIdValue) return invite.venueId === venueIdValue;
+      return invite.venueName.trim().toLowerCase() === normalizedName;
+    });
+    if (matches.length === 0) return null;
+    return matches.sort(
+      (a, b) => new Date(b.activatedAt).getTime() - new Date(a.activatedAt).getTime()
+    )[0];
+  }
+
+  function getInvitationExpiresAt(invite: AcceptedInvitation): number | null {
+    if (!invite?.activatedAt) return null;
+    const activatedAt = new Date(invite.activatedAt).getTime();
+    if (!Number.isFinite(activatedAt)) return null;
+    if (invite.expiresAt) {
+      const explicit = new Date(invite.expiresAt).getTime();
+      return Number.isFinite(explicit) ? explicit : null;
+    }
+    return activatedAt + GOAL_DAYS * 24 * 60 * 60 * 1000;
+  }
+
   function getAutoClaimDaysLeft(venueIdValue: string, venueName: string): number | null {
     const normalizedName = venueName.trim().toLowerCase();
     if (!normalizedName && !venueIdValue) return null;
@@ -937,34 +896,35 @@
       return Boolean(claim.square_payment_id);
     });
     if (!hasActive) return null;
-    const computedDaysLeft = Math.max(GOAL_DAYS - getDaysAtVenue(claims, venueName), 0);
+    const activeInvite = findActiveInvitationForVenue(venueIdValue, venueName);
+    const expiresAt = activeInvite ? getInvitationExpiresAt(activeInvite) : null;
+    if (!expiresAt) return null;
+    const diffMs = expiresAt - Date.now();
+    if (diffMs <= 0) return null;
+    const computedDaysLeft = Math.max(Math.ceil(diffMs / (24 * 60 * 60 * 1000)), 0);
     return computedDaysLeft > 0 ? computedDaysLeft : null;
   }
 
   function isClaimWindowExpired(venueIdValue: string, venueName: string): boolean {
-    const normalizedName = venueName.trim().toLowerCase();
-    if (!normalizedName && !venueIdValue) return false;
-
-    const relevantClaims = claims.filter((claim) => {
-      if (claim.status === 'denied') return false;
-      if (venueIdValue) return claim.venue_id === venueIdValue;
-      return claim.venue.trim().toLowerCase() === normalizedName;
-    });
-
-    if (relevantClaims.length === 0) return false;
-
-    const earliestTime = Math.min(
-      ...relevantClaims.map((claim) => new Date(claim.purchased_at).getTime()).filter((time) => !Number.isNaN(time))
-    );
-    if (!Number.isFinite(earliestTime)) return false;
-
-    const diffInDays = Math.floor((Date.now() - earliestTime) / (1000 * 60 * 60 * 24));
-    return diffInDays >= GOAL_DAYS;
+    const activeInvite = findActiveInvitationForVenue(venueIdValue, venueName);
+    const expiresAt = activeInvite ? getInvitationExpiresAt(activeInvite) : null;
+    if (!expiresAt) return false;
+    return Date.now() >= expiresAt;
   }
 
   async function handleSubmitClaim(): Promise<boolean> {
     if (!session) return submitClaim();
     const venueName = getVenueNameById(venueId) || venue;
+    const activeInvite = findActiveInvitationForVenue(venueId, venueName);
+    if (activeInvite?.activatedAt) {
+      const activatedAtMs = new Date(activeInvite.activatedAt).getTime();
+      const purchaseMs = new Date(purchaseTime).getTime();
+      if (Number.isFinite(activatedAtMs) && Number.isFinite(purchaseMs) && purchaseMs < activatedAtMs) {
+        status = 'error';
+        errorMessage = 'Purchase time must be after your venue activation.';
+        return false;
+      }
+    }
     if (isClaimWindowExpired(venueId, venueName)) {
       claimWindowVenue = venueName;
       showClaimWindowExpired = true;
@@ -1259,15 +1219,15 @@
       });
       const precheck = await precheckRes.json().catch(() => null);
       if (!precheckRes.ok || !precheck?.ok) {
-        showPaymentVerificationModal('retry');
+        handleVerificationFailure('retry');
         return false;
       }
       if (!precheck.connected) {
-        showPaymentVerificationModal('retry');
+        handleVerificationFailure('retry');
         return false;
       }
       if (precheck.bound_to_other_user) {
-        showPaymentVerificationModal('nomatch');
+        handleVerificationFailure('nomatch');
         return false;
       }
       if (precheck.duplicate) {
@@ -1277,6 +1237,7 @@
           autoClaimWarningVenue = venueName;
           autoClaimWarningDaysLeft = daysLeft;
           showAutoClaimWarning = true;
+          status = 'idle';
           return false;
         }
         status = 'error';
@@ -1284,7 +1245,7 @@
         return false;
       }
       if (!precheck.matched) {
-        showPaymentVerificationModal('nomatch');
+        handleVerificationFailure('nomatch');
         return false;
       }
       const insertedClaim = await insertClaim(
@@ -1327,7 +1288,7 @@
         }
       }
       if (!linkedSquare) {
-        showPaymentVerificationModal('nomatch');
+        handleVerificationFailure('nomatch');
         return false;
       }
       if (session?.user?.id) {
@@ -1357,11 +1318,6 @@
         last4 = '';
       }
         if (session) {
-          const submittedReferrer = normalizeReferralCode(normalizedReferrerInput);
-          if (submittedReferrer) {
-            void activateInvitation({ venueId, referrerCode: submittedReferrer });
-          }
-          await updateInvitationTimingFromClaim(insertedClaim);
           showForm = false;
         if (typeof window !== 'undefined') {
           const state = getHistoryState();
@@ -1493,6 +1449,20 @@
   $: loginUrl = buildLoginUrl(amount, venue, venueId, referrer, last4, purchaseTime);
   $: autoClaimDaysLeft = getAutoClaimDaysLeft(venueId, getVenueNameById(venueId) || venue);
   $: autoClaimsActive = Boolean(autoClaimDaysLeft);
+  $: isInvitationActive = (() => {
+    if (!session) return false;
+    const normalizedReferrer = normalizeReferralCode(normalizedReferrerInput);
+    if (!normalizedReferrer) return false;
+    const normalizedVenue = venue.trim().toLowerCase();
+    return acceptedInvitations.some((invite) => {
+      if (invite.role !== 'guest') return false;
+      if (!invite.activatedAt) return false;
+      const inviteReferrer = normalizeReferralCode(invite.referrerCode);
+      if (inviteReferrer !== normalizedReferrer) return false;
+      if (venueId) return invite.venueId === venueId;
+      return invite.venueName.trim().toLowerCase() === normalizedVenue;
+    });
+  })();
 
   function openReferModal() {
     referModalIgnoreStoredVenue = !(referralPresetVenueId || referralPresetVenueName);
@@ -1639,7 +1609,8 @@
   }
 
   function getVenueLockedReferrer(
-    venueName: string
+    venueName: string,
+    userId: string
   ): { id: string | null; code: string | null } | null {
     const normalizedVenue = venueName.trim().toLowerCase();
     if (!normalizedVenue) return null;
@@ -1650,6 +1621,7 @@
     let referrerCode: string | null = null;
 
     for (const claim of claims) {
+      if (claim.submitter_id !== userId) continue;
       if (venueIdMatch) {
         if (claim.venue_id !== venueIdMatch) continue;
       } else if (claim.venue.trim().toLowerCase() !== normalizedVenue) {
@@ -1819,6 +1791,7 @@
         {purchaseTimeTooOld}
         {isVenueLocked}
         {isReferrerLocked}
+        {isInvitationActive}
         autoClaimsActive={autoClaimsActive}
         autoClaimDaysLeft={autoClaimDaysLeft}
         loginUrl={loginUrl}

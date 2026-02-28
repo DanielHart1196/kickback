@@ -1,7 +1,7 @@
 <script lang="ts">
   import { fade, fly, slide } from 'svelte/transition';
-  import { onMount, tick } from 'svelte';
-  import { flip } from 'svelte/animate';
+import { flip } from 'svelte/animate';
+import { onMount, tick } from 'svelte';
   import { GOAL_DAYS, KICKBACK_RATE } from '$lib/claims/constants';
   import { calculateKickbackWithRate, isClaimDenied } from '$lib/claims/utils';
   import { supabase } from '$lib/supabase';
@@ -18,6 +18,7 @@
   };
   type AcceptedInvitation = {
     id: string;
+    userId?: string;
     venueId: string;
     venueName: string;
     referrerCode: string;
@@ -67,12 +68,15 @@
 
   let payoutHistory: PayoutHistoryItem[] = [];
   let historyItems: HistoryItem[] = [];
-  let filterPayoutsOnly = false;
-  let hasClaimFilters = false;
+  let historyFilter: 'earnings' | 'payouts' | 'venues' | 'guests' | null = null;
   let filterStatus: Set<'pending' | 'approved' | 'paid' | 'denied'> = new Set();
-  let filterReferred: Set<'referrer' | 'direct'> = new Set();
   const statusOptions: Array<'approved' | 'paid' | 'denied'> = ['approved', 'paid', 'denied'];
-  const referralOptions: Array<'referrer' | 'direct'> = ['referrer', 'direct'];
+  const historyFilterOptions: Array<'earnings' | 'payouts' | 'venues' | 'guests'> = [
+    'earnings',
+    'payouts',
+    'venues',
+    'guests'
+  ];
   let showFilterMenu = false;
   let listContainer: HTMLDivElement | null = null;
   let filterMenuEl: HTMLDivElement | null = null;
@@ -116,6 +120,16 @@
   let isPwaInstalled = false;
   let isMobileScreen = false;
   const pwaInstalledKey = 'kickback:pwa_installed';
+  function urlBase64ToUint8Array(base64String: string) {
+    const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+    const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+    const rawData = atob(base64);
+    const outputArray = new Uint8Array(rawData.length);
+    for (let i = 0; i < rawData.length; i += 1) {
+      outputArray[i] = rawData.charCodeAt(i);
+    }
+    return outputArray;
+  }
   let authProviderLabel = '';
   let canEditAuthEmail = false;
   let emailEditMode = false;
@@ -258,12 +272,10 @@
           ((session?.user as any)?.identities?.[0]?.provider ?? '');
         provider = String(provider || '').toLowerCase();
         canEditAuthEmail = provider === 'email';
-        if (provider === 'email') {
-          authProviderLabel = 'Signed in with Email';
-        } else if (provider) {
-          authProviderLabel = 'Signed up with ' + (provider.charAt(0).toUpperCase() + provider.slice(1));
+        if (provider === 'google') {
+          authProviderLabel = 'Signed up with Google';
         } else {
-          authProviderLabel = 'Signed up';
+          authProviderLabel = '';
         }
         if (session?.access_token) {
           void loadPayoutHistory(session.access_token);
@@ -511,6 +523,61 @@
 
   async function handleApprovedClaimsToggle(event: Event & { currentTarget: HTMLInputElement }) {
     const nextValue = event.currentTarget.checked;
+    const registerPush = async (): Promise<boolean> => {
+      try {
+        if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return false;
+        const vapidRes = await fetch('/api/notifications/vapid-key');
+        const vapidPayload = await vapidRes.json().catch(() => null);
+        if (!vapidRes.ok || !vapidPayload?.ok || !vapidPayload?.publicKey) return false;
+        const registration = await navigator.serviceWorker.ready;
+        if (!registration.pushManager) return false;
+        const subscription =
+          (await registration.pushManager.getSubscription()) ??
+          (await registration.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: urlBase64ToUint8Array(String(vapidPayload.publicKey))
+          }));
+        const { data } = await supabase.auth.getSession();
+        const accessToken = data.session?.access_token;
+        if (!accessToken) return false;
+        const subscribeRes = await fetch('/api/notifications/subscribe', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${accessToken}`
+          },
+          body: JSON.stringify({ subscription })
+        });
+        return subscribeRes.ok;
+      } catch {
+        return false;
+      }
+    };
+    const unregisterPush = async (): Promise<boolean> => {
+      try {
+        if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return false;
+        const registration = await navigator.serviceWorker.ready;
+        if (!registration.pushManager) return true;
+        const subscription = await registration.pushManager.getSubscription();
+        if (!subscription) return true;
+        const { data } = await supabase.auth.getSession();
+        const accessToken = data.session?.access_token;
+        if (accessToken) {
+          await fetch('/api/notifications/subscribe', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${accessToken}`
+            },
+            body: JSON.stringify({ action: 'unsubscribe', subscription })
+          });
+        }
+        await subscription.unsubscribe();
+        return true;
+      } catch {
+        return false;
+      }
+    };
     if (nextValue && typeof window !== 'undefined' && 'Notification' in window) {
       if (Notification.permission === 'default') {
         const permission = await Notification.requestPermission();
@@ -524,6 +591,15 @@
         await saveNotificationPreferences();
         return;
       }
+      const registered = await registerPush();
+      if (!registered) {
+        notifyApprovedClaims = false;
+        await saveNotificationPreferences();
+        return;
+      }
+    }
+    if (!nextValue) {
+      await unregisterPush();
     }
     notifyApprovedClaims = nextValue;
     await saveNotificationPreferences();
@@ -946,61 +1022,51 @@
     }, 0);
   }
 
-  function getDaysLeftAtVenueForUser(venueName: string, submitterId: string | undefined): number {
-    if (!submitterId) return GOAL_DAYS;
-
-    const normalizedVenue = venueName.trim().toLowerCase();
-    const userVenueClaims = claims.filter((c) => {
-      if (isClaimDenied(c)) return false;
-      if (c.submitter_id !== submitterId) return false;
-      return c.venue.trim().toLowerCase() === normalizedVenue;
-    });
-
-    if (userVenueClaims.length === 0) return GOAL_DAYS;
-
-    const firstClaimAt = Math.min(
-      ...userVenueClaims.map((c) => new Date(c.purchased_at).getTime()).filter((time) => Number.isFinite(time))
-    );
-    if (!Number.isFinite(firstClaimAt)) return GOAL_DAYS;
-
-    const diffInDays = Math.floor((Date.now() - firstClaimAt) / (1000 * 60 * 60 * 24));
-    return Math.max(GOAL_DAYS - diffInDays, 0);
+  function getInvitationForClaim(claim: Claim): AcceptedInvitation | null {
+    if (!claim.submitter_id) return null;
+    const normalizedVenue = claim.venue.trim().toLowerCase();
+    if (claim.submitter_id === userId) {
+      return (
+        acceptedInvitations.find((invite) => {
+          if (invite.role !== 'guest') return false;
+          if (claim.venue_id) return invite.venueId === claim.venue_id;
+          return invite.venueName.trim().toLowerCase() === normalizedVenue;
+        }) ?? null
+      );
+    }
+    if (claim.referrer_id === userId) {
+      return (
+        acceptedInvitations.find((invite) => {
+          if (invite.role !== 'referrer') return false;
+          if (invite.userId && invite.userId !== claim.submitter_id) return false;
+          if (claim.venue_id) return invite.venueId === claim.venue_id;
+          return invite.venueName.trim().toLowerCase() === normalizedVenue;
+        }) ?? null
+      );
+    }
+    return null;
   }
 
-  function getProgressPercentAtVenueForUser(venueName: string, submitterId: string | undefined): number {
-    const daysLeft = getDaysLeftAtVenueForUser(venueName, submitterId);
+  function getDaysLeftAtVenueForClaim(claim: Claim): number {
+    const invite = getInvitationForClaim(claim);
+    if (!invite) return GOAL_DAYS;
+    return getDaysLeftForInvitation(invite);
+  }
+
+  function getProgressPercentAtVenueForUser(claim: Claim): number {
+    const daysLeft = getDaysLeftAtVenueForClaim(claim);
     const elapsedDays = Math.min(Math.max(GOAL_DAYS - daysLeft, 0), GOAL_DAYS);
     return (elapsedDays / GOAL_DAYS) * 100;
   }
 
-  function getTimeLeftLabelForVenue(venueName: string, submitterId: string | undefined): string {
-    if (!submitterId) return `${GOAL_DAYS} DAYS LEFT`;
-    const normalizedVenue = venueName.trim().toLowerCase();
-    const userVenueClaims = claims.filter((c) => {
-      if (isClaimDenied(c)) return false;
-      if (c.submitter_id !== submitterId) return false;
-      return c.venue.trim().toLowerCase() === normalizedVenue;
-    });
-    if (userVenueClaims.length === 0) return `${GOAL_DAYS} DAYS LEFT`;
-    const firstClaimAt = Math.min(
-      ...userVenueClaims.map((c) => new Date(c.purchased_at).getTime()).filter((time) => Number.isFinite(time))
-    );
-    if (!Number.isFinite(firstClaimAt)) return `${GOAL_DAYS} DAYS LEFT`;
-    const windowEnd = firstClaimAt + GOAL_DAYS * 24 * 60 * 60 * 1000;
-    const remainingMs = Math.max(windowEnd - Date.now(), 0);
-    if (remainingMs >= 24 * 60 * 60 * 1000) {
-      const remainingDays = Math.ceil(remainingMs / (24 * 60 * 60 * 1000));
-      return `${remainingDays} ${remainingDays === 1 ? 'DAY' : 'DAYS'} LEFT`;
-    }
-    const hours = Math.ceil(remainingMs / (60 * 60 * 1000));
-    if (hours >= 1) return `${hours} ${hours === 1 ? 'HOUR' : 'HOURS'} LEFT`;
-    const minutes = Math.ceil(remainingMs / (60 * 1000));
-    const clampedMinutes = Math.max(minutes, 0);
-    return `${clampedMinutes} ${clampedMinutes === 1 ? 'MIN' : 'MINS'} LEFT`;
+  function getTimeLeftLabelForVenue(claim: Claim): string {
+    const invite = getInvitationForClaim(claim);
+    if (!invite) return `${GOAL_DAYS} DAYS LEFT`;
+    return getTimeLeftLabelForInvitation(invite);
   }
 
-  function getProgressBarWidth(venueName: string, submitterId: string | undefined): number {
-    const percent = getProgressPercentAtVenueForUser(venueName, submitterId);
+  function getProgressBarWidth(claim: Claim): number {
+    const percent = getProgressPercentAtVenueForUser(claim);
     if (percent <= 0) return 2;
     return percent;
   }
@@ -1031,36 +1097,12 @@
     return `${clampedMinutes} ${clampedMinutes === 1 ? 'MIN' : 'MINS'} LEFT`;
   }
 
-  function getFirstPurchaseTimeForInvitation(invite: AcceptedInvitation): number | null {
-    if (invite.role !== 'guest' || !userId) return null;
-    const relevantClaims = claims.filter((claim) => {
-      if (!claim.submitter_id || claim.submitter_id !== userId) return false;
-      if (claim.status === 'denied') return false;
-      if (invite.venueId) return claim.venue_id === invite.venueId;
-      return claim.venue?.trim().toLowerCase() === invite.venueName?.trim().toLowerCase();
-    });
-    if (relevantClaims.length === 0) return null;
-    const earliest = Math.min(
-      ...relevantClaims
-        .map((claim) => new Date(claim.purchased_at).getTime())
-        .filter((time) => Number.isFinite(time))
-    );
-    return Number.isFinite(earliest) ? earliest : null;
-  }
-
   function getInvitationTimestamp(invite: AcceptedInvitation): number {
-    const firstPurchase = getFirstPurchaseTimeForInvitation(invite);
-    if (firstPurchase != null) {
-      return firstPurchase - 1;
-    }
-    return new Date(invite.activatedAt).getTime();
+    const activatedAt = new Date(invite.activatedAt).getTime();
+    return Number.isFinite(activatedAt) ? activatedAt : 0;
   }
 
   function getInvitationDisplayTime(invite: AcceptedInvitation): string {
-    const firstPurchase = getFirstPurchaseTimeForInvitation(invite);
-    if (firstPurchase != null) {
-      return new Date(firstPurchase).toISOString();
-    }
     return invite.activatedAt;
   }
 
@@ -1092,50 +1134,98 @@
 
   $: filteredClaims = claims.filter((claim) => {
     const status = getDisplayStatus(claim);
-    const isReferred = Boolean(claim.referrer_id && claim.referrer_id === userId);
     const statusOk = filterStatus.size === 0 || filterStatus.has(status);
-    const referredOk =
-      filterReferred.size === 0 ||
-      (filterReferred.has('referrer') && isReferred) ||
-      (filterReferred.has('direct') && !isReferred);
-    return statusOk && referredOk;
+    return statusOk;
   });
-  $: hasClaimFilters = filterStatus.size > 0 || filterReferred.size > 0;
+  $: if (historyFilter && historyFilter !== 'earnings') {
+    if (filterStatus.size > 0) filterStatus = new Set();
+  }
+  $: venueInvitations = acceptedInvitations.filter((invite) => invite.role === 'guest');
+  $: guestInvitations = acceptedInvitations.filter((invite) => invite.role === 'referrer');
+  $: venuesHistoryCount = pendingInvitations.length + venueInvitations.length;
+  $: guestsHistoryCount = guestInvitations.length;
+  $: historyFilterLabel =
+    historyFilter === 'payouts'
+      ? 'Payouts'
+      : historyFilter === 'venues'
+        ? 'Venues'
+        : historyFilter === 'guests'
+          ? 'Guests'
+          : historyFilter === 'earnings'
+            ? 'Earnings'
+            : 'Filter';
+  $: hasActiveHistoryFilters = Boolean(historyFilter || filterStatus.size > 0);
   $: historyPaddingBottomPx =
     BASE_HISTORY_BOTTOM_PADDING_PX + (showFilterMenu ? filterMenuExtraPaddingPx : 0);
   $: if (showFilterMenu && !filterMenuWasOpen) {
     filterMenuWasOpen = true;
-    void ensureFilterMenuClearance(true);
+    void ensureFilterMenuClearance();
   }
   $: if (showFilterMenu) {
     filteredClaims.length;
-    filterPayoutsOnly;
-    void ensureFilterMenuClearance(false);
+    historyFilter;
+    venuesHistoryCount;
+    guestsHistoryCount;
+    void ensureFilterMenuClearance();
   }
   $: if (!showFilterMenu && filterMenuWasOpen) {
     filterMenuWasOpen = false;
     filterMenuExtraPaddingPx = 0;
   }
+  $: allHistoryItems = [
+    ...payoutHistory.map((payout) => ({
+      kind: 'payout' as const,
+      key: `payout:${payout.id}`,
+      timestamp: new Date(payout.paid_at).getTime(),
+      payout
+    })),
+    ...claims.map((claim) => ({
+      kind: 'claim' as const,
+      key: `claim:${claim.id ?? claim.created_at}`,
+      timestamp: new Date(claim.purchased_at).getTime(),
+      claim
+    })),
+    ...pendingInvitations.map((invitation) => ({
+      kind: 'invitation' as const,
+      key: `invitation:${invitation.id}`,
+      timestamp: new Date(invitation.createdAt).getTime(),
+      invitation
+    })),
+    ...acceptedInvitations.map((invitation) => ({
+      kind: 'accepted_invitation' as const,
+      key: `accepted:${invitation.id}:${invitation.role}`,
+      timestamp: getInvitationTimestamp(invitation),
+      invitation
+    }))
+  ];
+  $: historyFilterCount =
+    historyFilter === 'payouts'
+      ? payoutHistory.length
+      : historyFilter === 'venues'
+        ? venuesHistoryCount
+        : historyFilter === 'guests'
+          ? guestsHistoryCount
+          : historyFilter === 'earnings'
+            ? filteredClaims.length
+            : allHistoryItems.length;
   $: historyItems = [
-    ...(
-      filterPayoutsOnly || !hasClaimFilters
-        ? payoutHistory.map((payout) => ({
-            kind: 'payout' as const,
-            key: `payout:${payout.id}`,
-            timestamp: new Date(payout.paid_at).getTime(),
-            payout
-          }))
-        : []
-    ),
-    ...(filterPayoutsOnly
-      ? []
-      : filteredClaims.map((claim) => ({
+    ...(!historyFilter || historyFilter === 'payouts'
+      ? payoutHistory.map((payout) => ({
+          kind: 'payout' as const,
+          key: `payout:${payout.id}`,
+          timestamp: new Date(payout.paid_at).getTime(),
+          payout
+        }))
+      : []),
+    ...(!historyFilter || historyFilter === 'earnings'
+      ? (historyFilter === 'earnings' ? filteredClaims : claims).map((claim) => ({
           kind: 'claim' as const,
           key: `claim:${claim.id ?? claim.created_at}`,
           timestamp: new Date(claim.purchased_at).getTime(),
           claim
-        }))),
-    ...(!filterPayoutsOnly && !hasClaimFilters
+        }))
+      : []),
+    ...(!historyFilter || historyFilter === 'venues'
       ? pendingInvitations.map((invitation) => ({
           kind: 'invitation' as const,
           key: `invitation:${invitation.id}`,
@@ -1143,8 +1233,16 @@
           invitation
         }))
       : []),
-    ...(!filterPayoutsOnly && !hasClaimFilters
-      ? acceptedInvitations.map((invitation) => ({
+    ...(!historyFilter || historyFilter === 'venues'
+      ? venueInvitations.map((invitation) => ({
+          kind: 'accepted_invitation' as const,
+          key: `accepted:${invitation.id}:${invitation.role}`,
+          timestamp: getInvitationTimestamp(invitation),
+          invitation
+        }))
+      : []),
+    ...(!historyFilter || historyFilter === 'guests'
+      ? guestInvitations.map((invitation) => ({
           kind: 'accepted_invitation' as const,
           key: `accepted:${invitation.id}:${invitation.role}`,
           timestamp: getInvitationTimestamp(invitation),
@@ -1184,7 +1282,24 @@
     return `${parsed.toLocaleDateString('en-GB')} ${parsed.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}`;
   }
 
-  async function ensureFilterMenuClearance(allowScroll: boolean) {
+  function preserveScrollAfter(update: () => void) {
+    if (typeof window === 'undefined') {
+      update();
+      return;
+    }
+    const before = window.scrollY;
+    update();
+    void tick().then(() => {
+      const maxScroll = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+      const target = Math.min(before, maxScroll);
+      const behavior = before > maxScroll ? 'smooth' : 'auto';
+      if (Math.abs(window.scrollY - target) > 1) {
+        window.scrollTo({ top: target, behavior });
+      }
+    });
+  }
+
+  async function ensureFilterMenuClearance() {
     if (typeof window === 'undefined') return;
     await tick();
     if (!showFilterMenu || !filterMenuEl || !referButtonEl) {
@@ -1192,15 +1307,24 @@
       return;
     }
 
-    const visibleClaimCount = filterPayoutsOnly ? 0 : filteredClaims.length;
-    const cappedClaimCount = Math.min(visibleClaimCount, 4);
-    if (cappedClaimCount >= 4) {
+    const visibleItemCount =
+      !historyFilter
+        ? allHistoryItems.length
+        : historyFilter === 'payouts'
+          ? payoutHistory.length
+          : historyFilter === 'venues'
+            ? venuesHistoryCount
+            : historyFilter === 'guests'
+              ? guestsHistoryCount
+              : filteredClaims.length;
+    const cappedItemCount = Math.min(visibleItemCount, 4);
+    if (cappedItemCount >= 4) {
       if (filterMenuExtraPaddingPx !== 0) filterMenuExtraPaddingPx = 0;
     } else {
       const popupHeight = filterMenuEl.offsetHeight;
       const requiredExtraPadding = Math.max(
         0,
-        Math.ceil(popupHeight + REFER_BUTTON_GAP_PX - cappedClaimCount * CLAIM_SLOT_HEIGHT_PX)
+        Math.ceil(popupHeight + REFER_BUTTON_GAP_PX - cappedItemCount * CLAIM_SLOT_HEIGHT_PX)
       );
       if (requiredExtraPadding !== filterMenuExtraPaddingPx) {
         filterMenuExtraPaddingPx = requiredExtraPadding;
@@ -1208,18 +1332,6 @@
       }
     }
 
-    if (!allowScroll) return;
-    const menuBottom = filterMenuEl.getBoundingClientRect().bottom;
-    const referTop = referButtonEl.getBoundingClientRect().top;
-    const targetMenuBottom = referTop - REFER_BUTTON_GAP_PX;
-    const overlap = menuBottom - targetMenuBottom;
-    if (overlap > 0) {
-      const postPadScrollable =
-        document.documentElement.scrollHeight - window.innerHeight - window.scrollY;
-      if (postPadScrollable > 0) {
-        window.scrollBy({ top: Math.min(overlap + 4, postPadScrollable), behavior: 'auto' });
-      }
-    }
   }
 </script>
 
@@ -1288,135 +1400,128 @@
         aria-haspopup="true"
         aria-expanded={showFilterMenu}
       >
-        {filterPayoutsOnly ? `${payoutHistory.length} Payouts` : `${filteredClaims.length} Claims`}
+        {hasActiveHistoryFilters ? `${historyFilterCount} ${historyFilterLabel}` : 'Filter'}
         <svg viewBox="0 0 24 24" aria-hidden="true" class={`h-4 w-4 transition-transform ${showFilterMenu ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M6 9l6 6 6-6" />
         </svg>
       </button>
       {#if showFilterMenu}
-        <div bind:this={filterMenuEl} class="absolute right-0 top-full mt-2 w-56 bg-zinc-900 border border-zinc-800 rounded-2xl shadow-xl p-3 space-y-3 z-10">
+        <div bind:this={filterMenuEl} class="absolute right-0 top-full mt-2 w-48 bg-zinc-900 border border-zinc-800 rounded-2xl shadow-xl p-3 space-y-3 z-10">
           <div>
             <div class="flex flex-col gap-2">
-              <button
-                type="button"
-                class={`px-3 py-2 rounded-full text-[10px] font-black uppercase tracking-widest border inline-flex items-center justify-center ${filterPayoutsOnly ? 'border-blue-500/30 bg-blue-500/10 text-blue-300' : 'border-zinc-800 bg-zinc-900 text-zinc-300 hover:border-zinc-700'}`}
-                on:click={() => {
-                  const nextValue = !filterPayoutsOnly;
-                  filterPayoutsOnly = nextValue;
-                  if (nextValue) {
-                    filterStatus = new Set();
-                    filterReferred = new Set();
-                  }
-                }}
-              >
-                Payouts
-              </button>
-            </div>
-          </div>
-          <div>
-            <p class="text-[10px] font-black uppercase tracking-[0.25em] text-zinc-500 mb-2">Status</p>
-            <div class="flex flex-col gap-2">
-              {#each statusOptions as status}
-                {#if status === 'approved'}
+              {#each historyFilterOptions as option}
+                {@const isActive = historyFilter === option}
+                <div class="flex flex-col gap-2">
                   <button
                     type="button"
-                    class={`px-3 py-2 rounded-full text-[10px] font-black uppercase tracking-widest border inline-flex items-center justify-center ${filterStatus.has(status) ? 'border-green-500/30 bg-green-500/10 text-green-400' : 'border-zinc-800 bg-zinc-900 text-zinc-300 hover:border-zinc-700'}`}
-                    on:click={() => {
-                      if (filterPayoutsOnly) filterPayoutsOnly = false;
-                      const next = new Set(filterStatus);
-                      if (next.has(status)) {
-                        next.delete(status);
-                      } else {
-                        next.add(status);
-                      }
-                      filterStatus = next;
-                    }}
-                  >
-                    APPROVED
-                  </button>
-                {:else if status === 'pending'}
-                  <button
-                    type="button"
-                    class={`px-3 py-2 rounded-full text-[10px] font-black uppercase tracking-widest border inline-flex items-center justify-center ${filterStatus.has(status) ? 'border-zinc-700 bg-zinc-800 text-zinc-200' : 'border-zinc-800 bg-zinc-900 text-zinc-300 hover:border-zinc-700'}`}
-                    on:click={() => {
-                      if (filterPayoutsOnly) filterPayoutsOnly = false;
-                      const next = new Set(filterStatus);
-                      if (next.has(status)) {
-                        next.delete(status);
-                      } else {
-                        next.add(status);
-                      }
-                      filterStatus = next;
-                    }}
-                  >
-                    PENDING
-                  </button>
-                {:else if status === 'paid'}
-                  <button
-                    type="button"
-                    class={`px-3 py-2 rounded-full text-[10px] font-black uppercase tracking-widest border inline-flex items-center justify-center ${filterStatus.has(status) ? 'border-blue-500/30 bg-blue-500/10 text-blue-300' : 'border-zinc-800 bg-zinc-900 text-zinc-300 hover:border-zinc-700'}`}
-                    on:click={() => {
-                      if (filterPayoutsOnly) filterPayoutsOnly = false;
-                      const next = new Set(filterStatus);
-                      if (next.has(status)) {
-                        next.delete(status);
-                      } else {
-                        next.add(status);
-                      }
-                      filterStatus = next;
-                    }}
-                  >
-                    PAID
-                  </button>
-                {:else}
-                  <button
-                    type="button"
-                    class={`px-3 py-2 rounded-full text-[10px] font-black uppercase tracking-widest border inline-flex items-center justify-center ${filterStatus.has(status) ? 'border-red-500/30 bg-red-500/10 text-red-400' : 'border-zinc-800 bg-zinc-900 text-zinc-300 hover:border-zinc-700'}`}
-                    on:click={() => {
-                      if (filterPayoutsOnly) filterPayoutsOnly = false;
-                      const next = new Set(filterStatus);
-                      if (next.has(status)) {
-                        next.delete(status);
-                      } else {
-                        next.add(status);
-                      }
-                      filterStatus = next;
-                    }}
-                  >
-                    DENIED
-                  </button>
-                {/if}
-              {/each}
-            </div>
-          </div>
-          <div>
-            <p class="text-[10px] font-black uppercase tracking-[0.25em] text-zinc-500 mb-2">Referral</p>
-            <div class="flex flex-col gap-2">
-              {#each referralOptions as kind}
-                <button
-                  type="button"
-                  class={`px-3 py-2 rounded-full text-[10px] font-black uppercase tracking-widest border inline-flex items-center justify-center ${
-                    kind === 'referrer'
-                      ? filterReferred.has(kind)
-                        ? 'border-orange-400/60 bg-orange-500/15 text-orange-300'
-                        : 'border-zinc-800 bg-zinc-900 text-zinc-300 hover:border-zinc-700'
-                      : filterReferred.has(kind)
-                        ? 'border-zinc-600 bg-zinc-800 text-zinc-200'
+                    class={`px-3 py-2 rounded-full text-[10px] font-black uppercase tracking-widest border inline-flex items-center justify-center ${
+                    isActive
+                      ? option === 'payouts'
+                        ? 'border-blue-500/30 bg-blue-500/10 text-blue-300'
+                        : option === 'venues' || option === 'guests'
+                          ? 'border-orange-500/30 bg-orange-500/10 text-orange-300'
+                          : 'border-green-500/30 bg-green-500/10 text-green-400'
                         : 'border-zinc-800 bg-zinc-900 text-zinc-300 hover:border-zinc-700'
                   }`}
                   on:click={() => {
-                    if (filterPayoutsOnly) filterPayoutsOnly = false;
-                    const next = new Set(filterReferred);
-                    if (next.has(kind)) {
-                      next.delete(kind);
-                    } else {
-                      next.add(kind);
-                    }
-                    filterReferred = next;
+                    preserveScrollAfter(() => {
+                      if (historyFilter === option) {
+                        historyFilter = null;
+                        filterStatus = new Set();
+                      } else {
+                        historyFilter = option;
+                      }
+                    });
                   }}
                 >
-                  {kind === 'referrer' ? 'Referrer' : 'Direct'}
-                </button>
+                    {option === 'payouts'
+                      ? 'Payouts'
+                      : option === 'venues'
+                        ? 'Venues'
+                        : option === 'guests'
+                          ? 'Guests'
+                          : 'Earnings'}
+                  </button>
+                  {#if option === 'earnings' && isActive}
+                    <div class="flex flex-col items-center gap-2" transition:slide|local={{ duration: 180 }}>
+                      {#each statusOptions as status}
+                        {#if status === 'approved'}
+                          <button
+                            type="button"
+                            class={`w-36 px-3 py-2 rounded-full text-[10px] font-black uppercase tracking-widest border inline-flex items-center justify-center text-center ${filterStatus.has(status) ? 'border-green-500/30 bg-green-500/10 text-green-400' : 'border-zinc-800 bg-zinc-900 text-zinc-300 hover:border-zinc-700'}`}
+                            on:click={() => {
+                              preserveScrollAfter(() => {
+                                const next = new Set(filterStatus);
+                                if (next.has(status)) {
+                                  next.delete(status);
+                                } else {
+                                  next.add(status);
+                                }
+                                filterStatus = next;
+                              });
+                            }}
+                          >
+                            APPROVED
+                          </button>
+                        {:else if status === 'pending'}
+                          <button
+                            type="button"
+                            class={`w-36 px-3 py-2 rounded-full text-[10px] font-black uppercase tracking-widest border inline-flex items-center justify-center text-center ${filterStatus.has(status) ? 'border-zinc-700 bg-zinc-800 text-zinc-200' : 'border-zinc-800 bg-zinc-900 text-zinc-300 hover:border-zinc-700'}`}
+                            on:click={() => {
+                              preserveScrollAfter(() => {
+                                const next = new Set(filterStatus);
+                                if (next.has(status)) {
+                                  next.delete(status);
+                                } else {
+                                  next.add(status);
+                                }
+                                filterStatus = next;
+                              });
+                            }}
+                          >
+                            PENDING
+                          </button>
+                        {:else if status === 'paid'}
+                          <button
+                            type="button"
+                            class={`w-36 px-3 py-2 rounded-full text-[10px] font-black uppercase tracking-widest border inline-flex items-center justify-center text-center ${filterStatus.has(status) ? 'border-blue-500/30 bg-blue-500/10 text-blue-300' : 'border-zinc-800 bg-zinc-900 text-zinc-300 hover:border-zinc-700'}`}
+                            on:click={() => {
+                              preserveScrollAfter(() => {
+                                const next = new Set(filterStatus);
+                                if (next.has(status)) {
+                                  next.delete(status);
+                                } else {
+                                  next.add(status);
+                                }
+                                filterStatus = next;
+                              });
+                            }}
+                          >
+                            PAID
+                          </button>
+                        {:else}
+                          <button
+                            type="button"
+                            class={`w-36 px-3 py-2 rounded-full text-[10px] font-black uppercase tracking-widest border inline-flex items-center justify-center text-center ${filterStatus.has(status) ? 'border-red-500/30 bg-red-500/10 text-red-400' : 'border-zinc-800 bg-zinc-900 text-zinc-300 hover:border-zinc-700'}`}
+                            on:click={() => {
+                              preserveScrollAfter(() => {
+                                const next = new Set(filterStatus);
+                                if (next.has(status)) {
+                                  next.delete(status);
+                                } else {
+                                  next.add(status);
+                                }
+                                filterStatus = next;
+                              });
+                            }}
+                          >
+                            DENIED
+                          </button>
+                        {/if}
+                      {/each}
+                    </div>
+                  {/if}
+                </div>
               {/each}
             </div>
           </div>
@@ -1424,16 +1529,19 @@
       {/if}
     </div>
 
-    {#if historyItems.length === 0}
-      <div class="py-12 text-center border-2 border-dashed border-zinc-800 rounded-[2rem]" transition:fade|local={{ duration: 180 }}>
-        <p class="text-zinc-600 text-xs font-bold uppercase tracking-widest">No activity yet</p>
-      </div>
-    {/if}
+    {#key historyItems.length === 0}
+      {#if historyItems.length === 0}
+        <div class="py-12 text-center border-2 border-dashed border-zinc-800 rounded-[2rem]" in:slide|local={{ duration: 200, delay: 220 }} out:slide|local={{ duration: 160 }}>
+          <p class="text-zinc-600 text-xs font-bold uppercase tracking-widest">No activity yet</p>
+        </div>
+      {/if}
+    {/key}
     {#each historyItems as item (item.key)}
-      {#if item.kind === 'invitation'}
-        {@const invite = item.invitation}
-        <div transition:slide|local={{ duration: 220 }}>
-          <div class="bg-black border border-zinc-800 rounded-2xl p-5">
+      <div animate:flip={{ duration: 260 }} in:slide|local={{ duration: 220 }} out:slide|local={{ duration: 220 }}>
+        {#if item.kind === 'invitation'}
+          {@const invite = item.invitation}
+          <div>
+            <div class="bg-black border border-zinc-800 rounded-2xl p-5">
             <div>
               <p class="text-[11px] font-black uppercase tracking-[0.25em] text-orange-500">Invitation Pending</p>
               <div class="mt-2 flex items-center justify-between gap-4">
@@ -1468,10 +1576,10 @@
             </div>
           </div>
         </div>
-      {:else if item.kind === 'accepted_invitation'}
-        {@const invite = item.invitation}
-        <div transition:slide|local={{ duration: 220 }}>
-          <div class="bg-black border border-zinc-800 rounded-2xl p-5">
+        {:else if item.kind === 'accepted_invitation'}
+          {@const invite = item.invitation}
+          <div>
+            <div class="bg-black border border-zinc-800 rounded-2xl p-5">
             <div>
               <div class="flex items-end justify-between gap-4">
                 <div class="min-w-0 flex flex-col">
@@ -1495,11 +1603,11 @@
                 </div>
               </div>
             </div>
+            </div>
           </div>
-        </div>
-      {:else if item.kind === 'payout'}
-        <div transition:slide|local={{ duration: 220 }}>
-          <details class="group bg-black border border-zinc-800 rounded-2xl overflow-hidden">
+        {:else if item.kind === 'payout'}
+          <div>
+            <details class="group bg-black border border-zinc-800 rounded-2xl overflow-hidden">
             <summary class="list-none p-5 flex items-center justify-between gap-4 cursor-pointer active:bg-zinc-900/50">
               <div class="flex items-center justify-between flex-1 gap-4">
                 <div class="flex flex-col justify-center">
@@ -1548,12 +1656,12 @@
               </div>
 
             </div>
-          </details>
-        </div>
-      {:else}
-        {@const claim = item.claim}
-      <div transition:slide|local={{ duration: 220 }}>
-        <details
+            </details>
+          </div>
+        {:else}
+          {@const claim = item.claim}
+          <div>
+            <details
           class={`group bg-black border border-zinc-800 rounded-2xl overflow-hidden transition-[border-color] duration-1000 ease-out ${
             (claim.id ?? claim.created_at) === highlightClaimKey
               ? 'border-orange-500'
@@ -1611,13 +1719,13 @@
             <div class="flex items-center justify-between">
               <p class="text-sm font-black uppercase text-zinc-400 tracking-widest">30-day progress</p>
               <p class="text-sm font-bold text-white">
-                {getTimeLeftLabelForVenue(claim.venue, claim.submitter_id ?? undefined)}
+                {getTimeLeftLabelForVenue(claim)}
               </p>
             </div>
             <div class="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden">
               <div
                 class="h-full bg-orange-500 transition-all duration-1000"
-                style="width: {getProgressBarWidth(claim.venue, claim.submitter_id ?? undefined)}%"
+                style="width: {getProgressBarWidth(claim)}%"
               ></div>
             </div>
           </div>
@@ -1629,7 +1737,7 @@
             </div>
             <div>
               <p class="text-xs font-black text-zinc-400 uppercase mb-1">
-                {claim.referrer_id && claim.referrer_id === userId ? 'Purchaser' : 'Referrer'}
+                {claim.referrer_id && claim.referrer_id === userId ? 'Purchaser' : 'Invited By'}
               </p>
               {#if claim.referrer_id && claim.referrer_id === userId}
                 <p class="text-sm font-bold uppercase">
@@ -1666,9 +1774,10 @@
             </div>
           </div>
         </div>
-      </details>
+            </details>
+          </div>
+        {/if}
       </div>
-      {/if}
     {/each}
     
     
@@ -1734,9 +1843,11 @@
               {/if}
             </div>
           {/if}
-          <p class="mt-2 text-[10px] font-bold uppercase tracking-widest text-zinc-500">
-            {authProviderLabel || 'Signed in'}
-          </p>
+          {#if authProviderLabel}
+            <p class="mt-2 text-[10px] font-bold uppercase tracking-widest text-zinc-500">
+              {authProviderLabel}
+            </p>
+          {/if}
           {#if canEditAuthEmail}
             {#if emailEditMode}
               <div class="mt-3 flex items-center gap-2">
@@ -1904,7 +2015,7 @@
             <div>
               <div class="flex items-center justify-between">
                 <div class="flex-1 pr-4">
-                  <p class="text-[11px] font-black uppercase tracking-[0.2em] text-white">Approved claims</p>
+                  <p class="text-[11px] font-black uppercase tracking-[0.2em] text-white">Earnings</p>
                 </div>
                 {#if isPwaInstalled}
                   <label class="relative inline-flex cursor-pointer items-center">
@@ -1929,7 +2040,7 @@
               </div>
               {#if !isPwaInstalled}
                 <p class="mt-0.5 text-[10px] font-black uppercase tracking-widest text-zinc-500">
-                  Install the Kickback app to receive instant payout notifications
+                  Install the Kickback app to receive instant earnings notifications
                 </p>
               {/if}
             </div>

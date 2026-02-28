@@ -113,10 +113,16 @@
         user_id: string;
         referral_code: string | null;
         email: string | null;
+        payout_email_enabled?: boolean;
         pay_id: string | null;
         total_amount: number;
         claim_ids: string[];
         claim_count: number;
+        breakdown?: {
+          cashback: number;
+          referral_rewards: number;
+          venue_totals: { venue_id: string; venue_name: string | null; total_amount: number }[];
+        } | null;
       }[]
     | null = null;
   let payoutHistoryStatus: 'idle' | 'loading' | 'error' | 'success' = 'idle';
@@ -1731,8 +1737,37 @@
                     Email: <span class="text-zinc-300 normal-case tracking-normal">{payout.email ?? 'Unknown'}</span>
                   </div>
                   <div class="mt-1 text-zinc-500 uppercase tracking-widest">
+                    Payout emails:{' '}
+                    <span class={`normal-case tracking-normal ${payout.payout_email_enabled ? 'text-green-300' : 'text-zinc-400'}`}>
+                      {payout.payout_email_enabled ? 'On' : 'Off'}
+                    </span>
+                  </div>
+                  <div class="mt-1 text-zinc-500 uppercase tracking-widest">
                     PayID: <span class="text-zinc-300 normal-case tracking-normal">{payout.pay_id ?? 'Not set'}</span>
                   </div>
+                  {#if payout.payout_email_enabled && payout.breakdown}
+                    <div class="mt-3 text-[10px] text-zinc-400 normal-case tracking-normal space-y-1">
+                      <div class="flex items-center justify-between gap-2">
+                        <span>New customer cashback</span>
+                        <span class="text-zinc-200">${payout.breakdown.cashback.toFixed(2)}</span>
+                      </div>
+                      <div class="flex items-center justify-between gap-2">
+                        <span>Referral rewards</span>
+                        <span class="text-zinc-200">${payout.breakdown.referral_rewards.toFixed(2)}</span>
+                      </div>
+                      {#if payout.breakdown.venue_totals.length > 0}
+                        <div class="mt-2">
+                          <p class="uppercase tracking-widest text-zinc-500">Total per venue</p>
+                          {#each payout.breakdown.venue_totals as venueTotal}
+                            <div class="flex items-center justify-between gap-2">
+                              <span class="truncate">{venueTotal.venue_name ?? venueTotal.venue_id}</span>
+                              <span class="text-zinc-200">${venueTotal.total_amount.toFixed(2)}</span>
+                            </div>
+                          {/each}
+                        </div>
+                      {/if}
+                    </div>
+                  {/if}
                   <div class="mt-2">
                     <button
                       type="button"

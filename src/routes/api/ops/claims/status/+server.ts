@@ -2,11 +2,28 @@ import { json } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
 import { supabaseAdmin } from '$lib/server/supabaseAdmin';
 import { addClaimsToUnpaidPayouts, type ClaimPayoutRow } from '$lib/server/payouts';
+import { sendEarningsNotificationsForClaims } from '$lib/server/earnings';
+import { GOAL_DAYS } from '$lib/claims/constants';
 
 type ClaimStatus = 'pending' | 'approved' | 'paid' | 'guestpaid' | 'refpaid' | 'paidout' | 'denied';
 type ClaimStatusRow = ClaimPayoutRow & {
   status: ClaimStatus | null;
 };
+
+type InvitationActivationRow = {
+  id: string;
+  submitter_id: string | null;
+  venue_id: string | null;
+  venue: string | null;
+  referrer: string | null;
+  purchased_at: string | null;
+};
+
+const dayMs = 24 * 60 * 60 * 1000;
+
+function normalizeReferrerCode(code: string | null): string {
+  return String(code ?? '').trim().toUpperCase();
+}
 
 export async function POST({ request }: RequestEvent) {
   const authHeader = request.headers.get('authorization') ?? '';
@@ -115,6 +132,65 @@ export async function POST({ request }: RequestEvent) {
   }
 
   if (status === 'approved' || status === 'paid') {
+    const { data: activationClaims, error: activationError } = await supabaseAdmin
+      .from('claims')
+      .select('id, submitter_id, venue_id, venue, referrer, purchased_at')
+      .in('id', claimIds);
+    if (activationError) {
+      return json({ ok: false, error: activationError.message }, { status: 500 });
+    }
+    const nowIso = new Date().toISOString();
+    for (const row of (activationClaims ?? []) as InvitationActivationRow[]) {
+      if (!row.submitter_id || !row.venue_id || !row.referrer) continue;
+      const referrerCode = normalizeReferrerCode(row.referrer);
+      if (!referrerCode) continue;
+      const activatedAtIso = row.purchased_at ?? nowIso;
+      const activatedAtMs = new Date(activatedAtIso).getTime();
+      if (!Number.isFinite(activatedAtMs)) continue;
+      const expiresAtIso = new Date(activatedAtMs + GOAL_DAYS * dayMs).toISOString();
+      const venueName = String(row.venue ?? '').trim();
+
+      const { data: updatedRows, error: updateInviteError } = await supabaseAdmin
+        .from('invitations')
+        .update({
+          status: 'active',
+          activated_at: activatedAtIso,
+          expires_at: expiresAtIso,
+          last_activity_at: nowIso
+        })
+        .eq('user_id', row.submitter_id)
+        .eq('venue_id', row.venue_id)
+        .eq('referrer_code', referrerCode)
+        .eq('status', 'pending')
+        .select('id');
+      if (updateInviteError) {
+        return json({ ok: false, error: updateInviteError.message }, { status: 500 });
+      }
+      if (!updatedRows || updatedRows.length === 0) {
+        if (!venueName) continue;
+        const { error: insertError } = await supabaseAdmin
+          .from('invitations')
+          .insert(
+            {
+              user_id: row.submitter_id,
+              venue_id: row.venue_id,
+              venue_name: venueName,
+              referrer_code: referrerCode,
+              status: 'active',
+              activated_at: activatedAtIso,
+              expires_at: expiresAtIso,
+              last_activity_at: nowIso
+            },
+            { onConflict: 'user_id,venue_id,referrer_code', ignoreDuplicates: true }
+          );
+        if (insertError) {
+          return json({ ok: false, error: insertError.message }, { status: 500 });
+        }
+      }
+    }
+  }
+
+  if (status === 'approved' || status === 'paid') {
     try {
       const origin = new URL(request.url).origin;
       await Promise.all(
@@ -129,6 +205,11 @@ export async function POST({ request }: RequestEvent) {
     } catch {}
   }
 
+  if (status === 'approved') {
+    try {
+      await sendEarningsNotificationsForClaims(claimIds);
+    } catch {}
+  }
+
   return json({ ok: true, updated: claimIds.length, status, payouts_created: payoutsCreated });
 }
-

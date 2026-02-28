@@ -10,14 +10,6 @@ import { createEarningsForClaimId } from '$lib/server/earnings';
 
 const dayMs = 24 * 60 * 60 * 1000;
 
-function isWithinAutoClaimWindow(firstPurchasedAt: string, paymentPurchasedAt: string): boolean {
-  const firstTime = new Date(firstPurchasedAt).getTime();
-  const paymentTime = new Date(paymentPurchasedAt).getTime();
-  if (!Number.isFinite(firstTime) || !Number.isFinite(paymentTime)) return false;
-  const diffInDays = Math.floor((paymentTime - firstTime) / dayMs);
-  return diffInDays >= 0 && diffInDays < GOAL_DAYS;
-}
-
 function normalizeReferrerCode(code: string | null): string {
   return String(code ?? '').trim().toUpperCase();
 }
@@ -298,7 +290,7 @@ export async function POST({ request }: RequestEvent) {
 
     const { data: activeInvitations, error: inviteError } = await supabaseAdmin
       .from('invitations')
-      .select('id, expires_at')
+      .select('id, activated_at, expires_at')
       .eq('user_id', submitterId)
       .eq('venue_id', venueId)
       .eq('referrer_code', referrerCode)
@@ -318,15 +310,18 @@ export async function POST({ request }: RequestEvent) {
     if (!activeInvitation?.id) {
       return json({ ok: true, ignored: true });
     }
-    if (activeInvitation.expires_at) {
-      const expiresAtMs = new Date(activeInvitation.expires_at).getTime();
-      if (Number.isFinite(expiresAtMs) && expiresAtMs < Date.now()) {
-        return json({ ok: true, ignored: true });
-      }
+    const activatedAtMs = new Date(activeInvitation.activated_at ?? '').getTime();
+    if (!Number.isFinite(activatedAtMs)) {
+      return json({ ok: true, ignored: true });
     }
-
-    const windowStart = firstPurchasedAt ?? userClaims?.[0]?.purchased_at ?? null;
-    if (!windowStart || !isWithinAutoClaimWindow(windowStart, purchasedAt)) {
+    const expiresAtMs = activeInvitation.expires_at
+      ? new Date(activeInvitation.expires_at).getTime()
+      : activatedAtMs + GOAL_DAYS * dayMs;
+    if (!Number.isFinite(expiresAtMs)) {
+      return json({ ok: true, ignored: true });
+    }
+    const paymentMs = new Date(purchasedAt).getTime();
+    if (!Number.isFinite(paymentMs) || paymentMs < activatedAtMs || paymentMs > expiresAtMs) {
       return json({ ok: true, ignored: true });
     }
 

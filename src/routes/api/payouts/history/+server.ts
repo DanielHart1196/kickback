@@ -68,14 +68,16 @@ type HistoryRow = {
   created_at: string | null;
 };
 
-type ClaimRow = {
-  id: string;
-  venue: string | null;
+type EarningRow = {
+  claim_id: string | number | null;
   amount: number | null;
-  submitter_id: string | null;
-  referrer_id: string | null;
-  kickback_guest_rate: number | null;
-  kickback_referrer_rate: number | null;
+  role: string | null;
+  venue_id: string | null;
+};
+
+type VenueRow = {
+  id: string;
+  name: string | null;
 };
 
 export const GET: RequestHandler = async ({ request }) => {
@@ -108,18 +110,39 @@ export const GET: RequestHandler = async ({ request }) => {
       payoutRows.flatMap((row) => (Array.isArray(row.claim_ids) ? row.claim_ids : [])).map((id) => String(id))
     )
   );
-  const claimById = new Map<string, ClaimRow>();
+  const earningsByClaimId = new Map<string, EarningRow[]>();
+  const venueIds = new Set<string>();
 
   if (allClaimIds.length > 0) {
-    const { data: claims, error: claimsError } = await supabaseAdmin
-      .from('claims')
-      .select('id, venue, amount, submitter_id, referrer_id, kickback_guest_rate, kickback_referrer_rate')
-      .in('id', allClaimIds);
-    if (claimsError) {
-      return json({ ok: false, error: claimsError.message }, { status: 500 });
+    const { data: earnings, error: earningsError } = await supabaseAdmin
+      .from('earnings')
+      .select('claim_id, amount, role, venue_id')
+      .eq('user_id', userId)
+      .in('claim_id', allClaimIds);
+    if (earningsError) {
+      return json({ ok: false, error: earningsError.message }, { status: 500 });
     }
-    for (const claim of (claims ?? []) as ClaimRow[]) {
-      claimById.set(String(claim.id), claim);
+    for (const row of (earnings ?? []) as EarningRow[]) {
+      const claimId = String(row.claim_id ?? '');
+      if (!claimId) continue;
+      const list = earningsByClaimId.get(claimId);
+      if (list) list.push(row);
+      else earningsByClaimId.set(claimId, [row]);
+      if (row.venue_id) venueIds.add(String(row.venue_id));
+    }
+  }
+
+  const venueNameById = new Map<string, string>();
+  if (venueIds.size > 0) {
+    const { data: venues, error: venuesError } = await supabaseAdmin
+      .from('venues')
+      .select('id, name')
+      .in('id', Array.from(venueIds));
+    if (venuesError) {
+      return json({ ok: false, error: venuesError.message }, { status: 500 });
+    }
+    for (const venue of (venues ?? []) as VenueRow[]) {
+      venueNameById.set(String(venue.id), String(venue.name ?? '').trim());
     }
   }
 
@@ -130,26 +153,19 @@ export const GET: RequestHandler = async ({ request }) => {
       let referralRewards = 0;
       let cashback = 0;
       for (const claimId of claimIds) {
-        const claim = claimById.get(claimId);
-        if (!claim) continue;
-        const venueName = String(claim.venue ?? 'Unknown venue').trim() || 'Unknown venue';
-        const amount = Number(claim.amount ?? 0);
-        if (!Number.isFinite(amount) || amount <= 0) continue;
-        let payoutAmount = 0;
-        if (String(claim.submitter_id ?? '') === userId) {
-          const rate = Number(claim.kickback_guest_rate ?? 5) / 100;
-          const userCashback = amount * rate;
-          cashback += userCashback;
-          payoutAmount += userCashback;
+        const earningRows = earningsByClaimId.get(claimId);
+        if (!earningRows || earningRows.length === 0) continue;
+        for (const earning of earningRows) {
+          const amount = Number(earning.amount ?? 0);
+          if (!Number.isFinite(amount) || amount <= 0) continue;
+          const role = String(earning.role ?? '');
+          if (role === 'guest') cashback += amount;
+          if (role === 'referrer') referralRewards += amount;
+          const venueName =
+            (earning.venue_id ? venueNameById.get(String(earning.venue_id)) : null) ||
+            'Unknown venue';
+          venueTotals.set(venueName, (venueTotals.get(venueName) ?? 0) + amount);
         }
-        if (String(claim.referrer_id ?? '') === userId) {
-          const rate = Number(claim.kickback_referrer_rate ?? 5) / 100;
-          const userReferralReward = amount * rate;
-          referralRewards += userReferralReward;
-          payoutAmount += userReferralReward;
-        }
-        if (payoutAmount <= 0) continue;
-        venueTotals.set(venueName, (venueTotals.get(venueName) ?? 0) + payoutAmount);
       }
       const paidAtFallback = row.paid_at ?? row.created_at ?? new Date().toISOString();
       const paidAtFallbackMs = new Date(paidAtFallback).getTime();

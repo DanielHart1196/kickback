@@ -67,9 +67,9 @@ export async function POST({ request }: RequestEvent) {
     const sentPush: string[] = [];
     const sentEmail: string[] = [];
     for (const t of targets) {
-      // Approved-claim email notifications are intentionally disabled.
-      // App notifications (PWA push/native push) should be handled via a dedicated push pipeline.
-      void t;
+    // Approved-claim email notifications are intentionally disabled.
+    // App notifications (PWA push/native push) are handled via earnings notifications.
+    void t;
     }
 
     return json({ ok: true, sentPush, sentEmail, skippedEmail: 'approved_claim_email_disabled' });
@@ -77,5 +77,4 @@ export async function POST({ request }: RequestEvent) {
     return json({ ok: false, error: 'failed_to_send' }, { status: 500 });
   }
 }
-
 

@@ -14,14 +14,6 @@ function normalizeReferrerCode(code: string | null): string {
   return String(code ?? '').trim().toUpperCase();
 }
 
-function isWithinAutoClaimWindow(firstPurchasedAt: string, paymentPurchasedAt: string): boolean {
-  const firstTime = new Date(firstPurchasedAt).getTime();
-  const paymentTime = new Date(paymentPurchasedAt).getTime();
-  if (!Number.isFinite(firstTime) || !Number.isFinite(paymentTime)) return false;
-  const diffInDays = Math.floor((paymentTime - firstTime) / dayMs);
-  return diffInDays >= 0 && diffInDays < GOAL_DAYS;
-}
-
 export async function POST({ request }: RequestEvent) {
   const body = await request.json().catch(() => null);
   const venueId = body?.venue_id;
@@ -258,22 +250,24 @@ export async function POST({ request }: RequestEvent) {
 
   const { data: activeInvites, error: activeInvitesError } = await supabaseAdmin
     .from('invitations')
-    .select('user_id, referrer_code, expires_at')
+    .select('user_id, referrer_code, activated_at, expires_at')
     .eq('venue_id', venueId)
     .eq('status', 'active')
     .in('user_id', userIds);
   if (activeInvitesError) {
     return json({ ok: false, error: activeInvitesError.message }, { status: 500 });
   }
-  const activeInviteKeys = new Set<string>();
+  const activeInviteWindows = new Map<string, { activatedAtMs: number; expiresAtMs: number }>();
   const nowMs = Date.now();
   for (const invite of activeInvites ?? []) {
     const userId = String(invite.user_id ?? '');
     const referrerCode = normalizeReferrerCode(invite.referrer_code ?? null);
     if (!userId || !referrerCode) continue;
-    const expiresAt = invite.expires_at ? new Date(invite.expires_at).getTime() : NaN;
-    if (Number.isFinite(expiresAt) && expiresAt < nowMs) continue;
-    activeInviteKeys.add(`${userId}:${referrerCode}`);
+    const activatedAt = new Date(invite.activated_at ?? '').getTime();
+    if (!Number.isFinite(activatedAt)) continue;
+    const expiresAt = invite.expires_at ? new Date(invite.expires_at).getTime() : activatedAt + GOAL_DAYS * 24 * 60 * 60 * 1000;
+    if (!Number.isFinite(expiresAt) || expiresAt < nowMs) continue;
+    activeInviteWindows.set(`${userId}:${referrerCode}`, { activatedAtMs: activatedAt, expiresAtMs: expiresAt });
   }
 
   const autoClaimStatus = venue.square_public === false ? 'pending' : 'approved';
@@ -287,7 +281,8 @@ export async function POST({ request }: RequestEvent) {
       if (!submitterId) return null;
       const referrer = userToReferrer.get(submitterId) ?? { referrer_id: null, referrer: null };
       const referrerCode = normalizeReferrerCode(referrer.referrer ?? null);
-      if (!referrerCode || !activeInviteKeys.has(`${submitterId}:${referrerCode}`)) {
+      const window = referrerCode ? activeInviteWindows.get(`${submitterId}:${referrerCode}`) : null;
+      if (!referrerCode || !window) {
         return null;
       }
       const amount = payment.amount_money?.amount != null ? payment.amount_money.amount / 100 : null;
@@ -296,9 +291,12 @@ export async function POST({ request }: RequestEvent) {
         amount == null ||
         !payment.card_details?.card?.last_4 ||
         !payment.created_at ||
-        !firstPurchasedAt ||
-        !isWithinAutoClaimWindow(firstPurchasedAt, payment.created_at)
+        !firstPurchasedAt
       ) {
+        return null;
+      }
+      const paymentMs = new Date(payment.created_at).getTime();
+      if (!Number.isFinite(paymentMs) || paymentMs < window.activatedAtMs || paymentMs > window.expiresAtMs) {
         return null;
       }
       const effectiveRates = getVenueRatesForTime(venue, payment.created_at, 5);

@@ -1,4 +1,6 @@
 import { supabaseAdmin } from '$lib/server/supabaseAdmin';
+import { sendPushToUser, isPushEnabled } from '$lib/server/push';
+import { env } from '$env/dynamic/private';
 
 const timeZone = 'Australia/Melbourne';
 const weekdayIndex: Record<string, number> = {
@@ -13,9 +15,11 @@ const weekdayIndex: Record<string, number> = {
 
 type ClaimRow = {
   id: string;
+  venue: string | null;
   venue_id: string;
   amount: number | null;
   purchased_at: string;
+  status: string | null;
   submitter_id: string | null;
   referrer_id: string | null;
   kickback_guest_rate: number | null;
@@ -76,7 +80,7 @@ export async function createEarningsForClaimId(
 ): Promise<{ ok: boolean; error?: string; already_exists?: boolean }> {
   const { data: claim, error: claimError } = await supabaseAdmin
     .from('claims')
-    .select('id, venue_id, amount, purchased_at, submitter_id, referrer_id, kickback_guest_rate, kickback_referrer_rate')
+    .select('id, venue, venue_id, amount, purchased_at, status, submitter_id, referrer_id, kickback_guest_rate, kickback_referrer_rate')
     .eq('id', claimId)
     .maybeSingle();
 
@@ -188,4 +192,62 @@ export async function createEarningsForClaimId(
   }
 
   return { ok: true };
+}
+
+export async function sendEarningsNotificationsForClaims(claimIds: string[]): Promise<void> {
+  if (!isPushEnabled() || claimIds.length === 0) return;
+  const { data: claims } = await supabaseAdmin
+    .from('claims')
+    .select('id, venue, amount, status, submitter_id, referrer_id, kickback_guest_rate, kickback_referrer_rate, submitter_referral_code')
+    .in('id', claimIds);
+  if (!claims || claims.length === 0) return;
+  const userIds = Array.from(
+    new Set(
+      claims.flatMap((c) => [String(c.submitter_id ?? ''), String(c.referrer_id ?? '')]).filter(Boolean)
+    )
+  );
+  if (userIds.length === 0) return;
+  const { data: profiles } = await supabaseAdmin
+    .from('profiles')
+    .select('id, notify_approved_claims')
+    .in('id', userIds);
+  const notifySet = new Set(
+    (profiles ?? [])
+      .filter((p) => p.notify_approved_claims)
+      .map((p) => String(p.id))
+  );
+  if (notifySet.size === 0) return;
+  const appUrl = (
+    env.PRIVATE_APP_URL ||
+    env.PUBLIC_APP_URL ||
+    'https://kkbk.app'
+  ).replace(/\/+$/, '');
+  const dashboardUrl = `${appUrl}/`;
+
+  for (const claim of claims as any[]) {
+    const claimStatus = String(claim.status ?? '').toLowerCase();
+    if (!['approved', 'paid', 'guestpaid', 'refpaid', 'paidout'].includes(claimStatus)) continue;
+    const amount = Number(claim.amount ?? 0);
+    const guestRate = Number(claim.kickback_guest_rate ?? 0) / 100;
+    const refRate = Number(claim.kickback_referrer_rate ?? 0) / 100;
+    const venueName = String(claim.venue ?? '').trim() || 'venue';
+    if (claim.submitter_id && notifySet.has(String(claim.submitter_id))) {
+      const earned = Math.max(0, Number((amount * guestRate).toFixed(2)));
+      await sendPushToUser(String(claim.submitter_id), {
+        title: `+$${earned.toFixed(2)} earned`,
+        body: `from ${venueName}`,
+        url: dashboardUrl,
+        tag: `earnings:${claim.id}:guest`
+      });
+    }
+    if (claim.referrer_id && notifySet.has(String(claim.referrer_id))) {
+      const earned = Math.max(0, Number((amount * refRate).toFixed(2)));
+      await sendPushToUser(String(claim.referrer_id), {
+        title: `+$${earned.toFixed(2)} earned`,
+        body: `${String(claim.submitter_referral_code ?? 'member')} used your code at ${venueName}`,
+        url: dashboardUrl,
+        tag: `earnings:${claim.id}:referrer`
+      });
+    }
+  }
 }

@@ -35,6 +35,7 @@
   export let autoClaimDaysLeft: number | null = null;
   export let venueRefLandingMode = false;
   export let progressiveAddVenueFlow = false;
+  export let isInvitationActive = false;
   export let onBack: () => void = () => {};
   export let onSubmit: () => void = () => {};
   export let onConfirmGuest: () => void = () => {};
@@ -744,7 +745,7 @@
                   class:opacity-50={!canSubmit || status === 'loading'}
                 class:cursor-not-allowed={!canSubmit || status === 'loading'}
               >
-                {status === 'loading' ? 'VERIFYING PAYMENT...' : 'ACTIVATE'}
+                {status === 'loading' ? 'VERIFYING PAYMENT...' : (isInvitationActive ? 'SUBMIT' : 'ACTIVATE')}
               </button>
               {:else}
                 <button 

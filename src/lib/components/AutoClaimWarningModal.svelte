@@ -15,12 +15,11 @@
       </svg>
     </div>
 
-    <h2 class="text-2xl font-black text-white mb-3 italic uppercase tracking-tighter">Auto Claims Active</h2>
+    <h2 class="text-2xl font-black text-white mb-3 italic uppercase tracking-tighter">{venue} already active</h2>
 
     <p class="text-zinc-400 text-sm leading-relaxed mb-8">
-      Auto claims are already active at <span class="text-white font-bold">{venue}</span>.
-      Purchases there will be tracked for the next <span class="text-white font-bold">{daysLeft}</span> days.
-      You can still submit manually if you want.
+      Purchases at <span class="text-white font-bold">{venue}</span> will be tracked for the next <span class="text-white font-bold">{daysLeft}</span> days.
+      If something was missed, or you used a different card, you can still submit manually.
     </p>
 
     <div class="space-y-3">

@@ -1,4 +1,5 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
+import { env } from '$env/dynamic/private';
 import { supabaseAdmin } from '$lib/server/supabaseAdmin';
 
 type EarningRow = {
@@ -7,6 +8,8 @@ type EarningRow = {
   amount: number | null;
   status: string | null;
   claim_id: string | number | null;
+  role: string | null;
+  venue_id: string | null;
 };
 
 type Aggregate = {
@@ -15,6 +18,12 @@ type Aggregate = {
   currency: string;
   claim_ids: Set<string>;
   earning_ids: Set<string>;
+};
+
+type Breakdown = {
+  cashback: number;
+  referral_rewards: number;
+  venue_totals: Map<string, number>;
 };
 
 function addAmount(
@@ -71,7 +80,7 @@ export const POST: RequestHandler = async ({ request, fetch }) => {
 
   const { data: scheduledRows, error: scheduledError } = await supabaseAdmin
     .from('earnings')
-    .select('id, user_id, amount, status, claim_id')
+    .select('id, user_id, amount, status, claim_id, role, venue_id')
     .eq('status', 'scheduled')
     .order('created_at', { ascending: true });
   if (scheduledError) {
@@ -79,6 +88,8 @@ export const POST: RequestHandler = async ({ request, fetch }) => {
   }
 
   const aggregates = new Map<string, Aggregate>();
+  const breakdownByUser = new Map<string, Breakdown>();
+  const venueIds = new Set<string>();
   for (const row of (scheduledRows ?? []) as EarningRow[]) {
     const userId = String(row.user_id ?? '');
     if (!userId) continue;
@@ -87,6 +98,20 @@ export const POST: RequestHandler = async ({ request, fetch }) => {
     const claimId = row.claim_id != null ? String(row.claim_id) : '';
     const earningId = String(row.id ?? '');
     addAmount(aggregates, userId, amount, 'aud', claimId, earningId);
+    const breakdown = breakdownByUser.get(userId) ?? {
+      cashback: 0,
+      referral_rewards: 0,
+      venue_totals: new Map<string, number>()
+    };
+    if (row.role === 'guest') breakdown.cashback += amount;
+    if (row.role === 'referrer') breakdown.referral_rewards += amount;
+    if (row.venue_id) {
+      const venueKey = String(row.venue_id);
+      const current = breakdown.venue_totals.get(venueKey) ?? 0;
+      breakdown.venue_totals.set(venueKey, current + amount);
+      venueIds.add(venueKey);
+    }
+    breakdownByUser.set(userId, breakdown);
   }
 
   const userIds = Array.from(aggregates.keys());
@@ -94,27 +119,53 @@ export const POST: RequestHandler = async ({ request, fetch }) => {
     return json({ ok: true, payouts: [] });
   }
 
-  const [{ data: profiles }, { data: payoutProfiles }] = await Promise.all([
-    supabaseAdmin.from('profiles').select('id, referral_code, email').in('id', userIds),
+  const [{ data: profiles }, { data: payoutProfiles }, { data: venues }] = await Promise.all([
+    supabaseAdmin.from('profiles').select('id, referral_code, email, notify_payout_confirmation').in('id', userIds),
     supabaseAdmin.from('payout_profiles').select('user_id, pay_id').in('user_id', userIds)
+    ,
+    venueIds.size > 0
+      ? supabaseAdmin.from('venues').select('id, name').in('id', Array.from(venueIds))
+      : Promise.resolve({ data: [], error: null } as { data: any[]; error: any })
   ]);
 
   const profileById = new Map((profiles ?? []).map((p) => [String(p.id), p]));
   const payIdByUser = new Map((payoutProfiles ?? []).map((p) => [String(p.user_id), String(p.pay_id ?? '')]));
+  const venueNameById = new Map((venues ?? []).map((v: any) => [String(v.id), String(v.name ?? '')]));
+  const payoutEmailsConfigured = Boolean(env.PRIVATE_SMTP_PASS);
 
   const payouts = userIds
     .map((userId) => {
       const agg = aggregates.get(userId)!;
       const profile = profileById.get(userId);
+      const breakdown = breakdownByUser.get(userId);
+      const payoutEmailEnabled = Boolean(
+        payoutEmailsConfigured &&
+        profile?.email &&
+        profile?.notify_payout_confirmation
+      );
       return {
         user_id: userId,
         referral_code: profile?.referral_code ?? null,
         email: profile?.email ?? null,
+        payout_email_enabled: payoutEmailEnabled,
         pay_id: payIdByUser.get(userId) ?? null,
         total_amount: Number(agg.amount.toFixed(2)),
         claim_ids: Array.from(agg.claim_ids),
         currency: agg.currency,
-        claim_count: agg.claim_ids.size
+        claim_count: agg.claim_ids.size,
+        breakdown: breakdown
+          ? {
+              cashback: Number(breakdown.cashback.toFixed(2)),
+              referral_rewards: Number(breakdown.referral_rewards.toFixed(2)),
+              venue_totals: Array.from(breakdown.venue_totals.entries())
+                .map(([venue_id, total_amount]) => ({
+                  venue_id,
+                  venue_name: venueNameById.get(String(venue_id)) ?? null,
+                  total_amount: Number(total_amount.toFixed(2))
+                }))
+                .sort((a, b) => b.total_amount - a.total_amount)
+            }
+          : null
       };
     })
     .sort((a, b) => b.total_amount - a.total_amount);
@@ -167,19 +218,6 @@ export const POST: RequestHandler = async ({ request, fetch }) => {
   if (payoutInsertError) {
     return json({ ok: false, error: payoutInsertError.message }, { status: 500 });
   }
-
-  try {
-    await fetch('/api/notifications/payout-confirmation', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        user_id: targetUserId,
-        amount: payoutAmount,
-        pay_id: payoutPayId,
-        paid_at: paidAt
-      })
-    });
-  } catch {}
 
   return json({
     ok: true,
