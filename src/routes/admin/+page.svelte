@@ -28,7 +28,7 @@
   let referrerRate = '5';
   type HappyHourConfig = { start: string; end: string; days: Set<string> };
   const MAX_HAPPY_HOURS = 3;
-  let happyHours: HappyHourConfig[] = [createHappyHour()];
+  let happyHours: HappyHourConfig[] = [];
   let billingEmail = '';
   let billingFirstName = '';
   let billingLastName = '';
@@ -142,6 +142,10 @@
       end: sanitizeHappyHourTime(end),
       days
     };
+  }
+
+  if (happyHours.length === 0) {
+    happyHours = [createHappyHour()];
   }
 
   function buildHappyHoursFromVenue(venueData: Venue | null): HappyHourConfig[] {

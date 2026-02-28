@@ -493,9 +493,11 @@
               {/if}
             </div>
           </div>
-          <div class="flex items-center gap-2 shrink-0 mr-1">
-            <button on:click={copyToClipboard} class="bg-zinc-800 text-white text-[10px] font-black px-4 py-2 rounded-xl uppercase hover:bg-zinc-700">Copy</button>
-          </div>
+          {#if !referralEditing}
+            <div class="flex items-center gap-2 shrink-0 mr-1">
+              <button on:click={copyToClipboard} class="bg-zinc-800 text-white text-[10px] font-black px-4 py-2 rounded-xl uppercase hover:bg-zinc-700">Copy</button>
+            </div>
+          {/if}
           </div>
         </div>
         {#if referralError}

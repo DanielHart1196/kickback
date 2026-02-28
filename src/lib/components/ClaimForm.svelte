@@ -178,7 +178,10 @@
   $: normalizedReferrerCode = safeReferrer.trim().toUpperCase();
   $: referrerValid = safeReferrer.trim().length > 0 && isReferralCodeValid(safeReferrer);
   $: hasSelectedVenue = Boolean(selectedVenue);
-  $: canShowReferrerStep = progressiveAddVenueFlow ? hasSelectedVenue : true;
+  $: isSignedOutRefOnlyFlow = !session && !venueRefLandingMode && normalizedReferrerCode.length > 0;
+  $: shouldUseLogoSelection = progressiveAddVenueFlow || isSignedOutRefOnlyFlow;
+  $: canShowReferrerStep =
+    (progressiveAddVenueFlow || isSignedOutRefOnlyFlow) ? hasSelectedVenue : true;
   $: hasValidReferrerForStep =
     referrerValid && !isSelfReferral && referrerLookupStatus === 'valid';
   $: canShowTransactionStep =
@@ -336,7 +339,7 @@
             {:else}
               <p class="text-base text-zinc-400">
                 Get 5% for 30 days at
-                {#if progressiveAddVenueFlow && !venueRefLandingMode}
+                {#if shouldUseLogoSelection && !venueRefLandingMode}
                   <span class="text-orange-500 font-semibold"> {venueName}</span>
                 {:else}
                   {' '}{venueName}
@@ -371,7 +374,7 @@
             class="h-48 w-auto max-w-full object-contain rounded-2xl border-2 transition-opacity duration-200 {logoLoaded ? 'border-orange-500 opacity-100' : 'border-transparent opacity-0'}"
             loading="lazy"
           />
-          {#if progressiveAddVenueFlow && !venueRefLandingMode}
+          {#if shouldUseLogoSelection && !venueRefLandingMode}
             <button
               type="button"
               on:click={clearVenueSelection}
@@ -428,7 +431,15 @@
               class="fixed w-72 rounded-2xl border border-zinc-800 bg-zinc-950 p-3 text-[11px] text-zinc-400 shadow-xl shadow-black/30 z-[300] opacity-100"
               style={autoClaimTooltipStyle}
             >
-              <p class="text-zinc-400">Any time your card is used at {selectedVenue.name} for the next 30 days, you and {normalizedReferrerCode} will automatically receive a 5% kickback.</p>
+              <p class="text-zinc-400">
+                Any time your card is used at
+                {#if shouldUseLogoSelection && !venueRefLandingMode}
+                  <span class="text-orange-500 font-semibold"> {selectedVenue.name}</span>
+                {:else}
+                  {' '}{selectedVenue.name}
+                {/if}
+                for the next 30 days, you and {normalizedReferrerCode} will automatically receive a 5% kickback.
+              </p>
             </div>
           {/if}
         </div>
@@ -436,7 +447,7 @@
       {/if}
     {/if}
 
-    {#if !venueRefLandingMode && (!progressiveAddVenueFlow || !selectedVenue?.logo_url) && !isVenueLocked}
+    {#if !venueRefLandingMode && (!shouldUseLogoSelection || !selectedVenue?.logo_url) && !isVenueLocked}
     <div>
       <div class="relative" bind:this={venueWrap}>
         <input 
@@ -491,6 +502,26 @@
         <p class="mt-2 text-[11px] font-bold uppercase tracking-widest text-orange-500/70">Select a venue</p>
       {/if}
     </div>
+    {/if}
+
+    {#if ((session && progressiveAddVenueFlow) || isSignedOutRefOnlyFlow) && !hasSelectedVenue && normalizedReferrerCode}
+      <div>
+        <p class="text-center text-base text-zinc-400">
+          Invited by <span class="ml-1 text-orange-500 font-semibold">{normalizedReferrerCode}</span>
+        </p>
+      </div>
+    {/if}
+
+    {#if isSignedOutRefOnlyFlow && !hasSelectedVenue}
+      <div class="text-center">
+        <button
+          type="button"
+          on:click={() => goto(loginUrl)}
+          class="w-full bg-white text-black font-black py-4 rounded-2xl text-lg active:scale-95 transition-all shadow-xl shadow-white/5"
+        >
+          SIGN UP
+        </button>
+      </div>
     {/if}
 
     {#if canShowReferrerStep && !venueRefLandingMode && !isVenueLocked}
@@ -577,7 +608,7 @@
     {#if canShowReferrerStep && !canShowTransactionStep}
     {/if}
 
-    {#if canShowTransactionStep || !progressiveAddVenueFlow}
+          {#if (canShowTransactionStep || !progressiveAddVenueFlow) && !(isSignedOutRefOnlyFlow && !hasSelectedVenue)}
       <div class="bg-zinc-900 border border-zinc-800 p-6 rounded-3xl shadow-2xl">
         <div class={invitationOnly ? 'space-y-0' : 'space-y-5'}>
           {#if canShowTransactionStep}
