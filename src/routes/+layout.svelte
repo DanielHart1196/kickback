@@ -1,6 +1,5 @@
 <script>
   import "../app.css";
-  import favicon from '$lib/assets/favicon.png';
   import { onMount } from 'svelte';
   import { afterNavigate } from '$app/navigation';
   import { env as publicEnv } from '$env/dynamic/public';
@@ -95,7 +94,7 @@
     <link rel="dns-prefetch" href={supabaseOrigin} />
     <link rel="preconnect" href={supabaseOrigin} crossorigin="anonymous" />
   {/if}
-  <link rel="icon" href="{favicon}" />
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="canonical" href="{appUrl}/" />
   <meta name="theme-color" content="#0b0b0b" />
