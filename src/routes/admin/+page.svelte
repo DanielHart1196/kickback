@@ -216,7 +216,10 @@
   }
 
   function removeHappyHour(index: number) {
-    if (index <= 0) return;
+    if (happyHours.length <= 1) {
+      happyHours = [createHappyHour()];
+      return;
+    }
     happyHours = happyHours.filter((_, i) => i !== index);
   }
 
@@ -2156,22 +2159,20 @@
                   </div>
                   {#each happyHours as happyHour, index}
                     <div class="relative rounded-xl border border-zinc-800 bg-black/30 p-3 space-y-3">
-                      {#if index > 0}
-                        <button
-                          type="button"
-                          on:click={() => removeHappyHour(index)}
-                          class="absolute right-2 top-2 inline-flex h-7 w-7 items-center justify-center rounded-full border border-zinc-700 text-zinc-400 hover:text-white hover:border-zinc-400 transition-colors"
-                          aria-label="Remove happy hour"
-                        >
-                          <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M3 6h18" />
-                            <path d="M8 6l1-2h6l1 2" />
-                            <path d="M8 10v8" />
-                            <path d="M12 10v8" />
-                            <path d="M16 10v8" />
-                          </svg>
-                        </button>
-                      {/if}
+                      <button
+                        type="button"
+                        on:click={() => removeHappyHour(index)}
+                        class="absolute right-2 top-2 inline-flex h-7 w-7 items-center justify-center rounded-full border border-zinc-700 text-zinc-400 hover:text-white hover:border-zinc-400 transition-colors"
+                        aria-label="Remove happy hour"
+                      >
+                        <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2">
+                          <path d="M3 6h18" />
+                          <path d="M8 6l1-2h6l1 2" />
+                          <path d="M8 10v8" />
+                          <path d="M12 10v8" />
+                          <path d="M16 10v8" />
+                        </svg>
+                      </button>
                       <div class="grid grid-cols-2 gap-2">
                         <label class="flex flex-col gap-1 text-[10px] font-black uppercase tracking-widest text-zinc-500">
                           Start
@@ -2217,9 +2218,9 @@
                     <button
                       type="button"
                       on:click={addHappyHour}
-                      class="text-[11px] font-black uppercase tracking-[0.2em] text-orange-400 hover:text-orange-300 transition-colors text-left"
+                      class="w-full text-[11px] font-black uppercase tracking-[0.2em] text-orange-400 hover:text-orange-300 transition-colors text-center"
                     >
-                      + Add happy hour
+                      + Add
                     </button>
                   {/if}
                 </div>
