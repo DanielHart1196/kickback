@@ -4,6 +4,12 @@ type VenueRateSource = {
   happy_hour_start_time?: string | null;
   happy_hour_end_time?: string | null;
   happy_hour_days?: string[] | null;
+  happy_hour_start_time_2?: string | null;
+  happy_hour_end_time_2?: string | null;
+  happy_hour_days_2?: string[] | null;
+  happy_hour_start_time_3?: string | null;
+  happy_hour_end_time_3?: string | null;
+  happy_hour_days_3?: string[] | null;
 };
 
 const HAPPY_HOUR_RATE = 10;
@@ -48,21 +54,56 @@ function getLocalDayAndMinutes(inputTime: string | Date): { day: string; minutes
   return { day, minutes: hour * 60 + minute };
 }
 
-export function isHappyHourActive(venue: VenueRateSource, inputTime: string | Date): boolean {
-  const startMinutes = parseHourMinute(venue.happy_hour_start_time);
-  const endMinutes = parseHourMinute(venue.happy_hour_end_time);
-  const days = normalizeDays(venue.happy_hour_days);
-  if (startMinutes === null || endMinutes === null || days.size === 0 || startMinutes === endMinutes) {
-    return false;
+function getHappyHourWindows(venue: VenueRateSource): Array<{
+  startMinutes: number;
+  endMinutes: number;
+  days: Set<string>;
+}> {
+  const windows = [
+    {
+      start: venue.happy_hour_start_time,
+      end: venue.happy_hour_end_time,
+      days: venue.happy_hour_days
+    },
+    {
+      start: venue.happy_hour_start_time_2,
+      end: venue.happy_hour_end_time_2,
+      days: venue.happy_hour_days_2
+    },
+    {
+      start: venue.happy_hour_start_time_3,
+      end: venue.happy_hour_end_time_3,
+      days: venue.happy_hour_days_3
+    }
+  ];
+  const result: Array<{ startMinutes: number; endMinutes: number; days: Set<string> }> = [];
+  for (const window of windows) {
+    const startMinutes = parseHourMinute(window.start);
+    const endMinutes = parseHourMinute(window.end);
+    const days = normalizeDays(window.days);
+    if (startMinutes === null || endMinutes === null || days.size === 0 || startMinutes === endMinutes) {
+      continue;
+    }
+    result.push({ startMinutes, endMinutes, days });
   }
+  return result;
+}
+
+export function isHappyHourActive(venue: VenueRateSource, inputTime: string | Date): boolean {
+  const windows = getHappyHourWindows(venue);
+  if (windows.length === 0) return false;
   const local = getLocalDayAndMinutes(inputTime);
   if (!local) return false;
-  if (!days.has(local.day)) return false;
 
-  if (startMinutes < endMinutes) {
-    return local.minutes >= startMinutes && local.minutes < endMinutes;
+  for (const window of windows) {
+    if (!window.days.has(local.day)) continue;
+    if (window.startMinutes < window.endMinutes) {
+      if (local.minutes >= window.startMinutes && local.minutes < window.endMinutes) return true;
+    } else {
+      if (local.minutes >= window.startMinutes || local.minutes < window.endMinutes) return true;
+    }
   }
-  return local.minutes >= startMinutes || local.minutes < endMinutes;
+  return false;
 }
 
 export function getVenueRatesForTime(
@@ -77,4 +118,3 @@ export function getVenueRatesForTime(
   }
   return { guestRate: HAPPY_HOUR_RATE, referrerRate: HAPPY_HOUR_RATE };
 }
-

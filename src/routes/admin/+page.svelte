@@ -26,9 +26,9 @@
   let venueCodeAvailable: boolean | null = null;
   let guestRate = '5';
   let referrerRate = '5';
-  let happyHourStart = '16:00';
-  let happyHourEnd = '19:00';
-  let happyHourDays = new Set<string>();
+  type HappyHourConfig = { start: string; end: string; days: Set<string> };
+  const MAX_HAPPY_HOURS = 3;
+  let happyHours: HappyHourConfig[] = [createHappyHour()];
   let billingEmail = '';
   let billingFirstName = '';
   let billingLastName = '';
@@ -83,6 +83,7 @@
   let showHappyHourTip = false;
   let venueShareUrl = '';
   let venueQrUrl = '';
+  let venueQrLogoUrl = '';
   let csvFileName = '';
   let csvSourceText = '';
   let csvParsedCount = 0;
@@ -131,14 +132,102 @@
     return result;
   }
 
-  function toggleHappyHourDay(day: string) {
-    const next = new Set(happyHourDays);
-    if (next.has(day)) {
-      next.delete(day);
-    } else {
-      next.add(day);
+  function createHappyHour(
+    start: string = '16:00',
+    end: string = '19:00',
+    days: Set<string> = new Set<string>()
+  ): HappyHourConfig {
+    return {
+      start: sanitizeHappyHourTime(start),
+      end: sanitizeHappyHourTime(end),
+      days
+    };
+  }
+
+  function buildHappyHoursFromVenue(venueData: Venue | null): HappyHourConfig[] {
+    if (!venueData) return [createHappyHour()];
+    const configs = [
+      {
+        start: venueData.happy_hour_start_time,
+        end: venueData.happy_hour_end_time,
+        days: venueData.happy_hour_days
+      },
+      {
+        start: venueData.happy_hour_start_time_2,
+        end: venueData.happy_hour_end_time_2,
+        days: venueData.happy_hour_days_2
+      },
+      {
+        start: venueData.happy_hour_start_time_3,
+        end: venueData.happy_hour_end_time_3,
+        days: venueData.happy_hour_days_3
+      }
+    ];
+    const next: HappyHourConfig[] = [];
+    for (const cfg of configs) {
+      if (cfg.start || cfg.end || (cfg.days && cfg.days.length > 0)) {
+        next.push(
+          createHappyHour(
+            sanitizeHappyHourTime(cfg.start ?? '16:00'),
+            sanitizeHappyHourTime(cfg.end ?? '19:00'),
+            normalizeHappyHourDays(cfg.days ?? [])
+          )
+        );
+      }
     }
-    happyHourDays = next;
+    return next.length > 0 ? next : [createHappyHour()];
+  }
+
+  function updateHappyHourStart(index: number, value: string) {
+    const next = happyHours.map((entry, i) =>
+      i === index ? { ...entry, start: sanitizeHappyHourTime(value) } : entry
+    );
+    happyHours = next;
+  }
+
+  function updateHappyHourEnd(index: number, value: string) {
+    const next = happyHours.map((entry, i) =>
+      i === index ? { ...entry, end: sanitizeHappyHourTime(value) } : entry
+    );
+    happyHours = next;
+  }
+
+  function toggleHappyHourDay(index: number, day: string) {
+    const entry = happyHours[index];
+    if (!entry) return;
+    const nextDays = new Set(entry.days);
+    if (nextDays.has(day)) {
+      nextDays.delete(day);
+    } else {
+      nextDays.add(day);
+    }
+    happyHours = happyHours.map((item, i) =>
+      i === index ? { ...item, days: nextDays } : item
+    );
+  }
+
+  function addHappyHour() {
+    if (happyHours.length >= MAX_HAPPY_HOURS) return;
+    happyHours = [...happyHours, createHappyHour()];
+  }
+
+  function removeHappyHour(index: number) {
+    if (index <= 0) return;
+    happyHours = happyHours.filter((_, i) => i !== index);
+  }
+
+  function getHappyHourPayload(index: number): { start: string | null; end: string | null; days: string[] | null } {
+    const entry = happyHours[index];
+    if (!entry) return { start: null, end: null, days: null };
+    const days = Array.from(entry.days);
+    if (days.length === 0) {
+      return { start: null, end: null, days: null };
+    }
+    return {
+      start: sanitizeHappyHourTime(entry.start),
+      end: sanitizeHappyHourTime(entry.end),
+      days
+    };
   }
 
   function appOrigin(): string {
@@ -150,6 +239,9 @@
   $: venueShareUrl = venueCode.trim() ? `${appOrigin()}/?venue=${encodeURIComponent(venueCode.trim())}` : '';
   $: venueQrUrl = venueShareUrl
     ? `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(venueShareUrl)}`
+    : '';
+  $: venueQrLogoUrl = venueShareUrl && venue?.logo_url
+    ? `https://quickchart.io/qr?text=${encodeURIComponent(venueShareUrl)}&size=180&centerImageUrl=${encodeURIComponent(venue.logo_url)}&centerImageSizeRatio=0.25`
     : '';
 
   async function fetchVenueInvoices() {
@@ -786,7 +878,7 @@
       const { data: directVenues, error: directError } = await supabase
       .from('venues')
       .select(
-        'id, name, short_code, logo_url, kickback_guest, kickback_referrer, happy_hour_start_time, happy_hour_end_time, happy_hour_days, payment_methods, square_public, new_customers_only, billing_email, billing_contact_first_name, billing_contact_last_name, billing_phone, billing_company, billing_country_code, billing_state, billing_postal_code, billing_city, billing_address, billing_abn, active, created_by'
+        'id, name, short_code, logo_url, kickback_guest, kickback_referrer, happy_hour_start_time, happy_hour_end_time, happy_hour_days, happy_hour_start_time_2, happy_hour_end_time_2, happy_hour_days_2, happy_hour_start_time_3, happy_hour_end_time_3, happy_hour_days_3, payment_methods, square_public, new_customers_only, billing_email, billing_contact_first_name, billing_contact_last_name, billing_phone, billing_company, billing_country_code, billing_state, billing_postal_code, billing_city, billing_address, billing_abn, active, created_by'
       )
       .eq('created_by', user.id)
       .limit(1);
@@ -812,7 +904,7 @@
         const { data: linkedVenues, error: linkedError } = await supabase
           .from('venues')
         .select(
-          'id, name, short_code, logo_url, kickback_guest, kickback_referrer, happy_hour_start_time, happy_hour_end_time, happy_hour_days, payment_methods, square_public, new_customers_only, billing_email, billing_contact_first_name, billing_contact_last_name, billing_phone, billing_company, billing_country_code, billing_state, billing_postal_code, billing_city, billing_address, billing_abn, active, created_by'
+          'id, name, short_code, logo_url, kickback_guest, kickback_referrer, happy_hour_start_time, happy_hour_end_time, happy_hour_days, happy_hour_start_time_2, happy_hour_end_time_2, happy_hour_days_2, happy_hour_start_time_3, happy_hour_end_time_3, happy_hour_days_3, payment_methods, square_public, new_customers_only, billing_email, billing_contact_first_name, billing_contact_last_name, billing_phone, billing_company, billing_country_code, billing_state, billing_postal_code, billing_city, billing_address, billing_abn, active, created_by'
         )
         .in('id', venueIds)
         .limit(1);
@@ -829,9 +921,7 @@
       venueCode = venue?.short_code ?? '';
       guestRate = venue?.kickback_guest != null ? String(venue.kickback_guest) : '5';
     referrerRate = venue?.kickback_referrer != null ? String(venue.kickback_referrer) : '5';
-    happyHourStart = sanitizeHappyHourTime(venue?.happy_hour_start_time ?? '16:00');
-    happyHourEnd = sanitizeHappyHourTime(venue?.happy_hour_end_time ?? '19:00');
-    happyHourDays = normalizeHappyHourDays(venue?.happy_hour_days);
+    happyHours = buildHappyHoursFromVenue(venue);
     pauseClaims = venue?.square_public === false;
     newCustomersOnly = Boolean(venue?.new_customers_only);
     paymentMethods = ['gateway'];
@@ -878,9 +968,15 @@
         created_by: user.id,
         kickback_guest: parseRate(guestRate, 'Guest %'),
         kickback_referrer: parseRate(referrerRate, 'Referrer %'),
-        happy_hour_start_time: happyHourStart,
-        happy_hour_end_time: happyHourEnd,
-        happy_hour_days: Array.from(happyHourDays),
+        happy_hour_start_time: getHappyHourPayload(0).start,
+        happy_hour_end_time: getHappyHourPayload(0).end,
+        happy_hour_days: getHappyHourPayload(0).days,
+        happy_hour_start_time_2: getHappyHourPayload(1).start,
+        happy_hour_end_time_2: getHappyHourPayload(1).end,
+        happy_hour_days_2: getHappyHourPayload(1).days,
+        happy_hour_start_time_3: getHappyHourPayload(2).start,
+        happy_hour_end_time_3: getHappyHourPayload(2).end,
+        happy_hour_days_3: getHappyHourPayload(2).days,
         short_code: shortCode,
         payment_methods: paymentMethods,
         square_public: !pauseClaims,
@@ -940,9 +1036,15 @@
         name: trimmedName,
         kickback_guest: parseRate(guestRate, 'Guest %'),
         kickback_referrer: parseRate(referrerRate, 'Referrer %'),
-        happy_hour_start_time: happyHourStart,
-        happy_hour_end_time: happyHourEnd,
-        happy_hour_days: Array.from(happyHourDays),
+        happy_hour_start_time: getHappyHourPayload(0).start,
+        happy_hour_end_time: getHappyHourPayload(0).end,
+        happy_hour_days: getHappyHourPayload(0).days,
+        happy_hour_start_time_2: getHappyHourPayload(1).start,
+        happy_hour_end_time_2: getHappyHourPayload(1).end,
+        happy_hour_days_2: getHappyHourPayload(1).days,
+        happy_hour_start_time_3: getHappyHourPayload(2).start,
+        happy_hour_end_time_3: getHappyHourPayload(2).end,
+        happy_hour_days_3: getHappyHourPayload(2).days,
         short_code: shortCode,
         payment_methods: paymentMethods,
         square_public: !pauseClaims && squareConnected,
@@ -1920,8 +2022,7 @@
               <div class="rounded-xl border border-zinc-800 bg-zinc-950/70 px-4 py-3 flex items-center justify-between gap-4">
                 <div class="min-w-0">
                   <p class="text-[11px] font-black uppercase tracking-[0.2em] text-zinc-400">New customers only</p>
-                  <p class="text-[10px] font-bold uppercase tracking-widest text-zinc-600">Block cards used before at this venue</p>
-                  <p class="text-[10px] font-bold uppercase tracking-widest text-zinc-600">Card not used at venue for last 6 months</p>
+                  <p class="text-[10px] font-bold uppercase tracking-widest text-zinc-600">Block cards used at this venue in last 6 months</p>
                 </div>
                 <label class="relative inline-flex cursor-pointer items-center">
                   <input type="checkbox" bind:checked={newCustomersOnly} class="peer sr-only" />
@@ -1972,7 +2073,7 @@
             <div transition:slide class="rounded-2xl border border-zinc-800 bg-zinc-950/60 p-4 space-y-4">
               <div class="grid gap-4 md:grid-cols-2 items-start">
                 <div class="space-y-3">
-                  <label class="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-zinc-500 w-full">
+                  <label class="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-zinc-500 whitespace-nowrap">
                     <span>Venue Code</span>
                     <span class="relative inline-flex items-center w-full max-w-full">
                       <button
@@ -2008,9 +2109,14 @@
                   {#if venueShareUrl}
                     <div class="rounded-xl border border-zinc-800 bg-black/40 p-3 space-y-2">
                       <p class="text-[10px] font-black uppercase tracking-widest text-zinc-500">Venue QR</p>
-                      {#if venueQrUrl}
-                        <img src={venueQrUrl} alt="Venue QR" class="h-40 w-40 rounded-lg border border-zinc-800 bg-white p-2" />
-                      {/if}
+                      <div class="flex flex-wrap gap-3">
+                        {#if venueQrUrl}
+                          <img src={venueQrUrl} alt="Venue QR" class="h-40 w-40 rounded-lg border border-zinc-800 bg-white p-2" />
+                        {/if}
+                        {#if venueQrLogoUrl}
+                          <img src={venueQrLogoUrl} alt="Venue QR with logo" class="h-40 w-40 rounded-lg border border-zinc-800 bg-white p-2" />
+                        {/if}
+                      </div>
                       <a
                         href={venueShareUrl}
                         target="_blank"
@@ -2022,8 +2128,8 @@
                     </div>
                   {/if}
                 </div>
-                <div class="rounded-xl border border-zinc-800 bg-black/30 p-3 space-y-3">
-                  <label class="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-zinc-500 w-full">
+                <div class="space-y-3">
+                  <div class="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-zinc-500 whitespace-nowrap">
                     <span>Happy Hour</span>
                     <span class="relative inline-flex items-center w-full max-w-full">
                       <button
@@ -2040,41 +2146,78 @@
                         i
                       </button>
                       <span class={`absolute left-0 top-full mt-2 w-full max-w-full whitespace-normal text-left bg-zinc-900 border border-zinc-700 text-zinc-300 text-[10px] font-bold uppercase tracking-widest px-3 py-2 rounded-lg pointer-events-none z-10 ${showHappyHourTip ? 'opacity-100' : 'opacity-0'}`}>
-                        Double kickbacks between these hours on these days. 10% referrer, 10% new customer.
+                        Double kickbacks: 10% referrer, 10% new customer.
                       </span>
                     </span>
-                  </label>
-                  <div class="grid grid-cols-2 gap-2">
-                    <label class="flex flex-col gap-1 text-[10px] font-black uppercase tracking-widest text-zinc-500">
-                      Start
-                      <select bind:value={happyHourStart} class="bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-sm font-bold text-white font-mont">
-                        {#each happyHourTimeOptions as option}
-                          <option value={option}>{option}</option>
-                        {/each}
-                      </select>
-                    </label>
-                    <label class="flex flex-col gap-1 text-[10px] font-black uppercase tracking-widest text-zinc-500">
-                      End
-                      <select bind:value={happyHourEnd} class="bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-sm font-bold text-white font-mont">
-                        {#each happyHourTimeOptions as option}
-                          <option value={option}>{option}</option>
-                        {/each}
-                      </select>
-                    </label>
                   </div>
-                  <div class="grid grid-cols-4 gap-2">
-                    {#each happyHourDayOptions as day}
-                      <label class="flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-zinc-300">
-                        <input
-                          type="checkbox"
-                          checked={happyHourDays.has(day)}
-                          on:change={() => toggleHappyHourDay(day)}
-                          class="h-3.5 w-3.5 accent-orange-500"
-                        />
-                        <span>{day}</span>
-                      </label>
-                    {/each}
-                  </div>
+                  {#each happyHours as happyHour, index}
+                    <div class="relative rounded-xl border border-zinc-800 bg-black/30 p-3 space-y-3">
+                      {#if index > 0}
+                        <button
+                          type="button"
+                          on:click={() => removeHappyHour(index)}
+                          class="absolute right-2 top-2 inline-flex h-7 w-7 items-center justify-center rounded-full border border-zinc-700 text-zinc-400 hover:text-white hover:border-zinc-400 transition-colors"
+                          aria-label="Remove happy hour"
+                        >
+                          <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M3 6h18" />
+                            <path d="M8 6l1-2h6l1 2" />
+                            <path d="M8 10v8" />
+                            <path d="M12 10v8" />
+                            <path d="M16 10v8" />
+                          </svg>
+                        </button>
+                      {/if}
+                      <div class="grid grid-cols-2 gap-2">
+                        <label class="flex flex-col gap-1 text-[10px] font-black uppercase tracking-widest text-zinc-500">
+                          Start
+                          <select
+                            value={happyHour.start}
+                            on:change={(event) => updateHappyHourStart(index, (event.currentTarget as HTMLSelectElement).value)}
+                            class="bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-sm font-bold text-white font-mont"
+                          >
+                            {#each happyHourTimeOptions as option}
+                              <option value={option}>{option}</option>
+                            {/each}
+                          </select>
+                        </label>
+                        <label class="flex flex-col gap-1 text-[10px] font-black uppercase tracking-widest text-zinc-500">
+                          End
+                          <select
+                            value={happyHour.end}
+                            on:change={(event) => updateHappyHourEnd(index, (event.currentTarget as HTMLSelectElement).value)}
+                            class="bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-sm font-bold text-white font-mont"
+                          >
+                            {#each happyHourTimeOptions as option}
+                              <option value={option}>{option}</option>
+                            {/each}
+                          </select>
+                        </label>
+                      </div>
+                      <div class="grid grid-cols-4 gap-2">
+                        {#each happyHourDayOptions as day}
+                          <label class="flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-zinc-300">
+                            <input
+                              type="checkbox"
+                              checked={happyHour.days.has(day)}
+                              on:change={() => toggleHappyHourDay(index, day)}
+                              class="h-3.5 w-3.5 accent-orange-500"
+                            />
+                            <span>{day}</span>
+                          </label>
+                        {/each}
+                      </div>
+                    </div>
+                  {/each}
+                  {#if happyHours.length < MAX_HAPPY_HOURS}
+                    <button
+                      type="button"
+                      on:click={addHappyHour}
+                      class="text-[11px] font-black uppercase tracking-[0.2em] text-orange-400 hover:text-orange-300 transition-colors text-left"
+                    >
+                      + Add happy hour
+                    </button>
+                  {/if}
                 </div>
               </div>
               {#if venueCodeChecking}

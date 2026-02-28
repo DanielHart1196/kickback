@@ -22,5 +22,11 @@ export type Venue = {
   happy_hour_start_time?: string | null;
   happy_hour_end_time?: string | null;
   happy_hour_days?: string[] | null;
+  happy_hour_start_time_2?: string | null;
+  happy_hour_end_time_2?: string | null;
+  happy_hour_days_2?: string[] | null;
+  happy_hour_start_time_3?: string | null;
+  happy_hour_end_time_3?: string | null;
+  happy_hour_days_3?: string[] | null;
   active?: boolean;
 };

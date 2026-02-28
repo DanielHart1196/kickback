@@ -5,7 +5,7 @@ export async function fetchActiveVenues(): Promise<Venue[]> {
   const { data, error } = await supabase
     .from('venues')
     .select(
-      'id, name, short_code, logo_url, kickback_guest, kickback_referrer, payment_methods, square_public, happy_hour_start_time, happy_hour_end_time, happy_hour_days'
+      'id, name, short_code, logo_url, kickback_guest, kickback_referrer, payment_methods, square_public, happy_hour_start_time, happy_hour_end_time, happy_hour_days, happy_hour_start_time_2, happy_hour_end_time_2, happy_hour_days_2, happy_hour_start_time_3, happy_hour_end_time_3, happy_hour_days_3'
     )
     .eq('active', true)
     .eq('square_public', true)

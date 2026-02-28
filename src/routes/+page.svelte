@@ -1551,7 +1551,13 @@
         kickback_referrer: match?.kickback_referrer ?? null,
         happy_hour_start_time: match?.happy_hour_start_time ?? null,
         happy_hour_end_time: match?.happy_hour_end_time ?? null,
-        happy_hour_days: match?.happy_hour_days ?? null
+        happy_hour_days: match?.happy_hour_days ?? null,
+        happy_hour_start_time_2: match?.happy_hour_start_time_2 ?? null,
+        happy_hour_end_time_2: match?.happy_hour_end_time_2 ?? null,
+        happy_hour_days_2: match?.happy_hour_days_2 ?? null,
+        happy_hour_start_time_3: match?.happy_hour_start_time_3 ?? null,
+        happy_hour_end_time_3: match?.happy_hour_end_time_3 ?? null,
+        happy_hour_days_3: match?.happy_hour_days_3 ?? null
       },
       atTime,
       KICKBACK_RATE * 100

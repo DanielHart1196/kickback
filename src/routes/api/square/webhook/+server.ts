@@ -300,7 +300,7 @@ export async function POST({ request }: RequestEvent) {
 
     const { data: venue, error: venueError } = await supabaseAdmin
       .from('venues')
-      .select('name,kickback_guest,kickback_referrer,square_public,happy_hour_start_time,happy_hour_end_time,happy_hour_days')
+      .select('name,kickback_guest,kickback_referrer,square_public,happy_hour_start_time,happy_hour_end_time,happy_hour_days,happy_hour_start_time_2,happy_hour_end_time_2,happy_hour_days_2,happy_hour_start_time_3,happy_hour_end_time_3,happy_hour_days_3')
       .eq('id', venueId)
       .maybeSingle();
 
