@@ -1228,9 +1228,10 @@
     emailChangeStatus = 'saving';
     emailChangeMessage = '';
     try {
+      const redirectTarget = `${appOrigin()}/admin`;
       const { error } = await supabase.auth.updateUser(
         { email: nextEmail },
-        { emailRedirectTo: `${appOrigin()}/admin` }
+        { emailRedirectTo: `${appOrigin()}/auth/callback?redirect_to=${encodeURIComponent(redirectTarget)}` }
       );
       if (error) throw error;
       emailChangeStatus = 'success';
@@ -2113,8 +2114,8 @@
             {#if venue}
               <div class="rounded-xl border border-zinc-800 bg-zinc-950/70 px-4 py-3 flex items-center justify-between gap-4">
                 <div class="min-w-0">
-                  <p class="text-[11px] font-black uppercase tracking-[0.2em] text-zinc-400">Pause claims</p>
-                  <p class="text-[10px] font-bold uppercase tracking-widest text-zinc-600">New auto-matched claims stay pending</p>
+                  <p class="text-[11px] font-black uppercase tracking-[0.2em] text-zinc-400">Pause kickback</p>
+                  <p class="text-[10px] font-bold uppercase tracking-widest text-zinc-600">All claims stay pending</p>
                 </div>
                 <label class="relative inline-flex cursor-pointer items-center">
                   <input type="checkbox" bind:checked={pauseClaims} class="peer sr-only" />
