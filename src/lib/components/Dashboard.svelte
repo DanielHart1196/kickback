@@ -1597,7 +1597,7 @@ import { onMount, tick } from 'svelte';
           <div>
             <div class="bg-black border border-zinc-800 rounded-2xl p-5">
             <div>
-              <p class="text-[11px] font-black uppercase tracking-[0.25em] text-orange-500">Invitation Pending</p>
+              <p class="text-[11px] font-black uppercase tracking-[0.25em] text-orange-500">Pending Activation</p>
               <div class="mt-2 flex items-center justify-between gap-4">
                 <div class="min-w-0">
                   <p class="text-sm font-bold text-white">{invite.venueName || 'Venue'}</p>
@@ -2168,7 +2168,7 @@ import { onMount, tick } from 'svelte';
               </div>
               {#if !isPwaInstalled}
                 <p class="mt-0.5 text-[10px] font-black uppercase tracking-widest text-zinc-500">
-                  Install the Kickback app to receive instant earnings notifications
+                  Install the Kickback app
                 </p>
               {/if}
             </div>

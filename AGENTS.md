@@ -11,6 +11,7 @@
 ## Local Screenshot Paths
 - Latest screenshots are typically in `/storage/emulated/0/DCIM/Screenshots/` (Android/Termux).
 - Use the most recent file in that directory when the user says "latest screenshot".
+- Echo the user's message at the start of each response.
 
 ## App Error Message Note
 - The "table not found" message is our default user-facing error page (e.g. for 404s). It is not a Supabase error.
