@@ -1433,8 +1433,10 @@ import { onMount, tick } from 'svelte';
   </div>
 
   <button 
+    type="button"
     on:click={onOpenRefer}
-    class="w-full bg-white text-black font-black py-5 rounded-[2rem] text-xl uppercase tracking-tight shadow-xl shadow-white/5 active:scale-95 transition-all"
+    class="w-full appearance-none bg-white text-black font-black py-5 rounded-[2rem] text-xl uppercase tracking-tight shadow-xl shadow-white/5 active:scale-95 transition-all"
+    style="background-color: #fff; color: #000; -webkit-appearance: none; appearance: none; -webkit-text-fill-color: #000;"
   >
     + Invite
   </button>
@@ -1662,7 +1664,7 @@ import { onMount, tick } from 'svelte';
         {:else if item.kind === 'payout'}
           <div>
             <details class="group bg-black border border-zinc-800 rounded-2xl overflow-hidden">
-            <summary class="list-none p-5 flex items-center justify-between gap-4 cursor-pointer active:bg-zinc-900/50">
+            <summary class="details-summary-reset list-none p-5 flex items-center justify-between gap-4 cursor-pointer active:bg-zinc-900/50">
               <div class="flex items-center justify-between flex-1 gap-4">
                 <div class="flex flex-col justify-center">
                   <p class="text-xl font-black uppercase tracking-widest text-[#0D9CFF]">
@@ -1740,7 +1742,7 @@ import { onMount, tick } from 'svelte';
           }`}
           data-claim-key={claim.id ?? claim.created_at}
         >
-        <summary class="list-none py-5 pl-5 pr-4 relative cursor-pointer active:bg-zinc-900/50">
+        <summary class="details-summary-reset list-none py-5 pl-5 pr-4 relative cursor-pointer active:bg-zinc-900/50">
             <div class="flex">
               <div class="flex flex-col justify-center w-full">
               <p class={`text-xl font-black uppercase tracking-widest ${isClaimDenied(claim) ? 'text-zinc-500' : 'text-green-500'}`}>
@@ -2266,6 +2268,14 @@ import { onMount, tick } from 'svelte';
   }
   .custom-scrollbar::-webkit-scrollbar {
     display: none; /* Chrome, Safari, Opera */
+  }
+
+  .details-summary-reset::-webkit-details-marker {
+    display: none;
+  }
+
+  .details-summary-reset::marker {
+    content: "";
   }
 
 </style>
