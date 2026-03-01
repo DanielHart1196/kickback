@@ -255,7 +255,7 @@
     try {
       const baseDataUrl = await QRCode.toDataURL(url, {
         margin: 2,
-        scale: 8,
+        scale: 12,
         color: { dark: '#000000', light: '#ffffff' }
       });
       if (venueQrRequestId !== requestId) return;
@@ -284,6 +284,7 @@
 
       canvas.width = qrImage.width;
       canvas.height = qrImage.height;
+      ctx.imageSmoothingEnabled = false;
       ctx.drawImage(qrImage, 0, 0);
 
       const logoImage = new Image();
@@ -315,6 +316,8 @@
       ctx.fillStyle = '#ffffff';
       ctx.fill();
       ctx.clip();
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
       ctx.drawImage(logoImage, x, y, logoSize, logoSize);
       ctx.restore();
 
@@ -2798,14 +2801,16 @@
             </div>
           {/if}
           <div class="mt-4 flex items-center gap-3">
-            <button
-              type="button"
-              on:click={syncStripeInvoices}
-              class="px-4 py-2 rounded-xl bg-zinc-200 text-black text-xs font-black uppercase tracking-widest disabled:opacity-50"
-              disabled={invoiceSyncLoading || !venue}
-            >
-              {invoiceSyncLoading ? 'Syncing…' : 'Sync Stripe Invoices'}
-            </button>
+            {#if false}
+              <button
+                type="button"
+                on:click={syncStripeInvoices}
+                class="px-4 py-2 rounded-xl bg-zinc-200 text-black text-xs font-black uppercase tracking-widest disabled:opacity-50"
+                disabled={invoiceSyncLoading || !venue}
+              >
+                {invoiceSyncLoading ? 'Syncing…' : 'Sync Stripe Invoices'}
+              </button>
+            {/if}
             {#if invoiceSyncError}
               <span class="text-[10px] font-black uppercase tracking-widest text-red-400">{invoiceSyncError}</span>
             {/if}
