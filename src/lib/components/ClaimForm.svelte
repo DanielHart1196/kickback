@@ -23,6 +23,7 @@
   export let purchaseTimeTooOld = false;
   export let last4 = '';
   export let venue = '';
+  export let venueId = '';
   export let venues: Venue[] = [];
   export let referrer = '';
   export let referrerLookupStatus: 'idle' | 'checking' | 'valid' | 'invalid' = 'idle';
@@ -37,6 +38,7 @@
   export let progressiveAddVenueFlow = false;
   export let isInvitationActive = false;
   export let pendingInvitationStorageKey = '';
+  export let forceInvitationOnly: boolean | null = null;
   export let onBack: () => void = () => {};
   export let onSubmit: () => void = () => {};
   export let onConfirmGuest: () => void = () => {};
@@ -67,6 +69,7 @@
   let referrerEditing = false;
   let referrerBannerInput: HTMLInputElement | null = null;
   let invitationOnly = false;
+  let invitationOnlyInitialized = false;
 
   onMount(() => {
     const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent : '';
@@ -179,19 +182,27 @@
   $: normalizedReferrerCode = safeReferrer.trim().toUpperCase();
   $: referrerValid = safeReferrer.trim().length > 0 && isReferralCodeValid(safeReferrer);
   $: hasSelectedVenue = Boolean(selectedVenue);
+  $: hasVenueForFlow = hasSelectedVenue || Boolean(venueId?.trim?.() || venue?.trim?.());
   $: isSignedOutRefOnlyFlow = !session && !venueRefLandingMode && normalizedReferrerCode.length > 0;
   $: shouldUseLogoSelection = progressiveAddVenueFlow || isSignedOutRefOnlyFlow;
   $: canShowReferrerStep =
     (progressiveAddVenueFlow || isSignedOutRefOnlyFlow) ? hasSelectedVenue : true;
   $: hasValidReferrerForStep =
     referrerValid && !isSelfReferral && referrerLookupStatus === 'valid';
-  $: canShowTransactionStep =
-    progressiveAddVenueFlow ? (canShowReferrerStep && hasValidReferrerForStep) : true;
+  $: canShowTransactionStep = hasVenueForFlow && referrerValid && !isSelfReferral;
   $: if (selectedVenue?.logo_url) {
     logoLoaded = false;
   }
+  $: if (forceInvitationOnly !== null) {
+    invitationOnly = forceInvitationOnly;
+    invitationOnlyInitialized = true;
+  } else if (venueRefLandingMode && selectedVenue && normalizedReferrerCode && !invitationOnlyInitialized) {
+    invitationOnly = true;
+    invitationOnlyInitialized = true;
+  }
   $: if (!venueRefLandingMode || !selectedVenue || !normalizedReferrerCode) {
     invitationOnly = false;
+    invitationOnlyInitialized = false;
   }
   $: showInvitedByReferrer = Boolean(normalizedReferrerCode && !referrerEditing && !isVenueLocked);
   $: showVenueRefInviteHeader = Boolean(
@@ -245,6 +256,11 @@
     venue = '';
     venueDirty = false;
     venueOpen = true;
+    referrer = '';
+    referrerDirty = false;
+    referrerEditing = false;
+    invitationOnly = false;
+    invitationOnlyInitialized = false;
   }
 
   function getLocalNowInputValue(): string {
@@ -421,7 +437,7 @@
                 aria-expanded={invitationOnly}
                 on:click={() => (invitationOnly = !invitationOnly)}
               >
-                {invitationOnly ? 'Here now' : 'Not there yet?'}
+                {invitationOnly ? 'Here now?' : 'Not there yet'}
               </button>
             {/if}
           </div>
@@ -609,15 +625,46 @@
     {#if canShowReferrerStep && !canShowTransactionStep}
     {/if}
 
-          {#if (canShowTransactionStep || !progressiveAddVenueFlow) && !(isSignedOutRefOnlyFlow && !hasSelectedVenue)}
-      <div class="bg-zinc-900 border border-zinc-800 p-6 rounded-3xl shadow-2xl">
-        <div class={invitationOnly ? 'space-y-0' : 'space-y-5'}>
-          {#if canShowTransactionStep}
-          <div
-            class={`space-y-5 overflow-hidden transition-[max-height,opacity] duration-350 ease-in-out ${
-              invitationOnly ? 'max-h-0 opacity-0 pointer-events-none' : 'max-h-[900px] opacity-100'
-            }`}
+    {#if invitationOnly}
+      <div class="space-y-4">
+        {#if session}
+          <button
+            type="button"
+            on:click={onAcceptInvitation}
+            class="w-full bg-orange-500 text-black font-black py-4 rounded-2xl text-lg active:scale-95 transition-all"
           >
+            ACCEPT INVITATION
+          </button>
+        {:else}
+          <button
+            type="button"
+                  on:click={() => {
+                    if (pendingInvitationStorageKey && typeof window !== 'undefined') {
+                      try {
+                        window.localStorage.setItem(
+                          pendingInvitationStorageKey,
+                          JSON.stringify({
+                            venueId: selectedVenue?.id ?? venueId ?? '',
+                            venueName: selectedVenue?.name ?? venue ?? '',
+                            referrerCode: normalizedReferrerCode
+                          })
+                        );
+                        window.localStorage.setItem('kickback:pending_invitation_accept', '1');
+                        window.localStorage.removeItem('kickback:pending_url_params');
+                      } catch {}
+                    }
+                    goto(loginUrl);
+                  }}
+            class="w-full bg-orange-500 text-black font-black py-4 rounded-2xl text-lg active:scale-95 transition-all"
+          >
+            SIGN UP & ACCEPT INVITATION
+          </button>
+        {/if}
+      </div>
+    {:else if canShowTransactionStep}
+      <div class="bg-zinc-900 border border-zinc-800 p-6 rounded-3xl shadow-2xl">
+        <div class="space-y-5">
+          <div class="space-y-5">
             <div>
               <div class="flex items-center justify-between mb-2">
                 <label for="time" class="block text-xs font-bold uppercase tracking-widest text-zinc-500">Time of Purchase</label>
@@ -630,10 +677,10 @@
                 </button>
               </div>
               <div class="relative">
-                <input 
+                <input
                   id="time"
-                  type="datetime-local" 
-                  bind:value={purchaseTime} 
+                  type="datetime-local"
+                  bind:value={purchaseTime}
                   bind:this={timeInput}
                   max={maxPurchaseTime || undefined}
                   class="time-input w-full appearance-none bg-zinc-800 border-none p-4 {isFirefox ? 'pr-4 text-base' : 'pr-12 text-lg'} rounded-2xl focus:ring-2 focus:ring-inset focus:ring-white outline-none [color-scheme:dark]"
@@ -663,26 +710,21 @@
             <div>
               <label for="amount" class="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">Amount</label>
               <div class="relative">
-              <span class="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500 font-bold">$</span>
-              <input 
-                id="amount"
-                type="text"
-                bind:value={amountInput}
-                bind:this={amountField}
-                on:focus={handleAmountFocus}
-                on:blur={handleAmountBlur}
-                on:input={onAmountInput}
-                placeholder="0.00"
-                inputmode="decimal"
-                class="w-full bg-zinc-800 border-none p-4 pl-8 rounded-2xl text-lg focus:ring-2 focus:ring-inset focus:ring-white outline-none"
-              />
+                <span class="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500 font-bold">$</span>
+                <input
+                  id="amount"
+                  type="text"
+                  bind:value={amountInput}
+                  bind:this={amountField}
+                  on:focus={handleAmountFocus}
+                  on:blur={handleAmountBlur}
+                  on:input={onAmountInput}
+                  placeholder="0.00"
+                  inputmode="decimal"
+                  class="w-full bg-zinc-800 border-none p-4 pl-8 rounded-2xl text-lg focus:ring-2 focus:ring-inset focus:ring-white outline-none"
+                />
               </div>
             </div>
-<style>
-  #venue::placeholder {
-    font-family: 'Montserrat', ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
-  }
-</style>
 
             {#if (amount ?? 0) >= maxBill}
               <p transition:fade class="text-orange-500 text-[10px] font-bold mt-2 px-2">
@@ -723,12 +765,12 @@
                   <p class="mt-2 text-zinc-500">Apple Pay and Google Pay can show a different card number than the one on your physical card. Please enter the last 4 shown in your wallet app.</p>
                 </div>
               {/if}
-              <input 
+              <input
                 id="last4"
-                type="text" 
+                type="text"
                 inputmode="numeric"
                 pattern="[0-9]*"
-                bind:value={last4} 
+                bind:value={last4}
                 placeholder="1234"
                 maxlength="4"
                 on:blur={() => last4Dirty = true}
@@ -746,99 +788,60 @@
               </div>
             {/if}
           </div>
-          {/if}
 
-          {#if canShowTransactionStep}
           <div class="space-y-4">
-            {#if invitationOnly}
-              {#if session}
-                <button
-                  type="button"
-                  on:click={onAcceptInvitation}
-                  class="w-full bg-orange-500 text-black font-black py-4 rounded-2xl text-lg active:scale-95 transition-all"
-                >
-                  ACCEPT INVITATION
-                </button>
-              {:else}
-                <button
-                  type="button"
-                  on:click={() => {
-                    if (pendingInvitationStorageKey && typeof window !== 'undefined') {
-                      try {
-                        window.localStorage.setItem(
-                          pendingInvitationStorageKey,
-                          JSON.stringify({
-                            venueId: selectedVenue?.id ?? '',
-                            venueName: selectedVenue?.name ?? venueName ?? '',
-                            referrerCode: normalizedReferrerCode
-                          })
-                        );
-                      } catch {}
-                    }
-                    goto(loginUrl);
-                  }}
-                  class="w-full bg-white text-black font-black py-4 rounded-2xl text-lg active:scale-95 transition-all shadow-xl shadow-white/5"
-                >
-                  SIGN UP & ACCEPT INVITATION
-                </button>
-              {/if}
-            {:else}
-              {#if session}
-                <button 
-                  on:click={() => { if (status !== 'loading' && canSubmit) onSubmit(); }}
-                  disabled={status === 'loading' || !canSubmit}
-                  class="w-full bg-orange-500 text-black font-black py-4 rounded-2xl text-lg active:scale-95 transition-all disabled:opacity-50"
-                  class:opacity-50={!canSubmit || status === 'loading'}
+            {#if session}
+              <button
+                on:click={() => { if (status !== 'loading' && canSubmit) onSubmit(); }}
+                disabled={status === 'loading' || !canSubmit}
+                class="w-full bg-orange-500 text-black font-black py-4 rounded-2xl text-lg active:scale-95 transition-all disabled:opacity-50"
+                class:opacity-50={!canSubmit || status === 'loading'}
                 class:cursor-not-allowed={!canSubmit || status === 'loading'}
               >
                 {status === 'loading' ? 'VERIFYING PAYMENT...' : (isInvitationActive ? 'SUBMIT' : 'ACTIVATE')}
               </button>
-              {:else}
-                <button 
-                  on:click={async () => {
-                    if (status === 'loading' || !canSubmit) return;
-                    const draft: ClaimDraft = {
-                      amount: amountInput || '',
-                      venue: (selectedVenue?.name ?? venue) || '',
-                      venueId: selectedVenue?.id ?? '',
-                      venueCode: selectedVenue?.short_code ?? undefined,
-                      ref: typeof referrer === 'string' ? referrer : '',
-                      last4: typeof last4 === 'string' ? last4 : '',
-                      purchaseTime: typeof purchaseTime === 'string' ? purchaseTime : ''
-                    };
-                    try {
-                      saveDraftToStorage(localStorage, draft);
-                    } catch {}
-                    await goto(loginUrl);
-                  }}
-                  disabled={status === 'loading' || !canSubmit}
-                  class="w-full bg-white text-black font-black py-4 rounded-2xl text-lg active:scale-95 transition-all shadow-xl shadow-white/5"
-                  class:opacity-50={!canSubmit || status === 'loading'}
-                  class:cursor-not-allowed={!canSubmit || status === 'loading'}
-                >
-                  SIGN UP & CLAIM ${kickback}
-                </button>
+            {:else}
+              <button 
+                on:click={async () => {
+                  if (status === 'loading' || !canSubmit) return;
+                  const draft: ClaimDraft = {
+                    amount: amountInput || '',
+                    venue: (selectedVenue?.name ?? venue) || '',
+                    venueId: selectedVenue?.id ?? '',
+                    venueCode: selectedVenue?.short_code ?? undefined,
+                    ref: typeof referrer === 'string' ? referrer : '',
+                    last4: typeof last4 === 'string' ? last4 : '',
+                    purchaseTime: typeof purchaseTime === 'string' ? purchaseTime : ''
+                  };
+                  try {
+                    saveDraftToStorage(localStorage, draft);
+                  } catch {}
+                  await goto(loginUrl);
+                }}
+                disabled={status === 'loading' || !canSubmit}
+                class="w-full bg-orange-500 text-black font-black py-4 rounded-2xl text-lg active:scale-95 transition-all"
+                class:opacity-50={!canSubmit || status === 'loading'}
+                class:cursor-not-allowed={!canSubmit || status === 'loading'}
+              >
+                SIGN UP & CLAIM ${kickback}
+              </button>
 
-                <button
-                  on:click={() => { if (status !== 'loading' && canSubmit) onConfirmGuest(); }}
-                  type="button"
-                  disabled={status === 'loading' || !canSubmit}
-                  class="w-full py-3 text-zinc-500 font-bold text-sm uppercase tracking-[0.2em] disabled:opacity-50"
-                  class:cursor-not-allowed={!canSubmit || status === 'loading'}
-                >
-                  Submit as Guest
-                </button>
-              {/if}
+              <button
+                on:click={() => { if (status !== 'loading' && canSubmit) onConfirmGuest(); }}
+                type="button"
+                disabled={status === 'loading' || !canSubmit}
+                class="w-full py-3 text-zinc-500 font-bold text-sm uppercase tracking-[0.2em] disabled:opacity-50"
+                class:cursor-not-allowed={!canSubmit || status === 'loading'}
+              >
+                Submit as Guest
+              </button>
             {/if}
           </div>
-          {/if}
         </div>
       </div>
     {/if}
   </div>
-
-  
-</div>
+  </div>
 
 <style>
   .time-input::-webkit-calendar-picker-indicator {
@@ -860,9 +863,13 @@
     -moz-appearance: textfield;
   }
 
-  .time-input-native {
-    appearance: auto;
-    -webkit-appearance: auto;
-    -moz-appearance: auto;
-  }
+.time-input-native {
+  appearance: auto;
+  -webkit-appearance: auto;
+  -moz-appearance: auto;
+}
+
+#venue::placeholder {
+  font-family: 'Montserrat', ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+}
 </style>

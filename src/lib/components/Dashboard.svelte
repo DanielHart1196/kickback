@@ -1433,10 +1433,10 @@ import { onMount, tick } from 'svelte';
   </div>
 
   <button 
-    on:click={onNewClaim}
+    on:click={onOpenRefer}
     class="w-full bg-white text-black font-black py-5 rounded-[2rem] text-xl uppercase tracking-tight shadow-xl shadow-white/5 active:scale-95 transition-all"
   >
-    + Add Venue
+    + Invite
   </button>
 
   <div
@@ -2004,19 +2004,19 @@ import { onMount, tick } from 'svelte';
                 />
               </div>
               <div>
-                <div class="flex items-center justify-between mb-1">
-                  <label for="payout-payid" class="block text-[11px] font-black uppercase tracking-[0.2em] text-white">
-                    PayID
-                  </label>
-                  <button
-                    type="button"
-                    on:click={() => (payoutUseBankDetails = !payoutUseBankDetails)}
-                    class="text-[10px] font-black uppercase tracking-widest text-orange-400 hover:text-orange-300 transition-colors"
-                  >
-                    {payoutUseBankDetails ? 'PayID' : 'BSB + account no.'}
-                  </button>
-                </div>
                 {#if !payoutUseBankDetails}
+                  <div class="flex items-center justify-between mb-1">
+                    <label for="payout-payid" class="block text-[11px] font-black uppercase tracking-[0.2em] text-white">
+                      PayID
+                    </label>
+                    <button
+                      type="button"
+                      on:click={() => (payoutUseBankDetails = true)}
+                      class="text-[10px] font-black uppercase tracking-widest text-orange-400 hover:text-orange-300 transition-colors"
+                    >
+                      BSB + account no.
+                    </button>
+                  </div>
                   <input
                     id="payout-payid"
                     type="text"
@@ -2027,9 +2027,18 @@ import { onMount, tick } from 'svelte';
                 {:else}
                   <div class="space-y-3">
                     <div>
-                      <label for="payout-bsb" class="mb-1 block text-[11px] font-black uppercase tracking-[0.2em] text-white">
-                        BSB
-                      </label>
+                      <div class="flex items-center justify-between mb-1">
+                        <label for="payout-bsb" class="block text-[11px] font-black uppercase tracking-[0.2em] text-white">
+                          BSB
+                        </label>
+                        <button
+                          type="button"
+                          on:click={() => (payoutUseBankDetails = false)}
+                          class="text-[10px] font-black uppercase tracking-widest text-orange-400 hover:text-orange-300 transition-colors"
+                        >
+                          PayID
+                        </button>
+                      </div>
                       <input
                         id="payout-bsb"
                         type="text"
@@ -2335,11 +2344,11 @@ import { onMount, tick } from 'svelte';
 {/if}
 
 <button 
-  on:click={onOpenRefer}
+  on:click={onNewClaim}
   bind:this={referButtonEl}
   class="fixed h-14 -translate-x-1/2 w-[calc(100%-3rem)] max-w-sm z-50 bg-zinc-900/80 backdrop-blur-xl border border-zinc-700 text-white font-black rounded-2xl flex items-center justify-center gap-3 shadow-2xl active:scale-95 transition-all uppercase text-xs tracking-[0.2em]"
   style="left: calc(50% - (var(--scrollbar-width) / 2)); bottom: calc(2rem + env(safe-area-inset-bottom));"
   in:fly={{ y: 100 }}
 >
-  Refer a Friend
+  Activate Venue
 </button>

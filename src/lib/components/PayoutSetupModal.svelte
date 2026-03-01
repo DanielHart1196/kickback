@@ -1,5 +1,6 @@
 <script lang="ts">
   import { fade, fly } from 'svelte/transition';
+  import { cubicOut } from 'svelte/easing';
   import { supabase } from '$lib/supabase';
 
   export let userId: string;
@@ -89,14 +90,16 @@
 
 <div class="fixed inset-0 z-[300] flex items-center justify-center px-6">
   <div 
-    class="absolute inset-0 bg-black/80 backdrop-blur-sm" 
+    class="absolute inset-0 bg-black/60 backdrop-blur-sm" 
     on:click={onClose}
+    transition:fade={{ duration: 260 }}
   ></div>
 
-  <div 
-    class="relative w-full max-w-sm bg-zinc-950 border border-zinc-800 rounded-[2.5rem] p-8 shadow-2xl"
-    transition:fly={{ y: 40, duration: 300 }}
-  >
+  <div transition:fade={{ duration: 220 }}>
+    <div 
+      class="relative w-full max-w-sm bg-zinc-950 border border-zinc-800 rounded-[2.5rem] p-8 shadow-2xl"
+      transition:fly={{ y: 40, duration: 420, easing: cubicOut }}
+    >
     <div class="text-center mb-8">
       <h2 class="text-xl font-black uppercase tracking-widest text-white">Payout Details</h2>
       <p class="mt-2 text-sm font-semibold text-zinc-500">Set up how you'll get paid</p>
@@ -218,6 +221,7 @@
           Skip for now
         </button>
       </div>
+    </div>
     </div>
   </div>
 </div>

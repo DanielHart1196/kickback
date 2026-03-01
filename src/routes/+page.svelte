@@ -65,6 +65,7 @@
   let venue = '';
   let venueId = '';
   let referrer = '';
+  let urlReferrerParam = '';
   let purchaseTime = '';
   let maxPurchaseTime = '';
   let status: 'idle' | 'loading' | 'success' | 'error' = 'idle';
@@ -133,6 +134,9 @@
   const activationTokenStorageKey = 'kickback:activation_token';
   const pendingInvitationStorageKey = 'kickback:pending_invitation';
   const pendingUrlParamsStorageKey = 'kickback:pending_url_params';
+  const pendingInvitationClaimedKey = 'kickback:pending_invitation_claimed';
+  const pendingInvitationAcceptKey = 'kickback:pending_invitation_accept';
+  const pendingInviteDebugKey = 'kickback:invite_debug';
   let installedHandlerAdded = false;
   
   let autoClaimDaysLeft: number | null = null;
@@ -155,6 +159,9 @@
   let paymentVerificationMode: 'retry' | 'nomatch' = 'retry';
   let showInvitationExistsWarning = false;
   let invitationExistsVenue = '';
+  let forceInvitationOnly: boolean | null = null;
+  let inviteDebugState: Record<string, any> | null = null;
+  const showInviteDebug = false;
 
   async function fetchPendingInvitations(uid: string) {
     if (!uid) return;
@@ -376,6 +383,9 @@
           },
           { onConflict: 'user_id,venue_id,referrer_code' }
         );
+      try {
+        window.localStorage.setItem(pendingInvitationClaimedKey, '1');
+      } catch {}
     } catch (error) {
       console.error('Error claiming stored pending invitation:', error);
     } finally {
@@ -429,6 +439,48 @@
     return (rawState as Record<string, any>) ?? {};
   }
 
+  function clearUrlParams() {
+    if (typeof window === 'undefined') return;
+    const path = window.location.pathname || '/';
+    window.history.replaceState(window.history.state, '', path);
+  }
+
+  function clearUrlContextStorage() {
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.removeItem(pendingUrlParamsStorageKey);
+      window.localStorage.removeItem(pendingInvitationStorageKey);
+      window.localStorage.removeItem(pendingInvitationClaimedKey);
+      window.localStorage.removeItem(pendingInvitationAcceptKey);
+    } catch {}
+    try {
+      clearDraftFromStorage(window.localStorage);
+    } catch {}
+  }
+
+  function updateInviteDebug(step: string, extra: Record<string, any> = {}) {
+    if (!showInviteDebug) return;
+    if (typeof window === 'undefined') return;
+    const payload = {
+      step,
+      time: new Date().toISOString(),
+      path: window.location.pathname,
+      search: window.location.search,
+      hasRefAndVenue,
+      hasVenueOnly,
+      hasRefOnly,
+      pendingInvitationStorage: window.localStorage.getItem(pendingInvitationStorageKey),
+      pendingInvitationAccept: window.localStorage.getItem(pendingInvitationAcceptKey),
+      pendingInvitationClaimed: window.localStorage.getItem(pendingInvitationClaimedKey),
+      pendingUrlParams: window.localStorage.getItem(pendingUrlParamsStorageKey),
+      ...extra
+    };
+    inviteDebugState = payload;
+    try {
+      window.localStorage.setItem(pendingInviteDebugKey, JSON.stringify(payload));
+    } catch {}
+  }
+
   function mergeDrafts(urlDraft: ClaimDraft | null, storedDraft: ClaimDraft | null): ClaimDraft | null {
     if (!urlDraft && !storedDraft) return null;
     return {
@@ -448,11 +500,7 @@
       const nextView = state?.[historyViewKey];
       showForm = nextView === 'claim';
       showReferModal = Boolean(state?.[historyReferKey]);
-      if (showReferModal) {
-        referModalIgnoreStoredVenue = !(referralPresetVenueId || referralPresetVenueName);
-      } else {
-        referModalIgnoreStoredVenue = false;
-      }
+      referModalIgnoreStoredVenue = false;
     };
     const handleBeforeInstall = (event: Event) => {
       event.preventDefault();
@@ -549,7 +597,12 @@
   $: purchaseTimeTooOld =
     purchaseTime.trim().length > 0 && isPurchaseTimeOlderThanMaxAge(purchaseTime);
   $: if (session && venue.trim()) {
-    const lockedReferrer = getVenueLockedReferrer(venue, session.user.id);
+    const lockedReferrer = getVenueLockedReferrer(
+      venue,
+      session.user.id,
+      normalizedReferrerInput,
+      urlReferrerParam
+    );
     if (lockedReferrer) {
       if (lockedReferrer.id !== lockedReferrerId || lockedReferrer.code !== lockedReferrerCode) {
         lockedReferrerId = lockedReferrer.id;
@@ -1094,9 +1147,39 @@
     const { data } = await supabase.auth.getSession();
     session = data.session;
     userId = session?.user?.id ?? null;
+    if (typeof window !== 'undefined') {
+      try {
+        const raw = window.localStorage.getItem(pendingInviteDebugKey);
+        inviteDebugState = raw ? JSON.parse(raw) : null;
+      } catch {}
+    }
+    updateInviteDebug('after_session');
+    if (typeof window !== 'undefined') {
+      try {
+        window.localStorage.setItem(
+          pendingInviteDebugKey,
+          JSON.stringify({
+            step: 'after_session',
+            time: new Date().toISOString(),
+            hasRefAndVenue,
+            hasVenueOnly,
+            hasRefOnly,
+            search: window.location.search,
+            pendingInvitationStorage: window.localStorage.getItem(pendingInvitationStorageKey),
+            pendingInvitationAccept: window.localStorage.getItem(pendingInvitationAcceptKey),
+            pendingInvitationClaimed: window.localStorage.getItem(pendingInvitationClaimedKey),
+            pendingUrlParams: window.localStorage.getItem(pendingUrlParamsStorageKey)
+          })
+        );
+      } catch {}
+    }
 
     if (session && typeof window !== 'undefined' && !hasRef && !hasVenueParam) {
       try {
+        const shouldSkipUrlRestore = window.localStorage.getItem(pendingInvitationAcceptKey) === '1';
+        if (shouldSkipUrlRestore) {
+          window.localStorage.removeItem(pendingInvitationAcceptKey);
+        } else {
         const storedParamsRaw = window.localStorage.getItem(pendingUrlParamsStorageKey);
         if (storedParamsRaw) {
           const storedParams = new URLSearchParams(storedParamsRaw);
@@ -1117,14 +1200,17 @@
           }
           window.localStorage.removeItem(pendingUrlParamsStorageKey);
         }
+        }
       } catch {}
     }
+    urlReferrerParam = normalizeReferralCode(refParam);
+
     if (userId) {
       await claimStoredActivationToken();
       if (typeof window !== 'undefined' && window.localStorage.getItem(pendingInvitationStorageKey)) {
         await venuesPromise;
+        await claimStoredPendingInvitation();
       }
-      await claimStoredPendingInvitation();
       await fetchPendingInvitations(userId);
     }
     if (userId) {
@@ -1177,7 +1263,74 @@
         showLanding = true;
       }
     } else {
-      if (hasRefAndVenue) {
+      const claimedInvitation =
+        typeof window !== 'undefined' && window.localStorage.getItem(pendingInvitationClaimedKey) === '1';
+      const hadPendingInvitation =
+        typeof window !== 'undefined' && window.localStorage.getItem(pendingInvitationStorageKey);
+      const acceptedInvitation =
+        typeof window !== 'undefined' && window.localStorage.getItem(pendingInvitationAcceptKey) === '1';
+      updateInviteDebug('signed_in_branch', {
+        claimedInvitation,
+        hadPendingInvitation,
+        acceptedInvitation
+      });
+      if (claimedInvitation) {
+        showForm = false;
+        showLanding = false;
+        try {
+          clearDraftFromStorage(window.localStorage);
+        } catch {}
+        try {
+          window.localStorage.removeItem(pendingInvitationClaimedKey);
+        } catch {}
+        if (typeof window !== 'undefined') {
+          const state = getHistoryState();
+          replaceState('', { ...state, [historyViewKey]: 'dashboard' });
+        }
+      } else if (acceptedInvitation) {
+        showForm = false;
+        showLanding = false;
+        try {
+          clearDraftFromStorage(window.localStorage);
+        } catch {}
+        try {
+          window.localStorage.removeItem(pendingInvitationAcceptKey);
+        } catch {}
+        if (typeof window !== 'undefined') {
+          const state = getHistoryState();
+          replaceState('', { ...state, [historyViewKey]: 'dashboard' });
+        }
+      } else if (hadPendingInvitation) {
+        showForm = false;
+        showLanding = false;
+        try {
+          clearDraftFromStorage(window.localStorage);
+        } catch {}
+        try {
+          window.localStorage.removeItem(pendingInvitationStorageKey);
+        } catch {}
+        if (typeof window !== 'undefined') {
+          const state = getHistoryState();
+          replaceState('', { ...state, [historyViewKey]: 'dashboard' });
+        }
+      } else if (hasRefAndVenue) {
+        updateInviteDebug('has_ref_and_venue', { refParam, venueParam, venueIdParam });
+        const venueFromParams = urlParams ? getVenueFromParams(urlParams) : null;
+        const resolvedVenueId = venueFromParams?.id ?? venueIdParam ?? '';
+        const resolvedVenueName = venueFromParams?.name ?? venueParam ?? '';
+        const pendingMatch = findPendingInvitationMatch(resolvedVenueId, resolvedVenueName, refParam);
+        if (pendingMatch) {
+          handleContinueInvitation(pendingMatch);
+        } else {
+          void continuePendingInvitationFromUrl(
+            session.user.id,
+            resolvedVenueId,
+            resolvedVenueName,
+            refParam
+          ).then((matched) => {
+            if (!matched) forceInvitationOnly = null;
+          });
+        }
         showForm = true;
         showLanding = false;
       }
@@ -1300,9 +1453,10 @@
           .maybeSingle();
 
         if (!payoutProfile) {
-          const dismissed =
-            typeof window !== 'undefined' && window.localStorage.getItem(payoutSetupPromptKey) === '1';
-          if (!dismissed) {
+          const dismissedValue =
+            typeof window !== 'undefined' ? window.localStorage.getItem(payoutSetupPromptKey) : null;
+          const dismissedForUser = dismissedValue && dismissedValue === session.user.id;
+          if (!dismissedForUser && !hasVenueParam) {
             showPayoutSetup = true;
           }
         }
@@ -1639,7 +1793,7 @@
   })();
 
   function openReferModal() {
-    referModalIgnoreStoredVenue = !(referralPresetVenueId || referralPresetVenueName);
+    referModalIgnoreStoredVenue = false;
     showReferModal = true;
     if (typeof window === 'undefined') return;
     const state = getHistoryState();
@@ -1657,6 +1811,8 @@
       const { [historyReferKey]: _removed, ...rest } = state;
       replaceState('', rest);
     }
+    clearUrlParams();
+    clearUrlContextStorage();
   }
 
   function hydrateAmountInput(value: string) {
@@ -1790,14 +1946,22 @@
 
   function getVenueLockedReferrer(
     venueName: string,
-    userId: string
+    userId: string,
+    referrerInput: string,
+    referrerParam: string
   ): { id: string | null; code: string | null } | null {
     const normalizedVenue = venueName.trim().toLowerCase();
     if (!normalizedVenue) return null;
     const venueIdMatch = getVenueIdByName(venueName);
+    const normalizedInputReferrer = normalizeReferralCode(referrerInput ?? '');
+    const normalizedParamReferrer = normalizeReferralCode(referrerParam ?? '');
+    const effectiveReferrer = normalizedParamReferrer || normalizedInputReferrer;
 
     for (const invite of pendingInvitations) {
       if (!invite) continue;
+      if (effectiveReferrer && normalizeReferralCode(invite.referrerCode) !== effectiveReferrer) {
+        continue;
+      }
       if (venueIdMatch && invite.venueId && invite.venueId === venueIdMatch) {
         return { id: null, code: invite.referrerCode };
       }
@@ -1858,6 +2022,7 @@
     isVenueLocked = false;
     isReferrerLocked = false;
     referrerLockedByVenue = false;
+    forceInvitationOnly = null;
     amountInput = '';
     purchaseTime = getLocalNowInputValue();
     maxPurchaseTime = purchaseTime;
@@ -1896,6 +2061,7 @@
     isVenueLocked = true;
     isReferrerLocked = true;
     referrerLockedByVenue = false;
+    forceInvitationOnly = false;
     amountInput = '';
     last4 = '';
     purchaseTime = getLocalNowInputValue();
@@ -1910,12 +2076,65 @@
     }
   }
 
+  async function continuePendingInvitationFromUrl(
+    userIdValue: string,
+    venueIdValue: string,
+    venueNameValue: string,
+    refCodeValue: string
+  ): Promise<boolean> {
+    const normalizedRef = normalizeReferralCode(refCodeValue ?? '');
+    if (!userIdValue || !normalizedRef || (!venueIdValue && !venueNameValue)) return false;
+    let query = supabase
+      .from('invitations')
+      .select('id, venue_id, venue_name, referrer_code, created_at')
+      .eq('user_id', userIdValue)
+      .eq('status', 'pending')
+      .eq('referrer_code', normalizedRef)
+      .limit(1);
+    if (venueIdValue) {
+      query = query.eq('venue_id', venueIdValue);
+    } else {
+      query = query.ilike('venue_name', venueNameValue);
+    }
+    const { data } = await query.maybeSingle();
+    if (!data?.id) return false;
+    handleContinueInvitation({
+      id: data.id,
+      venueId: data.venue_id ?? venueIdValue,
+      venueName: data.venue_name ?? venueNameValue,
+      referrerCode: data.referrer_code ?? normalizedRef,
+      createdAt: data.created_at ?? new Date().toISOString()
+    });
+    return true;
+  }
+
+  function findPendingInvitationMatch(
+    venueIdValue: string,
+    venueNameValue: string,
+    refCodeValue: string
+  ): PendingInvitation | null {
+    const normalizedRef = normalizeReferralCode(refCodeValue ?? '');
+    if (!normalizedRef) return null;
+    const normalizedVenue = venueNameValue.trim().toLowerCase();
+    for (const invite of pendingInvitations) {
+      if (!invite) continue;
+      if (normalizeReferralCode(invite.referrerCode) !== normalizedRef) continue;
+      if (venueIdValue && invite.venueId === venueIdValue) return invite;
+      if (!venueIdValue && normalizedVenue && invite.venueName?.trim().toLowerCase() === normalizedVenue) {
+        return invite;
+      }
+    }
+    return null;
+  }
+
   function handleFormBack() {
     isDirectAddVenueFlow = false;
     showForm = false;
     if (session && typeof window !== 'undefined') {
       const state = getHistoryState();
       replaceState('', { ...state, [historyViewKey]: 'dashboard' });
+      clearUrlParams();
+      clearUrlContextStorage();
     }
   }
 
@@ -1925,6 +2144,13 @@
 </script>
 
 <main class="min-h-screen bg-black text-white">
+  {#if showInviteDebug && inviteDebugState}
+    <div class="fixed left-0 right-0 top-0 z-[500] px-4 pt-3">
+      <div class="mx-auto max-w-2xl rounded-xl border border-zinc-800 bg-zinc-950/90 px-3 py-2 text-[10px] font-bold text-zinc-400">
+        <pre class="whitespace-pre-wrap break-words font-mono text-[10px] leading-snug uppercase tracking-widest">DEBUG: {JSON.stringify(inviteDebugState, null, 2)}</pre>
+      </div>
+    </div>
+  {/if}
   {#if session === undefined || !initialRouteReady}
     <div class="w-full min-h-screen" aria-hidden="true"></div>
   {:else if !session && showLanding}
@@ -1962,6 +2188,8 @@
         {venueRefLandingMode}
         progressiveAddVenueFlow={isDirectAddVenueFlow}
         {pendingInvitationStorageKey}
+        {forceInvitationOnly}
+        debugLabel={inviteDebugState}
         showBack={Boolean(session)}
         {status}
         {errorMessage}
@@ -1976,6 +2204,7 @@
         maxBill={MAX_BILL}
         {kickback}
         bind:venue
+        bind:venueId
         bind:referrer
         bind:purchaseTime
         bind:last4
@@ -2051,14 +2280,14 @@
       userId={userId}
       onSuccess={async () => {
         if (typeof window !== 'undefined') {
-          window.localStorage.setItem(payoutSetupPromptKey, '1');
+          window.localStorage.setItem(payoutSetupPromptKey, userId);
         }
         await fetchDashboardData();
         refreshDashboardPayoutProfile();
       }}
       onClose={() => {
         if (typeof window !== 'undefined') {
-          window.localStorage.setItem(payoutSetupPromptKey, '1');
+          window.localStorage.setItem(payoutSetupPromptKey, userId);
         }
         showPayoutSetup = false;
       }}
