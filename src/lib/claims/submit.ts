@@ -41,8 +41,8 @@ export function validateClaimInput(input: ClaimSubmitInput): string | null {
   if (!input.referrerInput.trim()) return 'Please enter a referrer';
   if (!input.referrerFormatValid) return 'Referrer code must be 4-8 letters or numbers';
   if (input.isSelfReferral) return 'You cannot use your own referral code';
-  if (input.referrerLookupStatus !== 'valid') return 'Unrecognized referral code';
-  if (!input.referrerProfileId) return 'Unrecognized referral code';
+  if (input.referrerLookupStatus !== 'valid') return 'Unrecognized code';
+  if (!input.referrerProfileId) return 'Unrecognized code';
   if (!input.venueId) return 'Please select a valid venue';
   if (!input.purchaseTime.trim()) return 'Please enter a purchase time';
   const purchaseDate = new Date(input.purchaseTime);

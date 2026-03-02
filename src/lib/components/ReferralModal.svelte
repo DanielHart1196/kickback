@@ -308,6 +308,18 @@
     on:touchmove={handleTouchMove}
     on:touchend={handleTouchEnd}
   >
+    <button
+      type="button"
+      on:click={onClose}
+      class="absolute right-5 top-5 z-20 inline-flex h-10 w-10 items-center justify-center text-zinc-400 transition-colors hover:text-white"
+      aria-label="Close referral modal"
+    >
+      <svg viewBox="0 0 24 24" aria-hidden="true" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M6 6l12 12" />
+        <path d="M18 6l-12 12" />
+      </svg>
+    </button>
+
     <div class="pt-6 pb-4 flex justify-center w-full">
       <div class="w-12 h-1.5 bg-zinc-800 rounded-full opacity-50"></div>
     </div>

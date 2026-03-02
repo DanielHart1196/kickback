@@ -618,7 +618,7 @@
     {:else if referrerDirty && referrerValid && referrerLookupStatus === 'checking'}
       <p class="mt-2 text-[11px] font-bold uppercase tracking-widest text-zinc-500 text-center">Checking code…</p>
     {:else if referrerDirty && referrerValid && referrerLookupStatus === 'invalid'}
-      <p class="mt-2 text-[11px] font-bold uppercase tracking-widest text-orange-500/70 text-center">Unrecognized referral code</p>
+      <p class="mt-2 text-[11px] font-bold uppercase tracking-widest text-orange-500/70 text-center">Unrecognized code</p>
     {/if}
     {/if}
 
