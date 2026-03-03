@@ -1970,6 +1970,21 @@
       }
     }
 
+    // Active guest invitations should lock the inviter code when selecting that venue.
+    for (const invite of acceptedInvitations) {
+      if (!invite || invite.role !== 'guest') continue;
+      if (!invite.activatedAt) continue;
+      if (effectiveReferrer && normalizeReferralCode(invite.referrerCode) !== effectiveReferrer) {
+        continue;
+      }
+      if (venueIdMatch && invite.venueId && invite.venueId === venueIdMatch) {
+        return { id: null, code: invite.referrerCode };
+      }
+      if (!venueIdMatch && invite.venueName?.trim().toLowerCase() === normalizedVenue) {
+        return { id: null, code: invite.referrerCode };
+      }
+    }
+
     let earliestTime = Number.POSITIVE_INFINITY;
     let referrerId: string | null = null;
     let referrerCode: string | null = null;
