@@ -1,0 +1,77 @@
+<mjml>
+  <mj-head>
+    <mj-title>Kickback Performance Update - Bar Piccolo</mj-title>
+    <mj-preview>Bar Piccolo: new revenue, customers, rewards, cashback, and platform fee summary</mj-preview>
+    <mj-attributes>
+      <mj-all font-family="Montserrat, Arial, sans-serif" />
+      <mj-text color="#FFFFFF" font-size="14px" line-height="1.5" />
+      <mj-section background-color="#0A0A0A" />
+    </mj-attributes>
+    <mj-style inline="inline">
+      .kpi-label { letter-spacing: 1px; text-transform: uppercase; color: #A1A1AA; font-size: 11px; font-weight: 700; }
+      .kpi-value { color: #F97316; font-weight: 900; font-size: 24px; line-height: 1.2; }
+      .total-value { color: #F97316; font-weight: 900; font-size: 28px; line-height: 1.2; }
+    </mj-style>
+  </mj-head>
+  <mj-body background-color="#000000">
+    <mj-section padding="24px 16px 8px 16px">
+      <mj-column background-color="#111111" border="1px solid #27272A" border-radius="20px" padding="24px">
+        <mj-text font-size="12px" color="#A1A1AA" text-transform="uppercase" letter-spacing="2px" font-weight="700">Kickback Performance Update</mj-text>
+        <mj-text font-size="34px" line-height="1.1" font-weight="900" color="#FFFFFF" padding-top="8px">Bar Piccolo</mj-text>
+        <mj-text font-size="14px" color="#D4D4D8" padding-top="8px">
+          Reporting period: {{reporting_period}}
+        </mj-text>
+      </mj-column>
+    </mj-section>
+
+    <mj-section padding="8px 16px">
+      <mj-column background-color="#111111" border="1px solid #27272A" border-radius="20px" padding="20px">
+        <mj-text css-class="kpi-label">New Revenue</mj-text>
+        <mj-text css-class="kpi-value">{{new_revenue}}</mj-text>
+      </mj-column>
+    </mj-section>
+
+    <mj-section padding="8px 16px">
+      <mj-column width="50%" padding-right="4px">
+        <mj-wrapper background-color="#111111" border="1px solid #27272A" border-radius="20px" padding="20px">
+          <mj-text css-class="kpi-label">New Customers</mj-text>
+          <mj-text css-class="kpi-value">{{new_customers}}</mj-text>
+        </mj-wrapper>
+      </mj-column>
+      <mj-column width="50%" padding-left="4px">
+        <mj-wrapper background-color="#111111" border="1px solid #27272A" border-radius="20px" padding="20px">
+          <mj-text css-class="kpi-label">Referrer Rewards</mj-text>
+          <mj-text css-class="kpi-value">{{referrer_rewards}}</mj-text>
+        </mj-wrapper>
+      </mj-column>
+    </mj-section>
+
+    <mj-section padding="8px 16px">
+      <mj-column width="50%" padding-right="4px">
+        <mj-wrapper background-color="#111111" border="1px solid #27272A" border-radius="20px" padding="20px">
+          <mj-text css-class="kpi-label">Cashback</mj-text>
+          <mj-text css-class="kpi-value">{{cashback}}</mj-text>
+        </mj-wrapper>
+      </mj-column>
+      <mj-column width="50%" padding-left="4px">
+        <mj-wrapper background-color="#111111" border="1px solid #27272A" border-radius="20px" padding="20px">
+          <mj-text css-class="kpi-label">Kickback Platform Fee</mj-text>
+          <mj-text css-class="kpi-value">{{kickback_platform_fee}}</mj-text>
+        </mj-wrapper>
+      </mj-column>
+    </mj-section>
+
+    <mj-section padding="8px 16px 24px 16px">
+      <mj-column background-color="#111111" border="1px solid #EA580C" border-radius="20px" padding="22px">
+        <mj-text font-size="11px" color="#FDBA74" letter-spacing="1px" text-transform="uppercase" font-weight="800">Total Kickback Marketing Fee on {{new_revenue}}</mj-text>
+        <mj-text css-class="total-value">{{total_kickback_marketing_fee}}</mj-text>
+      </mj-column>
+    </mj-section>
+
+    <mj-section padding="0 16px 24px 16px">
+      <mj-column>
+        <mj-text align="center" font-size="11px" color="#71717A">Kickback • kkbk.app</mj-text>
+      </mj-column>
+    </mj-section>
+  </mj-body>
+</mjml>

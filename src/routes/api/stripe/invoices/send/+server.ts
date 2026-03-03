@@ -1,16 +1,10 @@
 import { json } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
-import { dev } from '$app/environment';
-import { env } from '$env/dynamic/private';
+import { getStripeKeyOrThrow } from '$lib/server/stripeKey';
 
-function getStripeKey(): string | null {
-  if (dev) return env.PRIVATE_STRIPE_SECRET_KEY_SANDBOX ?? null;
-  return env.PRIVATE_STRIPE_SECRET_KEY_PROD ?? null;
-}
 
 async function stripePost(path: string) {
-  const key = getStripeKey();
-  if (!key) throw new Error('missing_stripe_key');
+  const key = getStripeKeyOrThrow();
   const response = await fetch(`https://api.stripe.com/v1/${path}`, {
     method: 'POST',
     headers: {

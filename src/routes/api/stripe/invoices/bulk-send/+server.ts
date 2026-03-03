@@ -1,13 +1,8 @@
 import { json } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
-import { dev } from '$app/environment';
 import { supabaseAdmin } from '$lib/server/supabaseAdmin';
-import { env } from '$env/dynamic/private';
+import { getStripeKeyOrThrow } from '$lib/server/stripeKey';
 
-function getStripeKey(): string | null {
-  if (dev) return env.PRIVATE_STRIPE_SECRET_KEY_SANDBOX ?? null;
-  return env.PRIVATE_STRIPE_SECRET_KEY_PROD ?? null;
-}
 
 function appendStripeParams(params: URLSearchParams, prefix: string, value: unknown) {
   if (value === undefined || value === null || value === '') return;
@@ -27,8 +22,7 @@ function appendStripeParams(params: URLSearchParams, prefix: string, value: unkn
 }
 
 async function stripePost(path: string, payload: Record<string, unknown> = {}) {
-  const key = getStripeKey();
-  if (!key) throw new Error('missing_stripe_key');
+  const key = getStripeKeyOrThrow();
   const body = new URLSearchParams();
   Object.entries(payload).forEach(([k, v]) => appendStripeParams(body, k, v));
   const response = await fetch(`https://api.stripe.com/v1/${path}`, {

@@ -2,6 +2,7 @@ import { json } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
 import { dev } from '$app/environment';
 import { supabaseAdmin } from '$lib/server/supabaseAdmin';
+import { getStripeKeyOrThrow } from '$lib/server/stripeKey';
 import { env } from '$env/dynamic/private';
 
 const timeZone = 'Australia/Sydney';
@@ -88,10 +89,6 @@ function getPreviousWeekRange() {
   };
 }
 
-function getStripeKey(): string | null {
-  if (dev) return env.PRIVATE_STRIPE_SECRET_KEY_SANDBOX ?? null;
-  return env.PRIVATE_STRIPE_SECRET_KEY_PROD ?? null;
-}
 
 function appendStripeParams(params: URLSearchParams, prefix: string, value: unknown) {
   if (value === undefined || value === null || value === '') return;
@@ -115,10 +112,7 @@ function formatMoney(amount: number): string {
 }
 
 async function stripeRequest(path: string, payload: Record<string, unknown> = {}) {
-  const key = getStripeKey();
-  if (!key) {
-    throw new Error('missing_stripe_key');
-  }
+  const key = getStripeKeyOrThrow();
   const body = new URLSearchParams();
   Object.entries(payload).forEach(([key, value]) => {
     appendStripeParams(body, key, value);
@@ -141,10 +135,7 @@ async function stripeRequest(path: string, payload: Record<string, unknown> = {}
 }
 
 async function stripeGet(path: string, query: Record<string, unknown> = {}) {
-  const key = getStripeKey();
-  if (!key) {
-    throw new Error('missing_stripe_key');
-  }
+  const key = getStripeKeyOrThrow();
   const params = new URLSearchParams();
   Object.entries(query).forEach(([key, value]) => {
     appendStripeParams(params, key, value);
