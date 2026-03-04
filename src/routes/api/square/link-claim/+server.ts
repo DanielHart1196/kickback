@@ -282,7 +282,7 @@ export async function POST({ request }: RequestEvent) {
             if (venueName) {
               await supabaseAdmin
                 .from('invitations')
-                .insert(
+                .upsert(
                   {
                     user_id: submitterId,
                     venue_id: venueId,

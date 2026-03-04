@@ -181,7 +181,7 @@ export async function POST({ request }: RequestEvent) {
         if (!venueName) continue;
         const { error: insertError } = await supabaseAdmin
           .from('invitations')
-          .insert(
+          .upsert(
             {
               user_id: row.submitter_id,
               venue_id: row.venue_id,

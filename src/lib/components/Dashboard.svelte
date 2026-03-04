@@ -336,7 +336,7 @@
 
   
 
-  let settingsPanelEl: HTMLDivElement | null = null;
+  let settingsPanelEl: HTMLElement | null = null;
   let settingsSwipeStartX = 0;
   let settingsSwipeStartY = 0;
   let settingsSwipeOffset = 0;
@@ -682,8 +682,9 @@
       const { error } = await supabase.auth.updateUser({ email: nextEmail });
       if (error) throw error;
       emailChangeStatus = 'success';
-      emailChangeMessage = 'Check your inbox to confirm your new email.';
+      emailChangeMessage = 'Check your inbox to confirm your new email. Signing out...';
       emailEditMode = false;
+      await Promise.resolve(onLogout());
     } catch (error) {
       emailChangeStatus = 'error';
       emailChangeMessage = error instanceof Error ? error.message : 'Failed to update email.';
@@ -856,7 +857,7 @@
         throw new Error(payload?.message ?? 'Failed to send support message');
       }
       supportStatus = 'success';
-      supportStatusMessage = 'thanks - message received';
+      supportStatusMessage = `Message received - we'll send our reply to ${email}`;
       supportMessageInput = '';
       supportSuccessTimer = setTimeout(() => {
         if (supportStatus === 'success') {
@@ -1524,24 +1525,6 @@
                           >
                             APPROVED
                           </button>
-                        {:else if status === 'pending'}
-                          <button
-                            type="button"
-                            class={`w-36 px-3 py-2 rounded-full text-[10px] font-black uppercase tracking-widest border inline-flex items-center justify-center text-center ${filterStatus.has(status) ? 'border-zinc-700 bg-zinc-800 text-zinc-200' : 'border-zinc-800 bg-zinc-900 text-zinc-300 hover:border-zinc-700'}`}
-                            on:click={() => {
-                              preserveScrollAfter(() => {
-                                const next = new Set(filterStatus);
-                                if (next.has(status)) {
-                                  next.delete(status);
-                                } else {
-                                  next.add(status);
-                                }
-                                filterStatus = next;
-                              });
-                            }}
-                          >
-                            PENDING
-                          </button>
                         {:else if status === 'paid'}
                           <button
                             type="button"
@@ -2173,7 +2156,7 @@
               </div>
               {#if !isPwaInstalled}
                 <p class="mt-0.5 text-[10px] font-black uppercase tracking-widest text-zinc-500">
-                  Install the Kickback app
+                  Install the Kickback PWA
                 </p>
               {/if}
             </div>
@@ -2333,13 +2316,16 @@
     ></button>
     <div class="absolute left-1/2 top-1/2 w-[90vw] max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-3xl border border-zinc-800 bg-zinc-950 p-6 shadow-2xl">
       <h3 class="text-sm font-black uppercase tracking-[0.2em] text-white">Delete invitation</h3>
-      <p class="mt-4 text-sm text-zinc-300">
-        This will remove the invitation from your history. You can still accept a new{' '}
-        <span class="text-orange-400 font-semibold">
-          {deleteInvitationTarget?.venueName || 'venue'}
-        </span>{' '}
-        invite later.
-      </p>
+      <div class="mt-4 text-sm text-zinc-300 space-y-2">
+        <p>This will remove the invitation from your history.</p>
+        <p>
+          You can still accept a new{' '}
+          <span class="text-orange-500 font-semibold">
+            {deleteInvitationTarget?.venueName || 'venue'}
+          </span>{' '}
+          invite later.
+        </p>
+      </div>
       <button
         type="button"
         on:click={confirmDeleteInvitation}

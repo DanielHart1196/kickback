@@ -140,7 +140,7 @@
   });
 
   function handleAcceptInvitationClick() {
-    if (showAlreadyAcceptedInvitationBanner) {
+    if (showAlreadyAcceptedInvitationBanner || !hasValidReferrerForStep) {
       acceptUnavailableTap = true;
       if (acceptUnavailableTimer) {
         clearTimeout(acceptUnavailableTimer);
@@ -399,7 +399,7 @@
       {#if showVenueRefInviteHeader}
         <div class="text-center">
           <p class="text-base text-zinc-400">
-            <span class="text-orange-500 font-semibold">{normalizedReferrerCode}</span> invited you to {selectedVenue.name}
+            <span class="text-orange-500 font-semibold">{normalizedReferrerCode}</span> invited you to {selectedVenue?.name ?? venueName}
           </p>
         </div>
       {/if}
@@ -563,7 +563,7 @@
     {#if ((session && progressiveAddVenueFlow) || isSignedOutRefOnlyFlow) && !hasSelectedVenue && normalizedReferrerCode}
       <div>
         <p class="text-center text-base text-zinc-400">
-          Invited by <span class="ml-1 text-orange-500 font-semibold">{normalizedReferrerCode}</span>
+          Invited by <span class="text-orange-500 font-semibold">{normalizedReferrerCode}</span>
         </p>
       </div>
     {/if}
@@ -583,7 +583,7 @@
     {#if canShowReferrerStep && !venueRefLandingMode && !isVenueLocked}
     {#if showInvitedByReferrer}
       <p class="text-center text-base text-zinc-400">
-        Invited by
+        Invited by{' '}
         {#if !isReferrerLocked}
           <button
             type="button"
@@ -591,22 +591,21 @@
               referrerEditing = true;
               setTimeout(() => referrerBannerInput?.focus(), 0);
             }}
-            class="ml-1 text-orange-500 font-semibold hover:text-orange-400 transition-colors"
+            class="text-orange-500 font-semibold hover:text-orange-400 transition-colors"
             aria-label="Edit referral code"
           >
             {normalizedReferrerCode}
           </button>
         {:else}
-          <span class="ml-1 text-orange-500 font-semibold">{normalizedReferrerCode}</span>
+          <span class="text-orange-500 font-semibold">{normalizedReferrerCode}</span>
         {/if}
       </p>
     {:else}
       <p class="text-center text-base text-zinc-400">Who sent you?</p>
     {/if}
     {#if !showInvitedByReferrer || referrerEditing}
-    <div class="relative flex items-center justify-center gap-2 text-lg font-black uppercase tracking-[0.6em] text-center">
+    <div class="relative flex items-center justify-center text-lg font-black uppercase tracking-[0.6em] text-center">
       {#if !isReferrerLocked && referrerEditing}
-        <span class="text-white">CODE:</span>
         <span class="inline-block w-[14ch] text-center whitespace-nowrap">
           <input
             id="ref-banner"
@@ -629,10 +628,9 @@
             referrerEditing = true;
             setTimeout(() => referrerBannerInput?.focus(), 0);
           }}
-          class="inline-flex items-center justify-center gap-2 cursor-text font-black uppercase text-lg tracking-[0.6em] text-center mx-auto"
+          class="inline-flex items-center justify-center cursor-text font-black uppercase text-lg tracking-[0.6em] text-center mx-auto"
           aria-label="Edit referral code"
         >
-          <span class="text-white">CODE:</span>
           <span 
             class="inline-block text-orange-500 text-center whitespace-nowrap"
             class:w-[14ch]={!referrer || !referrer.trim()}
@@ -670,10 +668,10 @@
           <button
             type="button"
             on:click={handleAcceptInvitationClick}
-            aria-disabled={showAlreadyAcceptedInvitationBanner}
+            aria-disabled={showAlreadyAcceptedInvitationBanner || !hasValidReferrerForStep}
             class="w-full bg-orange-500 text-black font-black py-4 rounded-2xl text-lg active:scale-95 transition-all duration-100"
-            class:opacity-50={showAlreadyAcceptedInvitationBanner}
-            class:cursor-not-allowed={showAlreadyAcceptedInvitationBanner}
+            class:opacity-50={showAlreadyAcceptedInvitationBanner || !hasValidReferrerForStep}
+            class:cursor-not-allowed={showAlreadyAcceptedInvitationBanner || !hasValidReferrerForStep}
             class:scale-[0.985]={acceptUnavailableTap}
           >
             ACCEPT INVITATION
@@ -841,7 +839,7 @@
                 class:opacity-50={!canSubmit || status === 'loading'}
                 class:cursor-not-allowed={!canSubmit || status === 'loading'}
               >
-                {status === 'loading' ? 'VERIFYING PAYMENT...' : (isInvitationActive ? 'SUBMIT' : 'ACTIVATE')}
+                {status === 'loading' ? 'VERIFYING PAYMENT...' : ((isInvitationActive || hasActiveGuestInvitation) ? 'SUBMIT' : 'ACTIVATE')}
               </button>
             {:else}
               <button 

@@ -577,12 +577,24 @@
   }
 
   onMount(() => {
+    let touchStartY = 0;
     const handlePopState = (event: PopStateEvent) => {
       const state = event.state?.[svelteStateKey] ?? event.state ?? {};
       const nextView = state?.[historyViewKey];
       showForm = nextView === 'claim';
       showReferModal = Boolean(state?.[historyReferKey]);
       referModalIgnoreStoredVenue = false;
+    };
+    const handleTouchStart = (event: TouchEvent) => {
+      touchStartY = event.touches?.[0]?.clientY ?? 0;
+    };
+    const handleTouchMove = (event: TouchEvent) => {
+      if (!showReferModal) return;
+      const currentY = event.touches?.[0]?.clientY ?? 0;
+      const pullingDown = currentY > touchStartY;
+      if (pullingDown && window.scrollY <= 0) {
+        event.preventDefault();
+      }
     };
     const handleBeforeInstall = (event: Event) => {
       event.preventDefault();
@@ -596,6 +608,8 @@
     };
     if (typeof window !== 'undefined') {
       window.addEventListener('popstate', handlePopState);
+      window.addEventListener('touchstart', handleTouchStart, { passive: true });
+      window.addEventListener('touchmove', handleTouchMove, { passive: false });
       window.addEventListener('beforeinstallprompt', handleBeforeInstall as EventListener);
       window.addEventListener('appinstalled', handleInstalled);
       installedHandlerAdded = true;
@@ -621,6 +635,8 @@
     return () => {
       if (typeof window !== 'undefined') {
         window.removeEventListener('popstate', handlePopState);
+        window.removeEventListener('touchstart', handleTouchStart);
+        window.removeEventListener('touchmove', handleTouchMove);
         window.removeEventListener('beforeinstallprompt', handleBeforeInstall as EventListener);
         if (installedHandlerAdded) {
           window.removeEventListener('appinstalled', handleInstalled);
@@ -1818,6 +1834,12 @@
         void (async () => {
           try {
             await fetchDashboardData();
+            if (session?.user?.id) {
+              await Promise.all([
+                fetchPendingInvitations(session.user.id),
+                fetchAcceptedInvitations(session.user.id, userRefCode, referralOriginalCode)
+              ]);
+            }
           } catch (error) {
             console.error('Error refreshing dashboard after claim submit:', error);
           }
@@ -2258,6 +2280,31 @@
     const referrerCode = normalizeReferralCode(normalizedReferrerInput);
     if (!resolvedVenueId && !resolvedVenueName) return;
     if (!referrerCode) return;
+    if (!isReferralCodeValid(referrerCode)) {
+      status = 'error';
+      errorMessage = 'Use a valid referral code before accepting.';
+      return;
+    }
+    let referrerProfile: { id: string; code: string } | null = null;
+    try {
+      referrerProfile = await lookupReferrerProfile(referrerCode);
+    } catch (error) {
+      console.error('Error validating referral code for invitation:', error);
+      status = 'error';
+      errorMessage = 'Could not validate referral code. Please try again.';
+      return;
+    }
+    if (!referrerProfile?.id) {
+      referrerLookupStatus = 'invalid';
+      status = 'error';
+      errorMessage = 'That referral code does not exist.';
+      return;
+    }
+    if (referrerProfile.id === session.user.id) {
+      status = 'error';
+      errorMessage = 'You cannot accept your own referral code.';
+      return;
+    }
     const accepted = await addPendingInvitation({
       venueId: resolvedVenueId,
       venueName: resolvedVenueName,
@@ -2410,7 +2457,6 @@
         progressiveAddVenueFlow={isDirectAddVenueFlow}
         {pendingInvitationStorageKey}
         {forceInvitationOnly}
-        debugLabel={inviteDebugState}
         showBack={Boolean(session)}
         {status}
         {errorMessage}
@@ -2505,14 +2551,14 @@
     <PayoutSetupModal
       userId={userId}
       onSuccess={async () => {
-        if (typeof window !== 'undefined') {
+        if (typeof window !== 'undefined' && userId) {
           window.localStorage.setItem(payoutSetupPromptKey, userId);
         }
         await fetchDashboardData();
         refreshDashboardPayoutProfile();
       }}
       onClose={() => {
-        if (typeof window !== 'undefined') {
+        if (typeof window !== 'undefined' && userId) {
           window.localStorage.setItem(payoutSetupPromptKey, userId);
         }
         showPayoutSetup = false;

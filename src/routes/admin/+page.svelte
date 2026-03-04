@@ -71,6 +71,7 @@
   let savingVenue = false;
   let savingError = '';
   let savingSuccess = '';
+  let hasVenueChanges = false;
   let logoUploading = false;
   let logoError = '';
   let logoInput: HTMLInputElement | null = null;
@@ -81,6 +82,7 @@
   let showRatesTip = false;
   let ratesTipTimer: ReturnType<typeof setTimeout> | null = null;
   let showVenueCodeTip = false;
+  let showVenueQrDetails = false;
   let showHappyHourTip = false;
   let venueShareUrl = '';
   let venueQrUrl = '';
@@ -242,7 +244,75 @@
       : (publicEnv.PUBLIC_APP_URL || 'https://kkbk.app');
   }
 
+  function normalizeNullableText(value: string | null | undefined): string | null {
+    const next = String(value ?? '').trim();
+    return next.length > 0 ? next : null;
+  }
+
+  function normalizeDays(days: string[] | null | undefined): string[] | null {
+    if (!days || days.length === 0) return null;
+    return [...days].sort();
+  }
+
+  function daysEqual(a: string[] | null | undefined, b: string[] | null | undefined): boolean {
+    const left = normalizeDays(a);
+    const right = normalizeDays(b);
+    if (!left && !right) return true;
+    if (!left || !right) return false;
+    if (left.length !== right.length) return false;
+    for (let i = 0; i < left.length; i += 1) {
+      if (left[i] !== right[i]) return false;
+    }
+    return true;
+  }
+
   $: venueShareUrl = venueCode.trim() ? `${appOrigin()}/?venue=${encodeURIComponent(venueCode.trim())}` : '';
+  $: hasVenueChanges = (() => {
+    if (!venue) return false;
+    const trimmedName = venueName.trim();
+    if (trimmedName !== String(venue.name ?? '').trim()) return true;
+
+    const guestNum = Number(guestRate);
+    const refNum = Number(referrerRate);
+    if (!Number.isFinite(guestNum) || !Number.isFinite(refNum)) return true;
+    if (guestNum !== Number(venue.kickback_guest ?? 5)) return true;
+    if (refNum !== Number(venue.kickback_referrer ?? 5)) return true;
+
+    const pausedNow = venue.square_public === false;
+    if (pauseClaims !== pausedNow) return true;
+    if (newCustomersOnly !== Boolean(venue.new_customers_only)) return true;
+
+    const desiredCode = normalizeVenueCode(venueCode);
+    const currentCode = normalizeVenueCode(venue.short_code ?? '');
+    if (desiredCode.length >= 4 && desiredCode !== currentCode) return true;
+
+    const hh0 = getHappyHourPayload(0);
+    const hh1 = getHappyHourPayload(1);
+    const hh2 = getHappyHourPayload(2);
+    if (hh0.start !== (venue.happy_hour_start_time ?? null)) return true;
+    if (hh0.end !== (venue.happy_hour_end_time ?? null)) return true;
+    if (!daysEqual(hh0.days, venue.happy_hour_days ?? null)) return true;
+    if (hh1.start !== (venue.happy_hour_start_time_2 ?? null)) return true;
+    if (hh1.end !== (venue.happy_hour_end_time_2 ?? null)) return true;
+    if (!daysEqual(hh1.days, venue.happy_hour_days_2 ?? null)) return true;
+    if (hh2.start !== (venue.happy_hour_start_time_3 ?? null)) return true;
+    if (hh2.end !== (venue.happy_hour_end_time_3 ?? null)) return true;
+    if (!daysEqual(hh2.days, venue.happy_hour_days_3 ?? null)) return true;
+
+    if (normalizeNullableText(billingEmail) !== normalizeNullableText(venue.billing_email ?? null)) return true;
+    if (normalizeNullableText(billingFirstName) !== normalizeNullableText(venue.billing_contact_first_name ?? null)) return true;
+    if (normalizeNullableText(billingLastName) !== normalizeNullableText(venue.billing_contact_last_name ?? null)) return true;
+    if (normalizeNullableText(billingPhone) !== normalizeNullableText(venue.billing_phone ?? null)) return true;
+    if (normalizeNullableText(billingCompany) !== normalizeNullableText(venue.billing_company ?? null)) return true;
+    if (normalizeNullableText(billingCountryCode) !== normalizeNullableText(venue.billing_country_code ?? null)) return true;
+    if (normalizeNullableText(billingState) !== normalizeNullableText(venue.billing_state ?? null)) return true;
+    if (normalizeNullableText(billingPostalCode) !== normalizeNullableText(venue.billing_postal_code ?? null)) return true;
+    if (normalizeNullableText(billingCity) !== normalizeNullableText(venue.billing_city ?? null)) return true;
+    if (normalizeNullableText(billingAddress) !== normalizeNullableText(venue.billing_address ?? null)) return true;
+    if (normalizeNullableText(abn) !== normalizeNullableText(venue.billing_abn ?? null)) return true;
+
+    return false;
+  })();
 
   async function generateVenueQrCodes(url: string, logoUrl: string | null) {
     const requestId = ++venueQrRequestId;
@@ -1235,8 +1305,9 @@
       );
       if (error) throw error;
       emailChangeStatus = 'success';
-      emailChangeMessage = 'Check your inbox to confirm your new email.';
+      emailChangeMessage = 'Check your inbox to confirm your new email. Signing out...';
       emailEditMode = false;
+      await handleSignOut();
     } catch (error) {
       emailChangeStatus = 'error';
       emailChangeMessage = error instanceof Error ? error.message : 'Failed to update email.';
@@ -2059,108 +2130,108 @@
     </div>
   {/if}
   <section class="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-6 md:p-8">
-      <div class="flex flex-col gap-6">
-        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
-          <div class="flex items-center gap-5">
-            <div class="relative logo-wrap">
-              <button
-                type="button"
-                on:click={triggerLogoUpload}
-                class="w-40 h-40 rounded-2xl bg-zinc-800 border border-zinc-700 flex items-center justify-center text-zinc-400 text-xs font-black uppercase tracking-widest hover:text-white transition-colors text-center"
-                class:overflow-hidden={Boolean(venue?.logo_url)}
-                disabled={logoDeleting}
-              >
-                {#if venue?.logo_url}
-                  <img src={venue.logo_url} alt={venue.name} class="w-full h-full object-cover" />
-                {:else if logoUploading}
-                  <span class="loading-dots" aria-label="Uploading">
-                    <span class="dot" aria-hidden="true"></span>
-                    <span class="dot" aria-hidden="true"></span>
-                    <span class="dot" aria-hidden="true"></span>
-                  </span>
-                {:else}
-                  <span class="flex flex-col items-center justify-center leading-tight -translate-y-0.5">
-                    <span class="block text-lg">+</span>
-                    <span class="block">Logo</span>
-                  </span>
-                {/if}
-              </button>
-              {#if venue?.logo_url}
-                <button
-                  type="button"
-                  on:click={handleLogoDelete}
-                  disabled={logoDeleting}
-                  class="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-zinc-900 border border-zinc-700 text-zinc-300 text-xs font-black flex items-center justify-center hover:text-white transition-colors logo-delete"
-                  aria-label="Remove logo"
-                >
-                  {logoDeleting ? '...' : 'X'}
-                </button>
-              {/if}
-            </div>
-            <div class="space-y-2 min-w-0">
-              <p class="text-xs font-black uppercase tracking-widest text-zinc-500">Venue</p>
-              <input
-                type="text"
-                bind:value={venueName}
-                placeholder="Venue name"
-                class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-lg font-bold text-white w-full md:w-72 font-mont"
-              />
-              <p class="text-[10px] font-bold uppercase tracking-widest text-zinc-500">
-                {authProviderLabel}{userEmail ? ` - ${userEmail}` : ''}
-              </p>
-            </div>
-          </div>
-          <div class="flex flex-col gap-3 w-full md:w-72 md:self-center">
-            {#if venue}
-              <div class="rounded-xl border border-zinc-800 bg-zinc-950/70 px-4 py-3 flex items-center justify-between gap-4">
-                <div class="min-w-0">
-                  <p class="text-[11px] font-black uppercase tracking-[0.2em] text-zinc-400">Pause kickback</p>
-                  <p class="text-[10px] font-bold uppercase tracking-widest text-zinc-600">All claims stay pending</p>
-                </div>
-                <label class="relative inline-flex cursor-pointer items-center">
-                  <input type="checkbox" bind:checked={pauseClaims} class="peer sr-only" />
-                  <div class="h-5 w-9 rounded-full bg-zinc-800 transition-colors peer-checked:bg-orange-500 after:absolute after:left-[2px] after:top-[2px] after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-all peer-checked:after:translate-x-full"></div>
-                </label>
-              </div>
-              <div class="rounded-xl border border-zinc-800 bg-zinc-950/70 px-4 py-3 flex items-center justify-between gap-4">
-                <div class="min-w-0">
-                  <p class="text-[11px] font-black uppercase tracking-[0.2em] text-zinc-400">New customers only</p>
-                  <p class="text-[10px] font-bold uppercase tracking-widest text-zinc-600">Block cards used at this venue in last 6 months</p>
-                </div>
-                <label class="relative inline-flex cursor-pointer items-center">
-                  <input type="checkbox" bind:checked={newCustomersOnly} class="peer sr-only" />
-                  <div class="h-5 w-9 rounded-full bg-zinc-800 transition-colors peer-checked:bg-orange-500 after:absolute after:left-[2px] after:top-[2px] after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-all peer-checked:after:translate-x-full"></div>
-                </label>
-              </div>
+      <div class="flex flex-col gap-5">
+        <div class="space-y-3 min-w-0">
+          <input
+            type="text"
+            bind:value={venueName}
+            placeholder="Venue name"
+            class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-lg font-bold text-white w-full font-mont"
+          />
+        </div>
+
+        <div class="relative logo-wrap w-fit mx-auto">
+          <button
+            type="button"
+            on:click={triggerLogoUpload}
+            class="w-40 h-40 rounded-2xl bg-zinc-800 border border-zinc-700 flex items-center justify-center text-zinc-400 text-xs font-black uppercase tracking-widest hover:text-white transition-colors text-center"
+            class:overflow-hidden={Boolean(venue?.logo_url)}
+            disabled={logoDeleting}
+          >
+            {#if venue?.logo_url}
+              <img src={venue.logo_url} alt={venue.name} class="w-full h-full object-cover" />
+            {:else if logoUploading}
+              <span class="loading-dots" aria-label="Uploading">
+                <span class="dot" aria-hidden="true"></span>
+                <span class="dot" aria-hidden="true"></span>
+                <span class="dot" aria-hidden="true"></span>
+              </span>
+            {:else}
+              <span class="flex flex-col items-center justify-center leading-tight -translate-y-0.5">
+                <span class="block text-lg">+</span>
+                <span class="block">Logo</span>
+              </span>
+            {/if}
+          </button>
+          {#if venue?.logo_url}
+            <button
+              type="button"
+              on:click={handleLogoDelete}
+              disabled={logoDeleting}
+              class="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-zinc-900 border border-zinc-700 text-zinc-300 text-xs font-black flex items-center justify-center hover:text-white transition-colors logo-delete"
+              aria-label="Remove logo"
+            >
+              {logoDeleting ? '...' : 'X'}
+            </button>
+          {/if}
+        </div>
+
+        <div class="flex flex-col gap-3 w-full">
+          {#if venue}
+            {#if hasVenueChanges || savingVenue}
               <button
                 type="button"
                 on:click={saveVenue}
                 disabled={savingVenue || !venueName.trim()}
-                class="bg-white text-black font-black px-6 py-3 rounded-xl uppercase tracking-tight disabled:opacity-50"
+                class="bg-white text-black font-black px-6 py-3 rounded-xl uppercase tracking-tight disabled:opacity-50 w-full sm:w-auto"
               >
                 {savingVenue ? 'Saving...' : 'Save'}
               </button>
-            {:else}
-              <button
-                type="button"
-                on:click={createVenue}
-                disabled={savingVenue || !venueName.trim()}
-                class="bg-white text-black font-black px-6 py-3 rounded-xl uppercase tracking-tight disabled:opacity-50"
-              >
-                {savingVenue ? 'Creating...' : 'Create Venue'}
-              </button>
             {/if}
-            {#if savingError}
-              <span class="text-xs font-bold uppercase tracking-widest text-red-400">{savingError}</span>
-            {/if}
-            {#if savingSuccess}
-              <span class="text-xs font-bold uppercase tracking-widest text-green-400">{savingSuccess}</span>
-            {/if}
-            {#if logoError}
-              <span class="text-xs font-bold uppercase tracking-widest text-red-400">{logoError}</span>
-            {/if}
-          </div>
+          {:else}
+            <button
+              type="button"
+              on:click={createVenue}
+              disabled={savingVenue || !venueName.trim()}
+              class="bg-white text-black font-black px-6 py-3 rounded-xl uppercase tracking-tight disabled:opacity-50 w-full sm:w-auto"
+            >
+              {savingVenue ? 'Creating...' : 'Create Venue'}
+            </button>
+          {/if}
+          {#if savingError}
+            <span class="text-xs font-bold uppercase tracking-widest text-red-400">{savingError}</span>
+          {/if}
+          {#if savingSuccess}
+            <span class="text-xs font-bold uppercase tracking-widest text-green-400">{savingSuccess}</span>
+          {/if}
+          {#if logoError}
+            <span class="text-xs font-bold uppercase tracking-widest text-red-400">{logoError}</span>
+          {/if}
         </div>
+
+        {#if venue}
+          <div class="-mt-2">
+            {#if squareConnected}
+                <button
+                  type="button"
+                  on:click={disconnectSquare}
+                  disabled={squareSyncing}
+                  class="bg-orange-500 text-black font-black px-6 py-3 rounded-xl uppercase tracking-tight disabled:opacity-50 w-full sm:w-auto"
+                >
+                  {squareSyncing ? 'Disconnecting...' : 'Disconnect Square'}
+                </button>
+              {:else}
+                <button
+                  type="button"
+                  on:click={connectSquare}
+                  disabled={squareConnecting}
+                  class="bg-orange-500 text-black font-black px-6 py-3 rounded-xl uppercase tracking-tight disabled:opacity-50 w-full sm:w-auto"
+                >
+                  {squareConnecting ? 'Connecting...' : 'Connect Square'}
+                </button>
+              {/if}
+          </div>
+        {/if}
 
         {#if venue}
           <div>
@@ -2173,30 +2244,63 @@
             </button>
           </div>
           {#if showMoreSettings}
-            <div transition:slide class="rounded-2xl border border-zinc-800 bg-zinc-950/60 p-4 space-y-4">
-              <div class="grid gap-4 md:grid-cols-2 items-start">
-                <div class="space-y-3">
-                  <label class="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-zinc-500 whitespace-nowrap">
-                    <span>Venue Code</span>
-                    <span class="relative inline-flex items-center w-full max-w-full">
+            <div transition:slide class="space-y-4">
+              <div class="space-y-3">
+                <div class="py-1 flex items-center justify-between gap-4">
+                  <div class="min-w-0">
+                    <p class="text-[11px] font-black uppercase tracking-[0.2em] text-zinc-400">Pause kickback</p>
+                    <p class="text-[10px] font-bold uppercase tracking-widest text-zinc-600">All claims stay pending</p>
+                  </div>
+                  <label class="relative inline-flex cursor-pointer items-center">
+                    <input type="checkbox" bind:checked={pauseClaims} class="peer sr-only" />
+                    <div class="h-5 w-9 rounded-full bg-zinc-800 transition-colors peer-checked:bg-orange-500 after:absolute after:left-[2px] after:top-[2px] after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-all peer-checked:after:translate-x-full"></div>
+                  </label>
+                </div>
+                <div class="py-1 flex items-center justify-between gap-4">
+                  <div class="min-w-0">
+                    <p class="text-[11px] font-black uppercase tracking-[0.2em] text-zinc-400">New customers only</p>
+                    <p class="text-[10px] font-bold uppercase tracking-widest text-zinc-600">Block cards used at this venue in last 6 months</p>
+                  </div>
+                  <label class="relative inline-flex cursor-pointer items-center">
+                    <input type="checkbox" bind:checked={newCustomersOnly} class="peer sr-only" />
+                    <div class="h-5 w-9 rounded-full bg-zinc-800 transition-colors peer-checked:bg-orange-500 after:absolute after:left-[2px] after:top-[2px] after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-all peer-checked:after:translate-x-full"></div>
+                  </label>
+                </div>
+              </div>
+              <div class="grid gap-4 items-start">
+                <div class="space-y-3 order-2">
+                  <div class="flex items-center justify-between gap-3">
+                    <div class="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-zinc-500 whitespace-nowrap">
+                      <span>Venue Code</span>
+                      <span class="relative inline-flex items-center">
+                        <button
+                          type="button"
+                          class="inline-flex h-4 w-4 items-center justify-center rounded-full border border-zinc-600 text-[10px] leading-none text-zinc-400"
+                          aria-label="Venue code info"
+                          on:mouseenter={() => (showVenueCodeTip = true)}
+                          on:mouseleave={() => (showVenueCodeTip = false)}
+                          on:focus={() => (showVenueCodeTip = true)}
+                          on:blur={() => (showVenueCodeTip = false)}
+                          class:text-white={showVenueCodeTip}
+                          class:border-zinc-400={showVenueCodeTip}
+                        >
+                          i
+                        </button>
+                        <span class={`absolute left-0 top-full mt-2 w-[220px] max-w-[80vw] whitespace-normal text-left bg-zinc-900 border border-zinc-700 text-zinc-300 text-[10px] font-bold uppercase tracking-widest px-3 py-2 rounded-lg pointer-events-none z-10 ${showVenueCodeTip ? 'opacity-100' : 'opacity-0'}`}>
+                          We'll show your full venue name throughout the website, this code is just used in URLs
+                        </span>
+                      </span>
+                    </div>
+                    {#if venueShareUrl}
                       <button
                         type="button"
-                        class="inline-flex h-4 w-4 items-center justify-center rounded-full border border-zinc-600 text-[10px] leading-none text-zinc-400"
-                        aria-label="Venue code info"
-                        on:mouseenter={() => (showVenueCodeTip = true)}
-                        on:mouseleave={() => (showVenueCodeTip = false)}
-                        on:focus={() => (showVenueCodeTip = true)}
-                        on:blur={() => (showVenueCodeTip = false)}
-                        class:text-white={showVenueCodeTip}
-                        class:border-zinc-400={showVenueCodeTip}
+                        on:click={() => (showVenueQrDetails = !showVenueQrDetails)}
+                        class="text-[11px] font-black uppercase tracking-[0.2em] text-orange-400 hover:text-orange-300 transition-colors"
                       >
-                        i
+                        {showVenueQrDetails ? 'Hide QR' : 'Show QR'}
                       </button>
-                      <span class={`absolute left-0 top-full mt-2 w-full max-w-full whitespace-normal text-left bg-zinc-900 border border-zinc-700 text-zinc-300 text-[10px] font-bold uppercase tracking-widest px-3 py-2 rounded-lg pointer-events-none z-10 ${showVenueCodeTip ? 'opacity-100' : 'opacity-0'}`}>
-                        We'll show your full venue name throughout the website, this code is just used in URLs
-                      </span>
-                    </span>
-                  </label>
+                    {/if}
+                  </div>
                   <input
                     type="text"
                     bind:value={venueCode}
@@ -2210,28 +2314,29 @@
                     class="mt-2 bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-lg font-black text-white w-full uppercase tracking-widest"
                   />
                   {#if venueShareUrl}
-                    <div class="rounded-xl border border-zinc-800 bg-black/40 p-3 space-y-2">
-                      <p class="text-[10px] font-black uppercase tracking-widest text-zinc-500">Venue QR</p>
-                      <div class="flex flex-wrap gap-3">
-                        {#if venueQrUrl}
-                          <img src={venueQrUrl} alt="Venue QR" class="h-40 w-40 rounded-lg border border-zinc-800 bg-white p-2" />
-                        {/if}
-                        {#if venueQrLogoUrl}
-                          <img src={venueQrLogoUrl} alt="Venue QR with logo" class="h-40 w-40 rounded-lg border border-zinc-800 bg-white p-2" />
-                        {/if}
+                    {#if showVenueQrDetails}
+                      <div class="rounded-xl border border-zinc-800 bg-black/40 p-3 space-y-2">
+                        <a
+                          href={venueShareUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          class="block text-[10px] font-bold break-all text-orange-400 hover:text-orange-300 underline decoration-orange-500/40"
+                        >
+                          {venueShareUrl}
+                        </a>
+                        <div class="flex flex-wrap gap-3">
+                          {#if venueQrUrl}
+                            <img src={venueQrUrl} alt="Venue QR" class="h-40 w-40 rounded-lg border border-zinc-800 bg-white p-2" />
+                          {/if}
+                          {#if venueQrLogoUrl}
+                            <img src={venueQrLogoUrl} alt="Venue QR with logo" class="h-40 w-40 rounded-lg border border-zinc-800 bg-white p-2" />
+                          {/if}
+                        </div>
                       </div>
-                      <a
-                        href={venueShareUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        class="block text-[10px] font-bold break-all text-orange-400 hover:text-orange-300 underline decoration-orange-500/40"
-                      >
-                        {venueShareUrl}
-                      </a>
-                    </div>
+                    {/if}
                   {/if}
                 </div>
-                <div class="space-y-3">
+                <div class="space-y-3 order-1">
                   <div class="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-zinc-500 whitespace-nowrap">
                     <span>Happy Hour</span>
                     <span class="relative inline-flex items-center w-full max-w-full">
@@ -2248,7 +2353,7 @@
                       >
                         i
                       </button>
-                      <span class={`absolute left-0 top-full mt-2 w-full max-w-full whitespace-normal text-left bg-zinc-900 border border-zinc-700 text-zinc-300 text-[10px] font-bold uppercase tracking-widest px-3 py-2 rounded-lg pointer-events-none z-10 ${showHappyHourTip ? 'opacity-100' : 'opacity-0'}`}>
+                      <span class={`absolute left-0 top-full mt-2 w-full max-w-full whitespace-normal text-left bg-zinc-900 border border-zinc-700 text-zinc-300 text-[10px] font-bold uppercase tracking-widest px-3 py-2 rounded-lg pointer-events-none z-30 ${showHappyHourTip ? 'opacity-100' : 'opacity-0'}`}>
                         Double kickbacks: 10% referrer, 10% new customer.
                       </span>
                     </span>
@@ -2258,16 +2363,10 @@
                       <button
                         type="button"
                         on:click|stopPropagation={() => removeHappyHour(index)}
-                        class="absolute right-2 top-2 z-10 inline-flex h-7 w-7 items-center justify-center rounded-full border border-zinc-700 text-zinc-400 hover:text-white hover:border-zinc-400 transition-colors"
+                        class="absolute -top-2 -right-2 z-10 w-6 h-6 rounded-full bg-zinc-900 border border-zinc-700 text-zinc-300 text-xs font-black flex items-center justify-center hover:text-white transition-colors"
                         aria-label="Remove happy hour"
                       >
-                        <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2">
-                          <path d="M3 6h18" />
-                          <path d="M8 6l1-2h6l1 2" />
-                          <path d="M8 10v8" />
-                          <path d="M12 10v8" />
-                          <path d="M16 10v8" />
-                        </svg>
+                        X
                       </button>
                       <div class="grid grid-cols-2 gap-2">
                         <label class="flex flex-col gap-1 text-[10px] font-black uppercase tracking-widest text-zinc-500">
@@ -2331,9 +2430,310 @@
                 <p class="text-[10px] font-black uppercase tracking-widest text-green-400">Code is available</p>
               {/if}
 
-              <div class="rounded-xl border border-zinc-800 bg-black/30 p-4">
+              <div class="pt-2">
+                <button
+                  type="button"
+                  class="flex items-center justify-between gap-4 cursor-pointer select-none w-full"
+                  on:click|stopPropagation={() => (showPaymentMethods = !showPaymentMethods)}
+                  aria-expanded={showPaymentMethods}
+                >
+                  <div>
+                    <p class="text-xs font-black uppercase tracking-widest text-zinc-500">Payment Methods</p>
+                  </div>
+                  <div class="inline-flex items-center rounded-xl px-2 py-2 text-zinc-300 hover:text-white transition-colors focus:outline-none shrink-0">
+                    <svg viewBox="0 0 24 24" aria-hidden="true" class={`h-6 w-6 transition-transform ${showPaymentMethods ? '' : 'rotate-180'}`} fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M6 9l6 6 6-6" />
+                    </svg>
+                  </div>
+                </button>
+
+                {#if showPaymentMethods}
+                <div class="mt-6">
+                  <div class="grid gap-2">
+                    {#each paymentMethodOptions as option}
+                      <label class={`flex items-center gap-3 text-xs font-bold uppercase tracking-widest ${option.id === 'payto' ? 'text-zinc-600' : 'text-zinc-300'}`}>
+                        <input
+                          type="radio"
+                          value={option.id}
+                          bind:group={selectedPaymentMethod}
+                          class="h-3.5 w-3.5 accent-blue-500"
+                          disabled={option.id === 'payto'}
+                        />
+                        <span>{option.label}</span>
+                      </label>
+                    {/each}
+                  </div>
+                </div>
+
+                {#if showHelloClever && selectedPaymentMethod === 'payto'}
+                  <div class="mt-8 border-t border-zinc-800 pt-6">
+                    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                      <div>
+                        <p class="text-xs font-black uppercase tracking-widest text-zinc-500">PayTo Agreement</p>
+                        <p class="text-sm font-bold text-white mt-2">
+                          Weekly payments start {getNextWednesdayLabel()} at noon.
+                        </p>
+                      </div>
+                      {#if payToAgreement}
+                        <span class="text-[10px] font-black uppercase tracking-widest text-zinc-400">
+                          Status: {payToAgreement.status ?? 'unknown'}
+                        </span>
+                      {/if}
+                    </div>
+
+                    <div class="mt-6 grid gap-4 md:grid-cols-2">
+                      <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
+                        Payer Name
+                        <input
+                          type="text"
+                          bind:value={payToPayerName}
+                          placeholder="Venue owner name"
+                          class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-base font-bold text-white"
+                        />
+                      </label>
+                      <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
+                        PayID (Email, Phone, or ABN)
+                        <input
+                          type="text"
+                          bind:value={payToPayId}
+                          placeholder="owner@example.com"
+                          class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-base font-bold text-white"
+                        />
+                      </label>
+                      <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
+                        Weekly Limit (AUD)
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          bind:value={payToLimitAmount}
+                          placeholder="500"
+                          class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-base font-bold text-white"
+                        />
+                      </label>
+                      <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
+                        Description
+                        <input
+                          type="text"
+                          bind:value={payToDescription}
+                          placeholder="Weekly Kickback settlement"
+                          class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-base font-bold text-white"
+                        />
+                      </label>
+                    </div>
+
+                    <div class="mt-5 flex flex-wrap items-center gap-3">
+                      <button
+                        type="button"
+                        on:click={handleCreatePayToAgreement}
+                        disabled={!venue || payToSaving || payToLoading}
+                        class="bg-white text-black font-black px-6 py-3 rounded-xl uppercase tracking-tight disabled:opacity-50"
+                      >
+                        {payToSaving ? 'Creating...' : 'Create PayTo Agreement'}
+                      </button>
+                      {#if payToLoading}
+                        <span class="text-xs font-bold uppercase tracking-widest text-zinc-500">Loading...</span>
+                      {/if}
+                      {#if payToError}
+                        <span class="text-xs font-bold uppercase tracking-widest text-red-400">{payToError}</span>
+                      {/if}
+                      {#if payToSuccess}
+                        <span class="text-xs font-bold uppercase tracking-widest text-green-400">{payToSuccess}</span>
+                      {/if}
+                    </div>
+
+                    {#if payToAgreement}
+                      <div class="mt-5 bg-zinc-950 border border-zinc-800 rounded-xl p-4 text-xs font-bold uppercase tracking-widest text-zinc-400 space-y-2">
+                        <div>Agreement ID: <span class="text-zinc-200">{payToAgreement.payment_agreement_id ?? 'Pending'}</span></div>
+                        <div>Transaction ID: <span class="text-zinc-200">{payToAgreement.client_transaction_id ?? 'Pending'}</span></div>
+                        <div>Limit: <span class="text-zinc-200">${Number(payToAgreement.limit_amount ?? 0).toFixed(2)}</span></div>
+                      </div>
+                    {/if}
+                  </div>
+                  {/if}
+
+                {#if showHelloClever && selectedPaymentMethod === 'gateway'}
+                  <div class="mt-8 border-t border-zinc-800 pt-6">
+                    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                      <div>
+                        <p class="text-xs font-black uppercase tracking-widest text-zinc-500">Invoice + Online Payment</p>
+                        <p class="text-sm font-bold text-white mt-2">
+                          Save billing details for future invoicing.
+                        </p>
+                      </div>
+                      {#if latestPaymentRequest}
+                        <span class="text-[10px] font-black uppercase tracking-widest text-zinc-400">
+                          Status: {latestPaymentRequest.status ?? 'unknown'}
+                        </span>
+                      {/if}
+                    </div>
+
+                    <div class="mt-6 space-y-4">
+                      <div class="border border-zinc-800 rounded-xl p-4 bg-zinc-950">
+                        <div class="grid gap-3 md:grid-cols-2">
+                          <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
+                            Business name
+                            <input
+                              type="text"
+                              bind:value={billingCompany}
+                              placeholder="Venue Pty Ltd"
+                              class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-white font-mont"
+                            />
+                          </label>
+                          <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
+                            ABN
+                            <input
+                              type="text"
+                              bind:value={abn}
+                              placeholder="12 345 678 901"
+                              class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-white font-mont"
+                            />
+                          </label>
+                          <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500 md:col-span-2">
+                            Billing Email
+                            <input
+                              type="email"
+                              bind:value={billingEmail}
+                              placeholder="billing@venue.com"
+                              class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-white font-mont"
+                            />
+                          </label>
+                          <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500 md:col-span-2">
+                            Street Address
+                            <input
+                              type="text"
+                              bind:value={billingAddress}
+                              placeholder="388 George Street"
+                              class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-white font-mont"
+                            />
+                          </label>
+                          <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
+                            City
+                            <input
+                              type="text"
+                              bind:value={billingCity}
+                              placeholder="Eltham"
+                              class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-white font-mont"
+                            />
+                          </label>
+                          <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
+                            Post Code
+                            <input
+                              type="text"
+                              bind:value={billingPostalCode}
+                              placeholder="3095"
+                              class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-white font-mont"
+                            />
+                          </label>
+                        </div>
+                        
+                      </div>
+
+                      <!-- Removed unused Description label to satisfy a11y -->
+                    </div>
+
+                    <div class="mt-5 flex flex-wrap items-center gap-3">
+                      <button
+                        type="button"
+                        on:click={handleCreatePaymentLink}
+                        disabled={!venue || gatewayCreating || gatewayLoading}
+                        class="bg-white text-black font-black px-6 py-3 rounded-xl uppercase tracking-tight disabled:opacity-50"
+                      >
+                        {gatewayCreating ? 'Saving...' : 'Save Billing Details'}
+                      </button>
+                      {#if gatewayLoading}
+                        <span class="text-xs font-bold uppercase tracking-widest text-zinc-500">Loading...</span>
+                      {/if}
+                      {#if gatewayError}
+                        <span class="text-xs font-bold uppercase tracking-widest text-red-400">{gatewayError}</span>
+                      {/if}
+                      {#if gatewaySuccess}
+                        <span class="text-xs font-bold uppercase tracking-widest text-green-400">{gatewaySuccess}</span>
+                      {/if}
+                    </div>
+
+                    {#if latestPaymentRequest}
+                      <div class="mt-5 bg-zinc-950 border border-zinc-800 rounded-xl p-4 text-xs font-bold uppercase tracking-widest text-zinc-400 space-y-2">
+                        <div>
+                          Week:
+                          <span class="text-zinc-200">
+                            {formatIsoDate(latestPaymentRequest.week_start) || 'n/a'}
+                          </span>
+                          {#if latestPaymentRequest.week_end}
+                            <span class="text-zinc-500">
+                              {' '}
+                              - {formatIsoDateMinusOneDay(latestPaymentRequest.week_end)}
+                            </span>
+                          {/if}
+                        </div>
+                        <div>
+                          Amount: <span class="text-zinc-200">${Number(latestPaymentRequest.amount ?? 0).toFixed(2)}</span>
+                        </div>
+                        {#if latestPaymentRequest.redirect_url}
+                          <div>
+                            Link:
+                            <a
+                              href={latestPaymentRequest.redirect_url}
+                              class="text-orange-400 underline underline-offset-2"
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              Open payment link
+                            </a>
+                          </div>
+                        {/if}
+                      </div>
+                    {/if}
+
+                    {#if venueInvoices.length > 0}
+                      <div class="mt-5 bg-zinc-950 border border-zinc-800 rounded-xl p-4">
+                        <p class="text-xs font-black uppercase tracking-widest text-zinc-500">Pending Invoices</p>
+                        <div class="mt-3 space-y-2">
+                          {#each venueInvoices as inv}
+                            <div class="flex items-center justify-between gap-2 text-[10px] font-bold uppercase tracking-widest text-zinc-400">
+                              <span>
+                                {formatIsoDate(inv.week_start ?? '')}
+                                {#if inv.week_end}
+                                  <span class="text-zinc-600"> - {formatIsoDateMinusOneDay(inv.week_end)}</span>
+                                {/if}
+                              </span>
+                              <span class="inline-flex items-center gap-3">
+                                <span class="text-zinc-500">{inv.status ?? 'open'}</span>
+                                {#if inv.stripe_invoice_url}
+                                  <a href={inv.stripe_invoice_url} target="_blank" rel="noreferrer" class="text-orange-400 underline underline-offset-2">View</a>
+                                {/if}
+                              </span>
+                            </div>
+                          {/each}
+                        </div>
+                      </div>
+                    {/if}
+                    <div class="mt-4 flex items-center gap-3">
+                      {#if false}
+                        <button
+                          type="button"
+                          on:click={syncStripeInvoices}
+                          class="px-4 py-2 rounded-xl bg-zinc-200 text-black text-xs font-black uppercase tracking-widest disabled:opacity-50"
+                          disabled={invoiceSyncLoading || !venue}
+                        >
+                          {invoiceSyncLoading ? 'Syncing…' : 'Sync Stripe Invoices'}
+                        </button>
+                      {/if}
+                      {#if invoiceSyncError}
+                        <span class="text-[10px] font-black uppercase tracking-widest text-red-400">{invoiceSyncError}</span>
+                      {/if}
+                      {#if invoiceSyncSuccess}
+                        <span class="text-[10px] font-black uppercase tracking-widest text-green-400">{invoiceSyncSuccess}</span>
+                      {/if}
+                    </div>
+                  </div>
+                {/if}
+                {/if}
+              </div>
+
+              <div class="pt-2">
                 <p class="text-[11px] font-black uppercase tracking-[0.2em] text-zinc-500">Account</p>
-                <div class="mt-3 grid gap-4 md:grid-cols-2">
+                <div class="mt-3 grid gap-4">
                   <div>
                     {#if canEditAuthEmail}
                       {#if emailEditMode}
@@ -2420,43 +2820,34 @@
                       <p class="text-[10px] font-bold uppercase tracking-widest text-zinc-500">{authProviderLabel}</p>
                     {/if}
                   </div>
-                  <div class="flex md:justify-end md:items-start">
-                    {#if squareConnected}
-                      <div class="flex flex-col items-end gap-2">
-                        <button
-                          type="button"
-                          on:click={disconnectSquare}
-                          disabled={squareSyncing}
-                          class="bg-orange-500 text-black font-black px-6 py-3 rounded-xl uppercase tracking-tight disabled:opacity-50"
-                        >
-                          {squareSyncing ? 'Disconnecting...' : 'Disconnect Square'}
-                        </button>
-                        {#if squareMerchantName}
-                          <p class="text-[10px] font-bold uppercase tracking-widest text-zinc-500">
-                            {squareMerchantName} connected
-                          </p>
-                        {:else if squareMerchantId}
-                          <p class="text-[10px] font-bold uppercase tracking-widest text-zinc-500">
-                            Merchant {squareMerchantId} connected
-                          </p>
-                        {/if}
-                      </div>
-                    {:else}
+                  <div class="pt-4 border-t border-zinc-800">
+                    <button
+                      type="button"
+                      on:click={handleSignOut}
+                      disabled={signingOut}
+                      class="text-zinc-600 text-[11px] font-black uppercase tracking-[0.3em] hover:text-white transition-colors disabled:opacity-50"
+                    >
+                      {signingOut ? 'Signing out...' : 'Logout'}
+                    </button>
+                    <div class="mt-3">
                       <button
                         type="button"
-                        on:click={connectSquare}
-                        disabled={squareConnecting}
-                        class="bg-orange-500 text-black font-black px-6 py-3 rounded-xl uppercase tracking-tight disabled:opacity-50"
+                        on:click={handleDeleteAccount}
+                        disabled={deletingAccount}
+                        class="text-red-500 text-[11px] font-black uppercase tracking-[0.3em] hover:text-red-400 transition-colors disabled:opacity-50"
                       >
-                        {squareConnecting ? 'Connecting...' : 'Connect Square'}
+                        {deletingAccount ? 'Deleting account...' : 'Delete account'}
                       </button>
-                    {/if}
+                      {#if deleteAccountError}
+                        <p class="mt-2 text-[10px] font-bold uppercase tracking-widest text-red-400">{deleteAccountError}</p>
+                      {/if}
+                    </div>
                   </div>
                 </div>
               </div>
 
               {#if squareConnected && squareLocationsLoaded && !squareLocationsError && squareLocations.length !== 1}
-                <div class="bg-zinc-950 border border-zinc-800 rounded-xl p-4 w-full">
+                <div class="w-full pt-2">
                   <div class="flex flex-wrap items-center justify-between gap-3">
                     <div>
                       <p class="text-xs font-black uppercase tracking-widest text-zinc-500">Square Locations</p>
@@ -2521,308 +2912,6 @@
         }}
       />
   </section>
-    <section
-      class="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-6 md:p-8"
-    >
-      <button
-        type="button"
-        class="flex items-center justify-between gap-4 cursor-pointer select-none w-full"
-        on:click|stopPropagation={() => (showPaymentMethods = !showPaymentMethods)}
-        aria-expanded={showPaymentMethods}
-      >
-        <div>
-          <p class="text-xs font-black uppercase tracking-widest text-zinc-500">Payment Methods</p>
-        </div>
-        <div class="inline-flex items-center rounded-xl px-2 py-2 text-zinc-300 hover:text-white transition-colors focus:outline-none shrink-0">
-          <svg viewBox="0 0 24 24" aria-hidden="true" class={`h-6 w-6 transition-transform ${showPaymentMethods ? '' : 'rotate-180'}`} fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M6 9l6 6 6-6" />
-          </svg>
-        </div>
-      </button>
-
-      {#if showPaymentMethods}
-      <div class="mt-6">
-        <div class="grid gap-2">
-          {#each paymentMethodOptions as option}
-            <label class={`flex items-center gap-3 text-xs font-bold uppercase tracking-widest ${option.id === 'payto' ? 'text-zinc-600' : 'text-zinc-300'}`}>
-              <input
-                type="radio"
-                value={option.id}
-                bind:group={selectedPaymentMethod}
-                class="h-3.5 w-3.5 accent-blue-500"
-                disabled={option.id === 'payto'}
-              />
-              <span>{option.label}</span>
-            </label>
-          {/each}
-        </div>
-      </div>
-
-      {#if showHelloClever && selectedPaymentMethod === 'payto'}
-        <div class="mt-8 border-t border-zinc-800 pt-6">
-          <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-            <div>
-              <p class="text-xs font-black uppercase tracking-widest text-zinc-500">PayTo Agreement</p>
-              <p class="text-sm font-bold text-white mt-2">
-                Weekly payments start {getNextWednesdayLabel()} at noon.
-              </p>
-            </div>
-            {#if payToAgreement}
-              <span class="text-[10px] font-black uppercase tracking-widest text-zinc-400">
-                Status: {payToAgreement.status ?? 'unknown'}
-              </span>
-            {/if}
-          </div>
-
-          <div class="mt-6 grid gap-4 md:grid-cols-2">
-            <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
-              Payer Name
-              <input
-                type="text"
-                bind:value={payToPayerName}
-                placeholder="Venue owner name"
-                class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-base font-bold text-white"
-              />
-            </label>
-            <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
-              PayID (Email, Phone, or ABN)
-              <input
-                type="text"
-                bind:value={payToPayId}
-                placeholder="owner@example.com"
-                class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-base font-bold text-white"
-              />
-            </label>
-            <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
-              Weekly Limit (AUD)
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                bind:value={payToLimitAmount}
-                placeholder="500"
-                class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-base font-bold text-white"
-              />
-            </label>
-            <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
-              Description
-              <input
-                type="text"
-                bind:value={payToDescription}
-                placeholder="Weekly Kickback settlement"
-                class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-base font-bold text-white"
-              />
-            </label>
-          </div>
-
-          <div class="mt-5 flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              on:click={handleCreatePayToAgreement}
-              disabled={!venue || payToSaving || payToLoading}
-              class="bg-white text-black font-black px-6 py-3 rounded-xl uppercase tracking-tight disabled:opacity-50"
-            >
-              {payToSaving ? 'Creating...' : 'Create PayTo Agreement'}
-            </button>
-            {#if payToLoading}
-              <span class="text-xs font-bold uppercase tracking-widest text-zinc-500">Loading...</span>
-            {/if}
-            {#if payToError}
-              <span class="text-xs font-bold uppercase tracking-widest text-red-400">{payToError}</span>
-            {/if}
-            {#if payToSuccess}
-              <span class="text-xs font-bold uppercase tracking-widest text-green-400">{payToSuccess}</span>
-            {/if}
-          </div>
-
-          {#if payToAgreement}
-            <div class="mt-5 bg-zinc-950 border border-zinc-800 rounded-xl p-4 text-xs font-bold uppercase tracking-widest text-zinc-400 space-y-2">
-              <div>Agreement ID: <span class="text-zinc-200">{payToAgreement.payment_agreement_id ?? 'Pending'}</span></div>
-              <div>Transaction ID: <span class="text-zinc-200">{payToAgreement.client_transaction_id ?? 'Pending'}</span></div>
-              <div>Limit: <span class="text-zinc-200">${Number(payToAgreement.limit_amount ?? 0).toFixed(2)}</span></div>
-            </div>
-          {/if}
-        </div>
-        {/if}
-
-      {#if showHelloClever && selectedPaymentMethod === 'gateway'}
-        <div class="mt-8 border-t border-zinc-800 pt-6">
-          <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-            <div>
-              <p class="text-xs font-black uppercase tracking-widest text-zinc-500">Invoice + Online Payment</p>
-              <p class="text-sm font-bold text-white mt-2">
-                Save billing details for future invoicing.
-              </p>
-            </div>
-            {#if latestPaymentRequest}
-              <span class="text-[10px] font-black uppercase tracking-widest text-zinc-400">
-                Status: {latestPaymentRequest.status ?? 'unknown'}
-              </span>
-            {/if}
-          </div>
-
-          <div class="mt-6 space-y-4">
-            <div class="border border-zinc-800 rounded-xl p-4 bg-zinc-950">
-              <div class="grid gap-3 md:grid-cols-2">
-                <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
-                  Business name
-                  <input
-                    type="text"
-                    bind:value={billingCompany}
-                    placeholder="Venue Pty Ltd"
-                    class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-white font-mont"
-                  />
-                </label>
-                <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
-                  ABN
-                  <input
-                    type="text"
-                    bind:value={abn}
-                    placeholder="12 345 678 901"
-                    class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-white font-mont"
-                  />
-                </label>
-                <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500 md:col-span-2">
-                  Billing Email
-                  <input
-                    type="email"
-                    bind:value={billingEmail}
-                    placeholder="billing@venue.com"
-                    class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-white font-mont"
-                  />
-                </label>
-                <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500 md:col-span-2">
-                  Street Address
-                  <input
-                    type="text"
-                    bind:value={billingAddress}
-                    placeholder="388 George Street"
-                    class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-white font-mont"
-                  />
-                </label>
-                <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
-                  City
-                  <input
-                    type="text"
-                    bind:value={billingCity}
-                    placeholder="Eltham"
-                    class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-white font-mont"
-                  />
-                </label>
-                <label class="flex flex-col gap-2 text-xs font-black uppercase tracking-widest text-zinc-500">
-                  Post Code
-                  <input
-                    type="text"
-                    bind:value={billingPostalCode}
-                    placeholder="3095"
-                    class="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-white font-mont"
-                  />
-                </label>
-              </div>
-              
-            </div>
-
-            <!-- Removed unused Description label to satisfy a11y -->
-          </div>
-
-          <div class="mt-5 flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              on:click={handleCreatePaymentLink}
-              disabled={!venue || gatewayCreating || gatewayLoading}
-              class="bg-white text-black font-black px-6 py-3 rounded-xl uppercase tracking-tight disabled:opacity-50"
-            >
-              {gatewayCreating ? 'Saving...' : 'Save Billing Details'}
-            </button>
-            {#if gatewayLoading}
-              <span class="text-xs font-bold uppercase tracking-widest text-zinc-500">Loading...</span>
-            {/if}
-            {#if gatewayError}
-              <span class="text-xs font-bold uppercase tracking-widest text-red-400">{gatewayError}</span>
-            {/if}
-            {#if gatewaySuccess}
-              <span class="text-xs font-bold uppercase tracking-widest text-green-400">{gatewaySuccess}</span>
-            {/if}
-          </div>
-
-          {#if latestPaymentRequest}
-            <div class="mt-5 bg-zinc-950 border border-zinc-800 rounded-xl p-4 text-xs font-bold uppercase tracking-widest text-zinc-400 space-y-2">
-              <div>
-                Week:
-                <span class="text-zinc-200">
-                  {formatIsoDate(latestPaymentRequest.week_start) || 'n/a'}
-                </span>
-                {#if latestPaymentRequest.week_end}
-                  <span class="text-zinc-500">
-                    {' '}
-                    - {formatIsoDateMinusOneDay(latestPaymentRequest.week_end)}
-                  </span>
-                {/if}
-              </div>
-              <div>
-                Amount: <span class="text-zinc-200">${Number(latestPaymentRequest.amount ?? 0).toFixed(2)}</span>
-              </div>
-              {#if latestPaymentRequest.redirect_url}
-                <div>
-                  Link:
-                  <a
-                    href={latestPaymentRequest.redirect_url}
-                    class="text-orange-400 underline underline-offset-2"
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    Open payment link
-                  </a>
-                </div>
-              {/if}
-            </div>
-          {/if}
-
-          {#if venueInvoices.length > 0}
-            <div class="mt-5 bg-zinc-950 border border-zinc-800 rounded-xl p-4">
-              <p class="text-xs font-black uppercase tracking-widest text-zinc-500">Pending Invoices</p>
-              <div class="mt-3 space-y-2">
-                {#each venueInvoices as inv}
-                  <div class="flex items-center justify-between gap-2 text-[10px] font-bold uppercase tracking-widest text-zinc-400">
-                    <span>
-                      {formatIsoDate(inv.week_start ?? '')}
-                      {#if inv.week_end}
-                        <span class="text-zinc-600"> - {formatIsoDateMinusOneDay(inv.week_end)}</span>
-                      {/if}
-                    </span>
-                    <span class="inline-flex items-center gap-3">
-                      <span class="text-zinc-500">{inv.status ?? 'open'}</span>
-                      {#if inv.stripe_invoice_url}
-                        <a href={inv.stripe_invoice_url} target="_blank" rel="noreferrer" class="text-orange-400 underline underline-offset-2">View</a>
-                      {/if}
-                    </span>
-                  </div>
-                {/each}
-              </div>
-            </div>
-          {/if}
-          <div class="mt-4 flex items-center gap-3">
-            {#if false}
-              <button
-                type="button"
-                on:click={syncStripeInvoices}
-                class="px-4 py-2 rounded-xl bg-zinc-200 text-black text-xs font-black uppercase tracking-widest disabled:opacity-50"
-                disabled={invoiceSyncLoading || !venue}
-              >
-                {invoiceSyncLoading ? 'Syncing…' : 'Sync Stripe Invoices'}
-              </button>
-            {/if}
-            {#if invoiceSyncError}
-              <span class="text-[10px] font-black uppercase tracking-widest text-red-400">{invoiceSyncError}</span>
-            {/if}
-            {#if invoiceSyncSuccess}
-              <span class="text-[10px] font-black uppercase tracking-widest text-green-400">{invoiceSyncSuccess}</span>
-            {/if}
-          </div>
-        </div>
-      {/if}
-      {/if}
-    </section>
 
     <section class="flex items-start justify-between gap-4">
       <div class="min-w-0">
@@ -2831,7 +2920,7 @@
         </h1>
         <div class="text-[3.4rem] sm:text-6xl md:text-6xl font-black text-white mt-1">${totalAmount.toFixed(2)}</div>
         <p class="text-xs font-black uppercase tracking-widest text-zinc-500 mt-1">
-          {selectedWeekLabel ? `Total ${selectedWeekLabel}` : selectedCount > 0 && !isFullSelection ? 'Claimed' : 'Total Claimed'}
+          {selectedWeekLabel ? `Total ${selectedWeekLabel}` : selectedCount > 0 && !isFullSelection ? 'New Revenue' : 'Total New Revenue'}
         </p>
       </div>
       <div class="flex flex-col gap-3 md:items-end md:text-right">
@@ -3037,7 +3126,7 @@
           bind:this={claimsScrollEl}
           on:scroll={updateClaimsScrollFade}
         >
-        <table class="min-w-[720px] w-full text-left border-collapse">
+        <table class="min-w-[860px] w-full text-left border-collapse">
         <thead>
           <tr class="bg-zinc-800/50 text-zinc-400 text-xs uppercase">
             <th class="p-3 pl-4 font-semibold">
@@ -3052,7 +3141,7 @@
                 <span>Date/Time</span>
               </div>
             </th>
-            <th class="p-4 font-semibold text-center">Total Claimed</th>
+            <th class="p-4 font-semibold text-center">Revenue</th>
             <th class="p-4 font-semibold text-center">
               <span class="relative inline-flex items-center">
                 <button
@@ -3076,7 +3165,8 @@
               </span>
             </th>
             <th class="p-4 font-semibold text-center">Fee</th>
-            <th class="p-4 font-semibold text-center">Last 4</th>
+            <th class="p-4 font-semibold text-center">Guest</th>
+            <th class="p-4 font-semibold text-center">Referrer</th>
             <th class="p-4 font-semibold text-center">Status</th>
             <th class="p-4 font-semibold text-right">Actions</th>
           </tr>
@@ -3084,7 +3174,7 @@
         <tbody class="divide-y divide-zinc-800">
           {#each weekGroups as weekGroup}
             <tr class="bg-zinc-950/60 text-zinc-400 text-[10px] uppercase tracking-[0.3em]">
-              <td colspan="7" class="px-4 py-3 font-black">
+              <td colspan="8" class="px-4 py-3 font-black">
                 <div class="flex items-center gap-3">
                   <input
                     type="checkbox"
@@ -3114,7 +3204,7 @@
                     </span>
                   </div>
                 </td>
-                <td class={`p-4 text-center font-mono font-bold ${getClaimStatus(claim) === 'denied' ? 'text-zinc-600' : 'text-orange-400'}`}>
+                <td class={`p-4 text-center font-mono font-bold ${getClaimStatus(claim) === 'denied' ? 'text-zinc-600' : 'text-green-500'}`}>
                   ${Number(claim.amount).toFixed(2)}
                 </td>
                 <td class="p-4 text-center text-xs font-bold uppercase tracking-widest text-zinc-400 whitespace-nowrap">
@@ -3123,8 +3213,11 @@
                 <td class={`p-4 text-center font-mono font-bold ${getClaimStatus(claim) === 'denied' ? 'text-zinc-600' : 'text-zinc-200'}`}>
                   ${getFeeAmount(claim).toFixed(2)}
                 </td>
-                <td class="p-4 text-center whitespace-nowrap">
-                  <span class="bg-zinc-800 px-2 py-1 rounded text-xs text-zinc-300">*{claim.last_4}</span>
+                <td class="p-4 text-center text-xs font-bold uppercase tracking-widest text-zinc-300 whitespace-nowrap">
+                  {claim.submitter_referral_code || '—'}
+                </td>
+                <td class="p-4 text-center text-xs font-bold uppercase tracking-widest text-zinc-300 whitespace-nowrap">
+                  {claim.referrer || '—'}
                 </td>
                 <td class="p-4 text-center">
                   <span class={`inline-flex items-center border rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-widest ${getStatusBadgeClass(getClaimStatus(claim))}`}>
@@ -3176,7 +3269,7 @@
           {:else}
             {#if !loading}
               <tr>
-                <td colspan="7" class="p-10 text-center text-zinc-500 italic">No claims found yet. Go get some!</td>
+                <td colspan="8" class="p-10 text-center text-zinc-500 italic">No claims found yet. Go get some!</td>
               </tr>
             {/if}
           {/each}
@@ -3190,29 +3283,6 @@
           <div class="pointer-events-none absolute top-0 right-0 h-full w-8 bg-gradient-to-l from-zinc-900/80 to-transparent md:hidden"></div>
         {/if}
       </div>
-    </div>
-  </div>
-  <div class="max-w-4xl mx-auto mt-12 text-center">
-    <button
-      type="button"
-      on:click={handleSignOut}
-      disabled={signingOut}
-      class="text-zinc-600 text-[10px] font-black uppercase tracking-[0.3em] hover:text-white transition-colors disabled:opacity-50"
-    >
-      {signingOut ? 'Signing out...' : `LOGOUT: ${userEmail || 'ADMIN'}`}
-    </button>
-    <div class="mt-3">
-      <button
-        type="button"
-        on:click={handleDeleteAccount}
-        disabled={deletingAccount}
-        class="text-red-500 text-[10px] font-black uppercase tracking-[0.3em] hover:text-red-400 transition-colors disabled:opacity-50"
-      >
-        {deletingAccount ? 'Deleting account...' : 'Delete account'}
-      </button>
-      {#if deleteAccountError}
-        <p class="mt-2 text-[10px] font-bold uppercase tracking-widest text-red-400">{deleteAccountError}</p>
-      {/if}
     </div>
   </div>
 </div>
