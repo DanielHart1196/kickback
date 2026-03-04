@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { fade, fly } from 'svelte/transition';
   import { cubicOut } from 'svelte/easing';
   import { supabase } from '$lib/supabase';
@@ -16,6 +17,7 @@
   let status: 'idle' | 'saving' | 'success' | 'error' = 'idle';
   let errorMessage = '';
   let successMessage = '';
+  let loadingExisting = false;
 
   function onlyDigits(value: string, maxLen: number) {
     return value.replace(/\D/g, '').slice(0, maxLen);
@@ -26,6 +28,39 @@
     if (digits.length <= 3) return digits;
     return `${digits.slice(0, 3)}-${digits.slice(3)}`;
   }
+
+  async function loadExistingDetails() {
+    if (!userId) return;
+    loadingExisting = true;
+    errorMessage = '';
+    try {
+      const { data, error } = await supabase
+        .from('payout_profiles')
+        .select('full_name, pay_id, bsb, account_number, payout_method')
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      if (error) throw error;
+      if (!data) return;
+
+      fullName = data.full_name ?? '';
+      payId = data.pay_id ?? '';
+      bsb = formatBsbInput(data.bsb ?? '');
+      accountNumber = onlyDigits(data.account_number ?? '', 9);
+
+      const hasBank = Boolean((data.bsb ?? '').trim() || (data.account_number ?? '').trim());
+      useBankDetails = data.payout_method === 'bank' || hasBank;
+      payoutMethod = useBankDetails ? 'bank' : 'payid';
+    } catch (error) {
+      console.error('Failed to load existing payout details:', error);
+    } finally {
+      loadingExisting = false;
+    }
+  }
+
+  onMount(() => {
+    void loadExistingDetails();
+  });
 
   async function handleSave() {
     if (!userId) return;
@@ -207,10 +242,10 @@
         <button
           type="button"
           on:click={handleSave}
-          disabled={status === 'saving'}
+          disabled={status === 'saving' || loadingExisting}
           class="w-full rounded-2xl bg-white py-4 text-sm font-black uppercase tracking-widest text-black hover:bg-white/90 transition-all disabled:opacity-50 disabled:cursor-not-allowed active:scale-95"
         >
-          {status === 'saving' ? 'Saving...' : 'Save Details'}
+          {loadingExisting ? 'Loading...' : status === 'saving' ? 'Saving...' : 'Save Details'}
         </button>
 
         <button

@@ -343,7 +343,7 @@
   let settingsSwipeActive = false;
   let settingsSwipeLock: 'horizontal' | 'vertical' | null = null;
   let settingsCloseTimer: ReturnType<typeof setTimeout> | null = null;
-  const SETTINGS_SWIPE_THRESHOLD_PX = 90;
+  const SETTINGS_SWIPE_THRESHOLD_PX = 56;
   const SETTINGS_SWIPE_ANIM_MS = 120;
 
   function getSettingsPanelWidth() {
@@ -400,7 +400,7 @@
     const dy = touch.clientY - settingsSwipeStartY;
 
     if (!settingsSwipeLock) {
-      if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+      if (Math.abs(dx) < 6 && Math.abs(dy) < 6) return;
       settingsSwipeLock = Math.abs(dx) > Math.abs(dy) ? 'horizontal' : 'vertical';
     }
 
@@ -412,9 +412,7 @@
   function handleSettingsTouchEnd() {
     if (!settingsSwipeActive) return;
     settingsSwipeActive = false;
-    const width = getSettingsPanelWidth();
-    const threshold = Math.min(SETTINGS_SWIPE_THRESHOLD_PX, width * 0.35);
-    if (settingsSwipeOffset > threshold) {
+    if (settingsSwipeOffset > SETTINGS_SWIPE_THRESHOLD_PX) {
       animateSettingsClose();
     } else {
       settingsSwipeOffset = 0;

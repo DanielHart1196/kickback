@@ -1697,7 +1697,7 @@
           console.error('Error clearing auth storage:', error);
         }
       }
-      window.location.href = '/';
+      window.location.replace('/?signed_out=1');
     }
   }
 

@@ -148,6 +148,7 @@
   let showIosInstallModal = false;
   const installPromptKey = 'kickback:install_prompt_shown';
   const payoutSetupPromptKey = 'kickback:payout_setup_dismissed';
+  const payoutSetupLinkKey = 'kickback:open_payout_setup_link';
   const activationTokenStorageKey = 'kickback:activation_token';
   const pendingInvitationStorageKey = 'kickback:pending_invitation';
   const pendingUrlParamsStorageKey = 'kickback:pending_url_params';
@@ -1275,6 +1276,26 @@
       document.documentElement.style.overflow = 'auto';
     }
     let urlParams = typeof window !== 'undefined' ? getInitialUrlParams() : null;
+    const payoutParam = resolveUrlParam(urlParams, 'payout');
+    const hasPayoutParam = payoutParam === '1' || payoutParam.toLowerCase() === 'true';
+    let shouldOpenPayoutFromLink = hasPayoutParam;
+    if (typeof window !== 'undefined') {
+      try {
+        if (window.localStorage.getItem(payoutSetupLinkKey) === '1') {
+          shouldOpenPayoutFromLink = true;
+        }
+      } catch {}
+      if (hasPayoutParam) {
+        try {
+          const cleanParams = new URLSearchParams(urlParams?.toString() ?? '');
+          cleanParams.delete('payout');
+          const nextSearch = cleanParams.toString();
+          const nextUrl = `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ''}${window.location.hash}`;
+          window.history.replaceState(window.history.state, '', nextUrl);
+          urlParams = cleanParams;
+        } catch {}
+      }
+    }
     let refParam = resolveUrlParam(urlParams, 'ref');
     let venueParam = resolveUrlParam(urlParams, 'venue');
     let venueIdParam = resolveUrlParam(urlParams, 'venue_id');
@@ -1398,6 +1419,15 @@
     }
 
     if (!session) {
+      if (shouldOpenPayoutFromLink) {
+        if (typeof window !== 'undefined') {
+          try {
+            window.localStorage.setItem(payoutSetupLinkKey, '1');
+          } catch {}
+        }
+        window.location.href = '/login';
+        return;
+      }
       if (hasVenueOnly) {
         if (typeof window !== 'undefined') {
           try {
@@ -1619,6 +1649,14 @@
           const hasAnyEarnings = Boolean(existingEarnings && existingEarnings.length > 0);
           if (!dismissedForUser && !hasVenueParam && hasAnyEarnings) {
             showPayoutSetup = true;
+          }
+        }
+        if (shouldOpenPayoutFromLink) {
+          showPayoutSetup = true;
+          if (typeof window !== 'undefined') {
+            try {
+              window.localStorage.removeItem(payoutSetupLinkKey);
+            } catch {}
           }
         }
       })();
@@ -1897,7 +1935,12 @@
           console.error('Error clearing auth storage:', error);
         }
       }
-      window.location.replace('/');
+      session = null;
+      userId = null;
+      showForm = false;
+      showLanding = true;
+      initialRouteReady = true;
+      window.location.replace('/?signed_out=1');
     }
   }
 
@@ -2420,7 +2463,7 @@
   {/if}
   {#if session === undefined || !initialRouteReady}
     <div class="w-full min-h-screen" aria-hidden="true"></div>
-  {:else if !session && showLanding}
+  {:else if !session && (showLanding || !showForm)}
     <div class="w-full">
       <Landing />
     </div>
