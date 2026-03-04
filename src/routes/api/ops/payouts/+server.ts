@@ -121,7 +121,7 @@ export const POST: RequestHandler = async ({ request, fetch }) => {
 
   const [{ data: profiles }, { data: payoutProfiles }, { data: venues }] = await Promise.all([
     supabaseAdmin.from('profiles').select('id, referral_code, email, notify_payout_confirmation').in('id', userIds),
-    supabaseAdmin.from('payout_profiles').select('user_id, pay_id, bsb, account_number, payout_method').in('user_id', userIds)
+    supabaseAdmin.from('payout_profiles').select('user_id, pay_id, bsb, account_number, payout_method, full_name').in('user_id', userIds)
     ,
     venueIds.size > 0
       ? supabaseAdmin.from('venues').select('id, name').in('id', Array.from(venueIds))
@@ -133,6 +133,7 @@ export const POST: RequestHandler = async ({ request, fetch }) => {
   const bsbByUser = new Map((payoutProfiles ?? []).map((p) => [String(p.user_id), String(p.bsb ?? '')]));
   const accountByUser = new Map((payoutProfiles ?? []).map((p) => [String(p.user_id), String(p.account_number ?? '')]));
   const methodByUser = new Map((payoutProfiles ?? []).map((p) => [String(p.user_id), String(p.payout_method ?? '')]));
+  const fullNameByUser = new Map((payoutProfiles ?? []).map((p) => [String(p.user_id), String((p as any).full_name ?? '')]));
   const venueNameById = new Map((venues ?? []).map((v: any) => [String(v.id), String(v.name ?? '')]));
   const payoutEmailsConfigured = Boolean(env.PRIVATE_SMTP_PASS);
 
@@ -152,6 +153,7 @@ export const POST: RequestHandler = async ({ request, fetch }) => {
         email: profile?.email ?? null,
         notify_payout_confirmation: Boolean(profile?.notify_payout_confirmation),
         payout_email_enabled: payoutEmailEnabled,
+        full_name: fullNameByUser.get(userId) ?? null,
         pay_id: payIdByUser.get(userId) ?? null,
         bsb: bsbByUser.get(userId) ?? null,
         account_number: accountByUser.get(userId) ?? null,

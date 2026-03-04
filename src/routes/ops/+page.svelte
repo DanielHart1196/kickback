@@ -114,6 +114,7 @@
         referral_code: string | null;
         email: string | null;
         payout_email_enabled?: boolean;
+        full_name?: string | null;
         notify_payout_confirmation?: boolean;
         pay_id: string | null;
         bsb?: string | null;
@@ -1750,10 +1751,7 @@
                     </span>
                   </div>
                   <div class="mt-1 text-zinc-500 uppercase tracking-widest">
-                    Payout emails:{' '}
-                    <span class={`normal-case tracking-normal ${payout.payout_email_enabled ? 'text-green-300' : 'text-zinc-400'}`}>
-                      {payout.payout_email_enabled ? 'On' : 'Off'}
-                    </span>
+                    Full name: <span class="text-zinc-300 normal-case tracking-normal">{payout.full_name ?? 'Not set'}</span>
                   </div>
                   <div class="mt-1 text-zinc-500 uppercase tracking-widest">
                     PayID: <span class="text-zinc-300 normal-case tracking-normal">{payout.pay_id ?? 'Not set'}</span>
@@ -1770,7 +1768,7 @@
                       {payout.payout_method ? payout.payout_method.toUpperCase() : 'Not set'}
                     </span>
                   </div>
-                  {#if payout.payout_email_enabled && payout.breakdown}
+                  {#if payout.breakdown}
                     <div class="mt-3 text-[10px] text-zinc-400 normal-case tracking-normal space-y-1">
                       <div class="flex items-center justify-between gap-2">
                         <span>New customer cashback</span>
