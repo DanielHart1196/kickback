@@ -34,6 +34,11 @@
   export let loginUrl = '/login';
   export let autoClaimsActive = false;
   export let autoClaimDaysLeft: number | null = null;
+  export let invitationDaysLeft: number | null = null;
+  export let hasActiveGuestInvitation = false;
+  export let activeInvitationReferrerCode = '';
+  export let activeInvitationVenueName = '';
+  export let activeInvitationTimeRemainingLabel = '';
   export let venueRefLandingMode = false;
   export let progressiveAddVenueFlow = false;
   export let isInvitationActive = false;
@@ -70,6 +75,8 @@
   let referrerBannerInput: HTMLInputElement | null = null;
   let invitationOnly = false;
   let invitationOnlyInitialized = false;
+  let acceptUnavailableTap = false;
+  let acceptUnavailableTimer: ReturnType<typeof setTimeout> | null = null;
 
   onMount(() => {
     const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent : '';
@@ -121,12 +128,31 @@
         clearTimeout(keyboardPadResetTimer);
         keyboardPadResetTimer = null;
       }
+      if (acceptUnavailableTimer) {
+        clearTimeout(acceptUnavailableTimer);
+        acceptUnavailableTimer = null;
+      }
       document.removeEventListener('click', handleClick);
       document.removeEventListener('click', handleTooltipOutsideClick);
       window.removeEventListener('resize', handleTooltipReposition);
       window.removeEventListener('scroll', handleTooltipReposition, true);
     };
   });
+
+  function handleAcceptInvitationClick() {
+    if (showAlreadyAcceptedInvitationBanner) {
+      acceptUnavailableTap = true;
+      if (acceptUnavailableTimer) {
+        clearTimeout(acceptUnavailableTimer);
+      }
+      acceptUnavailableTimer = setTimeout(() => {
+        acceptUnavailableTap = false;
+        acceptUnavailableTimer = null;
+      }, 90);
+      return;
+    }
+    onAcceptInvitation();
+  }
 
   function handleAmountFocus() {
     if (keyboardPadResetTimer) {
@@ -209,6 +235,7 @@
     selectedVenue && normalizedReferrerCode && (venueRefLandingMode || isVenueLocked)
   );
   $: showGenericHeaderSubtitle = !showVenueRefInviteHeader;
+  $: showAlreadyAcceptedInvitationBanner = Boolean(session && (hasActiveGuestInvitation || isInvitationActive));
   $: venueName = selectedVenue?.name ?? 'this venue';
   $: headerSpacingClass = showVenueRefInviteHeader
     ? 'space-y-0'
@@ -411,26 +438,38 @@
         <div>
           <div class="relative mx-auto max-w-sm px-6">
             <div class="relative">
-              <p class="text-center text-base text-zinc-400">
-                Confirm your first visit to unlock 5% cashback for 30 days
-              </p>
-              <button
-                type="button"
-                bind:this={autoClaimInfoButton}
-                on:click={toggleAutoClaimInfo}
-                aria-expanded={showAutoClaimInfo}
-                aria-controls="auto-claim-help"
-                class="absolute -right-6 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-white transition-colors flex items-center justify-center w-4 h-4"
-              >
-                <span class="sr-only">More info</span>
-                <svg aria-hidden="true" viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <circle cx="12" cy="12" r="9" />
-                  <path d="M12 16v-4" />
-                  <path d="M12 8h.01" />
-                </svg>
-              </button>
+              {#if showAlreadyAcceptedInvitationBanner}
+                <p class="text-center text-base text-zinc-400">
+                  Already accepted {activeInvitationVenueName || selectedVenue.name} invitation from <span class="text-orange-500 font-semibold">{activeInvitationReferrerCode || normalizedReferrerCode}</span>
+                </p>
+                <div class="h-5"></div>
+                <p class="text-center text-base text-zinc-400">
+                  Earning 5% for {activeInvitationTimeRemainingLabel || '0 more min'}
+                </p>
+              {:else}
+                <p class="text-center text-base text-zinc-400">
+                  Confirm your first visit to unlock 5% cashback for 30 days
+                </p>
+              {/if}
+              {#if !showAlreadyAcceptedInvitationBanner}
+                <button
+                  type="button"
+                  bind:this={autoClaimInfoButton}
+                  on:click={toggleAutoClaimInfo}
+                  aria-expanded={showAutoClaimInfo}
+                  aria-controls="auto-claim-help"
+                  class="absolute -right-6 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-white transition-colors flex items-center justify-center w-4 h-4"
+                >
+                  <span class="sr-only">More info</span>
+                  <svg aria-hidden="true" viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="9" />
+                    <path d="M12 16v-4" />
+                    <path d="M12 8h.01" />
+                  </svg>
+                </button>
+              {/if}
             </div>
-            {#if venueRefLandingMode || !isVenueLocked}
+            {#if (venueRefLandingMode || !isVenueLocked) && !showAlreadyAcceptedInvitationBanner}
               <button
                 type="button"
                 class="mt-2 block w-fit mx-auto text-[11px] font-bold uppercase tracking-widest text-orange-500/80 hover:text-orange-400 transition-colors"
@@ -441,7 +480,7 @@
               </button>
             {/if}
           </div>
-          {#if showAutoClaimInfo}
+          {#if showAutoClaimInfo && !showAlreadyAcceptedInvitationBanner}
             <div
               id="auto-claim-help"
               bind:this={autoClaimTooltipEl}
@@ -630,8 +669,12 @@
         {#if session}
           <button
             type="button"
-            on:click={onAcceptInvitation}
-            class="w-full bg-orange-500 text-black font-black py-4 rounded-2xl text-lg active:scale-95 transition-all"
+            on:click={handleAcceptInvitationClick}
+            aria-disabled={showAlreadyAcceptedInvitationBanner}
+            class="w-full bg-orange-500 text-black font-black py-4 rounded-2xl text-lg active:scale-95 transition-all duration-100"
+            class:opacity-50={showAlreadyAcceptedInvitationBanner}
+            class:cursor-not-allowed={showAlreadyAcceptedInvitationBanner}
+            class:scale-[0.985]={acceptUnavailableTap}
           >
             ACCEPT INVITATION
           </button>

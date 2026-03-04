@@ -100,6 +100,23 @@
     role: 'guest' | 'referrer';
   };
   let acceptedInvitations: AcceptedInvitation[] = [];
+  type PayoutHistoryItem = {
+    id: string;
+    amount: number;
+    currency: string;
+    paid_at: string;
+    pay_id: string;
+    bsb?: string;
+    account_number?: string;
+    payout_method?: string;
+    claim_count?: number;
+    period_start: string;
+    period_end: string;
+    referral_rewards: number;
+    cashback: number;
+    venue_totals?: { venue: string; total_amount: number }[];
+  };
+  let payoutHistory: PayoutHistoryItem[] = [];
 
   let venues: Venue[] = [];
 
@@ -147,6 +164,14 @@
   let amount: number | null = null;
   let amountInput = '';
   let purchaseTimeTooOld = false;
+  let activeGuestInvitation: AcceptedInvitation | null = null;
+  let venrefMatchingGuestInvites: AcceptedInvitation[] = [];
+  let invitationExpiresAt: number | null = null;
+  let invitationDaysLeft: number | null = null;
+  let hasActiveGuestInvitation = false;
+  let activeInvitationReferrerCode = '';
+  let activeInvitationVenueName = '';
+  let activeInvitationTimeRemainingLabel = '';
 
   let showGuestWarning = false;
   let showAutoClaimWarning = false;
@@ -162,6 +187,9 @@
   let forceInvitationOnly: boolean | null = null;
   let inviteDebugState: Record<string, any> | null = null;
   const showInviteDebug = false;
+  let debugHasRefAndVenue = false;
+  let debugHasVenueOnly = false;
+  let debugHasRefOnly = false;
 
   async function fetchPendingInvitations(uid: string) {
     if (!uid) return;
@@ -247,16 +275,16 @@
     );
   }
 
-  async function addPendingInvitation(payload: Omit<PendingInvitation, 'id' | 'createdAt'>) {
-    if (!userId) return;
+  async function addPendingInvitation(payload: Omit<PendingInvitation, 'id' | 'createdAt'>): Promise<boolean> {
+    if (!userId) return false;
     const venueIdValue = payload.venueId || getVenueIdByName(payload.venueName);
     const venueNameValue = payload.venueName || getVenueNameById(venueIdValue);
-    if (!venueIdValue || !venueNameValue) return;
+    if (!venueIdValue || !venueNameValue) return false;
     const existingStatus = await getInvitationStatusForVenue(userId, venueIdValue, venueNameValue);
     if (existingStatus && existingStatus !== 'pending') {
       invitationExistsVenue = venueNameValue;
       showInvitationExistsWarning = true;
-      return;
+      return false;
     }
     if (existingStatus === 'pending') {
       await supabase
@@ -283,9 +311,10 @@
       );
     if (error) {
       console.error('Error saving pending invitation:', error);
-      return;
+      return false;
     }
     await fetchPendingInvitations(userId);
+    return true;
   }
 
   async function deletePendingInvitation(invite: PendingInvitation) {
@@ -458,6 +487,59 @@
     } catch {}
   }
 
+  function getInitialUrlParams(): URLSearchParams {
+    if (typeof window === 'undefined') return new URLSearchParams();
+    const directSearch = window.location.search ?? '';
+    if (directSearch) return new URLSearchParams(directSearch);
+
+    const hash = window.location.hash ?? '';
+    const hashQueryIndex = hash.indexOf('?');
+    if (hashQueryIndex >= 0) {
+      return new URLSearchParams(hash.slice(hashQueryIndex + 1));
+    }
+
+    const href = window.location.href ?? '';
+    const hrefQueryIndex = href.indexOf('?');
+    if (hrefQueryIndex >= 0) {
+      const rawQuery = href.slice(hrefQueryIndex + 1).split('#')[0] ?? '';
+      return new URLSearchParams(rawQuery);
+    }
+
+    return new URLSearchParams();
+  }
+
+  function getParamCaseInsensitive(params: URLSearchParams | null, key: string): string {
+    if (!params) return '';
+    const direct = params.get(key);
+    if (direct) return direct;
+    const lowerKey = key.toLowerCase();
+    for (const [k, v] of params.entries()) {
+      if (k.toLowerCase() === lowerKey && v) return v;
+    }
+    return '';
+  }
+
+  function getParamFromUrlFallback(key: string): string {
+    if (typeof window === 'undefined') return '';
+    const href = window.location.href ?? '';
+    const safeKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const pattern = new RegExp(`[?&#]${safeKey}=([^&#]*)`, 'i');
+    const match = href.match(pattern);
+    if (!match?.[1]) return '';
+    try {
+      return decodeURIComponent(match[1].replace(/\+/g, ' '));
+    } catch {
+      return match[1];
+    }
+  }
+
+  function resolveUrlParam(params: URLSearchParams | null, key: string): string {
+    return (
+      getParamCaseInsensitive(params, key).trim() ||
+      getParamFromUrlFallback(key).trim()
+    );
+  }
+
   function updateInviteDebug(step: string, extra: Record<string, any> = {}) {
     if (!showInviteDebug) return;
     if (typeof window === 'undefined') return;
@@ -466,9 +548,9 @@
       time: new Date().toISOString(),
       path: window.location.pathname,
       search: window.location.search,
-      hasRefAndVenue,
-      hasVenueOnly,
-      hasRefOnly,
+      hasRefAndVenue: debugHasRefAndVenue,
+      hasVenueOnly: debugHasVenueOnly,
+      hasRefOnly: debugHasRefOnly,
       pendingInvitationStorage: window.localStorage.getItem(pendingInvitationStorageKey),
       pendingInvitationAccept: window.localStorage.getItem(pendingInvitationAcceptKey),
       pendingInvitationClaimed: window.localStorage.getItem(pendingInvitationClaimedKey),
@@ -806,13 +888,34 @@
     try {
       claims = await fetchClaimsForUser(session.user.id);
       void hydrateClaimantCodes(claims);
+      let loadedPayoutHistory: PayoutHistoryItem[] = [];
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const accessToken = sessionData?.session?.access_token;
+        if (accessToken) {
+          const payoutResponse = await fetch('/api/payouts/history', {
+            method: 'GET',
+            headers: {
+              Authorization: `Bearer ${accessToken}`
+            }
+          });
+          const payoutPayload = await payoutResponse.json().catch(() => null);
+          if (payoutResponse.ok && payoutPayload?.ok && Array.isArray(payoutPayload?.payouts)) {
+            loadedPayoutHistory = payoutPayload.payouts;
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching payout history:', error);
+      }
+      payoutHistory = loadedPayoutHistory;
 
       const { data: earnings, error: earningsError } = await supabase
         .from('earnings')
-        .select('amount, status')
+        .select('claim_id, amount, status')
         .eq('user_id', session.user.id);
       if (earningsError) throw earningsError;
 
+      const paidClaimIds = new Set<string>();
       let unpaid = 0;
       let scheduled = 0;
       let paid = 0;
@@ -820,9 +923,19 @@
         const amount = Number(row.amount ?? 0);
         if (!Number.isFinite(amount) || amount <= 0) continue;
         const status = String(row.status ?? '');
+        if (status === 'paid' && row.claim_id != null) {
+          paidClaimIds.add(String(row.claim_id));
+        }
         if (status === 'unpaid') unpaid += amount;
         if (status === 'scheduled') scheduled += amount;
         if (status === 'paid') paid += amount;
+      }
+      if (paidClaimIds.size > 0) {
+        claims = claims.map((claim) => {
+          if (!claim?.id || !paidClaimIds.has(String(claim.id))) return claim;
+          if (claim.status === 'denied' || claim.status === 'pending') return claim;
+          return { ...claim, status: 'paid' };
+        });
       }
       totalScheduled = Number(scheduled.toFixed(2));
       totalPaid = Number(paid.toFixed(2));
@@ -1014,7 +1127,6 @@
     showInvitationExistsWarning = false;
   }
 
-
   function handleVerificationFailure(mode: 'retry' | 'nomatch') {
     status = 'idle';
     showPaymentVerificationModal(mode);
@@ -1046,6 +1158,25 @@
       return Number.isFinite(explicit) ? explicit : null;
     }
     return activatedAt + GOAL_DAYS * 24 * 60 * 60 * 1000;
+  }
+
+  function formatInvitationTimeRemaining(expiresAt: number | null): string {
+    if (!expiresAt) return '';
+    const diffMs = expiresAt - Date.now();
+    if (diffMs <= 0) return '0 more min';
+    const minuteMs = 60 * 1000;
+    const hourMs = 60 * minuteMs;
+    const dayMs = 24 * hourMs;
+    if (diffMs >= dayMs) {
+      const days = Math.ceil(diffMs / dayMs);
+      return `${days} more day${days === 1 ? '' : 's'}`;
+    }
+    if (diffMs >= hourMs) {
+      const hours = Math.ceil(diffMs / hourMs);
+      return `${hours} more hour${hours === 1 ? '' : 's'}`;
+    }
+    const minutes = Math.max(Math.ceil(diffMs / minuteMs), 1);
+    return `${minutes} more min`;
   }
 
   function getAutoClaimDaysLeft(venueIdValue: string, venueName: string): number | null {
@@ -1127,16 +1258,18 @@
       document.body.style.overflow = 'auto';
       document.documentElement.style.overflow = 'auto';
     }
-    let urlParams =
-      typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
-    let refParam = urlParams?.get('ref')?.trim() ?? '';
-    let venueParam = urlParams?.get('venue')?.trim() ?? '';
-    let venueIdParam = urlParams?.get('venue_id')?.trim() ?? '';
+    let urlParams = typeof window !== 'undefined' ? getInitialUrlParams() : null;
+    let refParam = resolveUrlParam(urlParams, 'ref');
+    let venueParam = resolveUrlParam(urlParams, 'venue');
+    let venueIdParam = resolveUrlParam(urlParams, 'venue_id');
     let hasRef = Boolean(refParam);
     let hasVenueParam = Boolean(venueParam || venueIdParam);
     let hasRefAndVenue = hasRef && hasVenueParam;
     let hasVenueOnly = hasVenueParam && !hasRef;
     let hasRefOnly = hasRef && !hasVenueParam;
+    debugHasRefAndVenue = hasRefAndVenue;
+    debugHasVenueOnly = hasVenueOnly;
+    debugHasRefOnly = hasRefOnly;
     venueRefLandingMode = hasRefAndVenue;
 
     const localNow = getLocalNowInputValue();
@@ -1183,9 +1316,9 @@
         const storedParamsRaw = window.localStorage.getItem(pendingUrlParamsStorageKey);
         if (storedParamsRaw) {
           const storedParams = new URLSearchParams(storedParamsRaw);
-          const storedRef = storedParams.get('ref')?.trim() ?? '';
-          const storedVenue = storedParams.get('venue')?.trim() ?? '';
-          const storedVenueId = storedParams.get('venue_id')?.trim() ?? '';
+          const storedRef = resolveUrlParam(storedParams, 'ref');
+          const storedVenue = resolveUrlParam(storedParams, 'venue');
+          const storedVenueId = resolveUrlParam(storedParams, 'venue_id');
           if (storedRef || storedVenue || storedVenueId) {
             urlParams = storedParams;
             refParam = storedRef;
@@ -1196,6 +1329,9 @@
             hasRefAndVenue = hasRef && hasVenueParam;
             hasVenueOnly = hasVenueParam && !hasRef;
             hasRefOnly = hasRef && !hasVenueParam;
+            debugHasRefAndVenue = hasRefAndVenue;
+            debugHasVenueOnly = hasVenueOnly;
+            debugHasRefOnly = hasRefOnly;
             venueRefLandingMode = hasRefAndVenue;
           }
           window.localStorage.removeItem(pendingUrlParamsStorageKey);
@@ -1456,7 +1592,16 @@
           const dismissedValue =
             typeof window !== 'undefined' ? window.localStorage.getItem(payoutSetupPromptKey) : null;
           const dismissedForUser = dismissedValue && dismissedValue === session.user.id;
-          if (!dismissedForUser && !hasVenueParam) {
+          const { data: existingEarnings, error: earningsCheckError } = await supabase
+            .from('earnings')
+            .select('id')
+            .eq('user_id', session.user.id)
+            .limit(1);
+          if (earningsCheckError) {
+            console.error('Error checking earnings for payout setup prompt:', earningsCheckError);
+          }
+          const hasAnyEarnings = Boolean(existingEarnings && existingEarnings.length > 0);
+          if (!dismissedForUser && !hasVenueParam && hasAnyEarnings) {
             showPayoutSetup = true;
           }
         }
@@ -1776,6 +1921,28 @@
 
   $: loginUrl = buildLoginUrl(amount, venue, venueId, referrer, last4, purchaseTime);
   $: autoClaimDaysLeft = getAutoClaimDaysLeft(venueId, getVenueNameById(venueId) || venue);
+  $: venrefMatchingGuestInvites = acceptedInvitations.filter((invite) => {
+    if (invite.role !== 'guest') return false;
+    const normalizedVenue = venue.trim().toLowerCase();
+    if (venueId) return invite.venueId === venueId;
+    return normalizedVenue.length > 0 && invite.venueName.trim().toLowerCase() === normalizedVenue;
+  });
+  $: activeGuestInvitation = venrefMatchingGuestInvites.length > 0
+    ? venrefMatchingGuestInvites
+        .slice()
+        .sort((a, b) => new Date(b.activatedAt).getTime() - new Date(a.activatedAt).getTime())[0]
+    : null;
+  $: hasActiveGuestInvitation = venrefMatchingGuestInvites.length > 0;
+  $: invitationExpiresAt = activeGuestInvitation ? getInvitationExpiresAt(activeGuestInvitation) : null;
+  $: invitationDaysLeft = (() => {
+    if (!invitationExpiresAt) return null;
+    const diffMs = invitationExpiresAt - Date.now();
+    if (diffMs <= 0) return 0;
+    return Math.max(Math.ceil(diffMs / (24 * 60 * 60 * 1000)), 0);
+  })();
+  $: activeInvitationReferrerCode = activeGuestInvitation?.referrerCode ?? '';
+  $: activeInvitationVenueName = activeGuestInvitation?.venueName ?? (getVenueNameById(venueId) || venue);
+  $: activeInvitationTimeRemainingLabel = formatInvitationTimeRemaining(invitationExpiresAt);
   $: autoClaimsActive = Boolean(autoClaimDaysLeft);
   $: isInvitationActive = (() => {
     if (!session) return false;
@@ -1791,6 +1958,41 @@
       return invite.venueName.trim().toLowerCase() === normalizedVenue;
     });
   })();
+  $: if (showInviteDebug) {
+    inviteDebugState = {
+      step: 'venref_runtime',
+      time: new Date().toISOString(),
+      href: typeof window !== 'undefined' ? window.location.href : '',
+      pathname: typeof window !== 'undefined' ? window.location.pathname : '',
+      searchRaw: typeof window !== 'undefined' ? window.location.search : '',
+      hashRaw: typeof window !== 'undefined' ? window.location.hash : '',
+      venueRefLandingMode,
+      venue,
+      venueId,
+      referrer: normalizedReferrerInput,
+      isInvitationActive,
+      hasActiveGuestInvitation,
+      invitationDaysLeft,
+      activeGuestInvitation: activeGuestInvitation
+        ? {
+            id: activeGuestInvitation.id,
+            venueId: activeGuestInvitation.venueId,
+            venueName: activeGuestInvitation.venueName,
+            referrerCode: activeGuestInvitation.referrerCode,
+            activatedAt: activeGuestInvitation.activatedAt,
+            expiresAt: activeGuestInvitation.expiresAt
+          }
+        : null,
+      matchingGuestInvites: venrefMatchingGuestInvites.map((invite) => ({
+        id: invite.id,
+        venueId: invite.venueId,
+        venueName: invite.venueName,
+        referrerCode: invite.referrerCode,
+        activatedAt: invite.activatedAt,
+        expiresAt: invite.expiresAt
+      }))
+    };
+  }
 
   function openReferModal() {
     referModalIgnoreStoredVenue = false;
@@ -2032,6 +2234,7 @@
 
   function startNewClaim() {
     isDirectAddVenueFlow = true;
+    venueRefLandingMode = false;
     venue = '';
     referrer = '';
     isVenueLocked = false;
@@ -2055,11 +2258,12 @@
     const referrerCode = normalizeReferralCode(normalizedReferrerInput);
     if (!resolvedVenueId && !resolvedVenueName) return;
     if (!referrerCode) return;
-    await addPendingInvitation({
+    const accepted = await addPendingInvitation({
       venueId: resolvedVenueId,
       venueName: resolvedVenueName,
       referrerCode
     });
+    if (!accepted) return;
     showForm = false;
     showLanding = false;
     if (typeof window !== 'undefined' && session) {
@@ -2144,6 +2348,7 @@
 
   function handleFormBack() {
     isDirectAddVenueFlow = false;
+    venueRefLandingMode = false;
     showForm = false;
     if (session && typeof window !== 'undefined') {
       const state = getHistoryState();
@@ -2185,6 +2390,7 @@
         userEmail={session?.user?.email ?? ''}
         userId={userId ?? ''}
         claimantCodes={claimantCodes}
+        payoutHistory={payoutHistory}
         pendingInvitations={pendingInvitations}
         acceptedInvitations={acceptedInvitations}
         onNewClaim={startNewClaim}
@@ -2228,6 +2434,11 @@
         {isVenueLocked}
         {isReferrerLocked}
         {isInvitationActive}
+        {hasActiveGuestInvitation}
+        {invitationDaysLeft}
+        {activeInvitationReferrerCode}
+        {activeInvitationVenueName}
+        {activeInvitationTimeRemainingLabel}
         autoClaimsActive={autoClaimsActive}
         autoClaimDaysLeft={autoClaimDaysLeft}
         loginUrl={loginUrl}

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { fade, fly, slide } from 'svelte/transition';
-import { flip } from 'svelte/animate';
-import { onMount, tick } from 'svelte';
+  import { flip } from 'svelte/animate';
+  import { onMount, tick } from 'svelte';
   import { GOAL_DAYS, KICKBACK_RATE } from '$lib/claims/constants';
   import { calculateKickbackWithRate, isClaimDenied } from '$lib/claims/utils';
   import { supabase } from '$lib/supabase';
@@ -43,6 +43,7 @@ import { onMount, tick } from 'svelte';
   export let onRequestInstall: () => void = () => {};
   export let pendingInvitations: PendingInvitation[] = [];
   export let acceptedInvitations: AcceptedInvitation[] = [];
+  export let payoutHistory: PayoutHistoryItem[] = [];
   export let onContinueInvitation: (invite: PendingInvitation) => void = () => {};
   export let onDeleteInvitation: (invite: PendingInvitation) => void = () => {};
 
@@ -69,7 +70,6 @@ import { onMount, tick } from 'svelte';
     | { kind: 'invitation'; key: string; timestamp: number; invitation: PendingInvitation }
     | { kind: 'accepted_invitation'; key: string; timestamp: number; invitation: AcceptedInvitation };
 
-  let payoutHistory: PayoutHistoryItem[] = [];
   let historyItems: HistoryItem[] = [];
   let historyFilter: 'earnings' | 'payouts' | 'venues' | 'guests' | null = null;
   let filterStatus: Set<'pending' | 'approved' | 'paid' | 'denied'> = new Set();
@@ -328,13 +328,10 @@ import { onMount, tick } from 'svelte';
       });
       const payload = await response.json().catch(() => null);
       if (!response.ok || !payload?.ok) {
-        payoutHistory = [];
         return;
       }
       payoutHistory = Array.isArray(payload?.payouts) ? payload.payouts : [];
-    } catch {
-      payoutHistory = [];
-    }
+    } catch {}
   }
 
   
@@ -345,14 +342,19 @@ import { onMount, tick } from 'svelte';
   let settingsSwipeOffset = 0;
   let settingsSwipeActive = false;
   let settingsSwipeLock: 'horizontal' | 'vertical' | null = null;
+  let settingsCloseTimer: ReturnType<typeof setTimeout> | null = null;
   const SETTINGS_SWIPE_THRESHOLD_PX = 90;
-  const SETTINGS_SWIPE_ANIM_MS = 200;
+  const SETTINGS_SWIPE_ANIM_MS = 120;
 
   function getSettingsPanelWidth() {
     return settingsPanelEl?.offsetWidth ?? 320;
   }
 
   async function openSettings() {
+    if (settingsCloseTimer) {
+      clearTimeout(settingsCloseTimer);
+      settingsCloseTimer = null;
+    }
     settingsSwipeOffset = getSettingsPanelWidth();
     showSettings = true;
     await tick();
@@ -362,19 +364,22 @@ import { onMount, tick } from 'svelte';
     void ensurePayoutProfileLoaded();
   }
   function closeSettings() {
-    showSettings = false;
-    settingsSwipeOffset = 0;
-    settingsSwipeActive = false;
-    settingsSwipeLock = null;
+    animateSettingsClose();
   }
 
   function animateSettingsClose() {
+    if (!showSettings) return;
+    if (settingsCloseTimer) {
+      clearTimeout(settingsCloseTimer);
+      settingsCloseTimer = null;
+    }
     settingsSwipeOffset = getSettingsPanelWidth();
     settingsSwipeActive = false;
     settingsSwipeLock = null;
-    setTimeout(() => {
+    settingsCloseTimer = setTimeout(() => {
       showSettings = false;
       settingsSwipeOffset = 0;
+      settingsCloseTimer = null;
     }, SETTINGS_SWIPE_ANIM_MS);
   }
 
@@ -1685,17 +1690,11 @@ import { onMount, tick } from 'svelte';
               </div>
             </summary>
 
-            <div class="px-5 pb-6 pt-2 space-y-4">
-              <div class="grid grid-cols-1 gap-3 pt-2 border-t border-zinc-800/50">
-                <div class="flex items-center justify-between">
-                  <p class="text-xs font-black text-zinc-400 uppercase">Payout Method</p>
-                  <p class="text-sm font-bold text-white">
-                    {item.payout.payout_method ? item.payout.payout_method.toUpperCase() : 'PayID'}
-                  </p>
-                </div>
-                {#if (item.payout.payout_method ?? '') === 'bank'}
+            <div class="px-5 pb-6 pt-0">
+              <div class="grid grid-cols-1 gap-3 pt-3 border-t border-zinc-800">
+                {#if (item.payout.payout_method ?? '') === 'bank' || item.payout.bsb || item.payout.account_number}
                   <div class="flex items-center justify-between">
-                    <p class="text-xs font-black text-zinc-400 uppercase">BSB/Account</p>
+                    <p class="text-xs font-black text-zinc-400 uppercase">BSB-Account</p>
                     <p class="text-sm font-bold text-white">
                       {item.payout.bsb && item.payout.account_number
                         ? `${item.payout.bsb}-${item.payout.account_number}`
@@ -1709,10 +1708,6 @@ import { onMount, tick } from 'svelte';
                   </div>
                 {/if}
                 <div class="flex items-center justify-between">
-                  <p class="text-xs font-black text-zinc-400 uppercase">Total Amount</p>
-                  <p class="text-sm font-bold text-[#0D9CFF]">${Number(item.payout.amount ?? 0).toFixed(2)} {String(item.payout.currency ?? 'aud').toUpperCase()}</p>
-                </div>
-                <div class="flex items-center justify-between">
                   <p class="text-xs font-black text-zinc-400 uppercase">Period</p>
                   <p class="text-sm font-bold text-white">
                     {formatDateDdMmYyyy(item.payout.period_start)} to {formatDateDdMmYyyy(item.payout.period_end)}
@@ -1725,6 +1720,10 @@ import { onMount, tick } from 'svelte';
                 <div class="flex items-center justify-between">
                   <p class="text-xs font-black text-zinc-400 uppercase">Cashback</p>
                   <p class="text-sm font-bold text-white">${Number(item.payout.cashback ?? 0).toFixed(2)}</p>
+                </div>
+                <div class="mt-1 border-t border-zinc-800 pt-3 flex items-center justify-between">
+                  <p class="text-xs font-black text-zinc-400 uppercase">Total</p>
+                  <p class="text-sm font-bold text-[#0D9CFF]">${Number(item.payout.amount ?? 0).toFixed(2)} {String(item.payout.currency ?? 'aud').toUpperCase()}</p>
                 </div>
               </div>
 
@@ -1803,7 +1802,7 @@ import { onMount, tick } from 'svelte';
             </div>
           </div>
 
-          <div class="grid grid-cols-2 gap-4 pt-4 border-t border-zinc-800/50">
+          <div class="grid grid-cols-2 gap-4 pt-4 border-t border-zinc-800">
             <div>
               <p class="text-xs font-black text-zinc-400 uppercase mb-1">Total Bill</p>
               <p class="text-sm font-bold text-white">${claim.amount.toFixed(2)}</p>
@@ -1880,9 +1879,13 @@ import { onMount, tick } from 'svelte';
         <button
           type="button"
           on:click={closeSettings}
-          class="text-[10px] font-black uppercase tracking-[0.3em] text-zinc-500 hover:text-white transition-colors"
+          class="inline-flex h-8 w-8 items-center justify-center rounded-full border border-zinc-700 text-zinc-400 hover:text-white hover:border-zinc-500 transition-colors"
+          aria-label="Close user settings"
         >
-          Close
+          <svg viewBox="0 0 24 24" aria-hidden="true" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <path d="M6 6l12 12" />
+            <path d="M18 6l-12 12" />
+          </svg>
         </button>
       </div>
       <div class="mt-6 space-y-4 text-sm text-zinc-300 overflow-y-auto flex-1 custom-scrollbar">
@@ -2224,14 +2227,16 @@ import { onMount, tick } from 'svelte';
               on:input={handleSupportMessageInput}
               class="w-full resize-none rounded-xl border border-zinc-800 bg-black/40 px-4 py-3 text-sm text-white placeholder-zinc-600 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500 transition-all"
             ></textarea>
-            <button
-              type="button"
-              on:click={sendSupportMessage}
-              disabled={supportSubmitting || !supportMessageInput.trim()}
-              class="w-full rounded-xl bg-white px-4 py-3 text-xs font-black uppercase tracking-[0.2em] text-black hover:bg-zinc-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {supportSubmitting ? 'Sending...' : 'Send'}
-            </button>
+            {#if supportSubmitting || supportMessageInput.trim().length > 0}
+              <button
+                type="button"
+                on:click={sendSupportMessage}
+                disabled={supportSubmitting}
+                class="w-full rounded-xl bg-white px-4 py-3 text-xs font-black uppercase tracking-[0.2em] text-black hover:bg-zinc-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {supportSubmitting ? 'Sending...' : 'Send'}
+              </button>
+            {/if}
           </div>
           {#if supportStatusMessage}
             <p class={`mt-2 text-[10px] font-bold uppercase tracking-widest ${supportStatus === 'error' ? 'text-red-400' : 'text-zinc-500'}`}>

@@ -42,6 +42,7 @@
   let codeChangeInfoButton: HTMLButtonElement | null = null;
   let codeChangeInfoTooltip: HTMLDivElement | null = null;
   let referralEditButton: HTMLButtonElement | null = null;
+  const DISMISS_SWIPE_THRESHOLD_PX = 56;
 
   const lastSelectedVenueKey = 'kickback:last-selected-venue-id';
   $: referralVenueName = venues.find((venue) => venue.id === referralVenueId)?.name ?? '';
@@ -78,11 +79,13 @@
   }
 
   function copyToClipboard() {
+    if (!referralVenueId) return;
     navigator.clipboard.writeText(referralLink);
     if (navigator.vibrate) navigator.vibrate(50);
   }
 
   async function shareLink() {
+    if (!referralVenueId) return;
     const shareData = {
       title: 'Kickback',
       text: referralVenueName
@@ -173,8 +176,7 @@
     venueOpen = false;
   }
 
-  function clearVenueSelection(keepOpen?: boolean) {
-    referralVenueId = '';
+  function clearVenueSearch(keepOpen?: boolean) {
     venueSearch = '';
     venueDirty = true;
     const shouldKeepOpen = keepOpen ?? venueInputFocused;
@@ -207,7 +209,7 @@
   }
 
   function handleTouchEnd() {
-    if (currentYOffset > 120) {
+    if (currentYOffset > DISMISS_SWIPE_THRESHOLD_PX) {
       onClose();
     }
     currentYOffset = 0;
@@ -228,7 +230,7 @@
       (venue) => venue.name.trim().toLowerCase() === rawName.toLowerCase()
     );
     if (nameMatch) return { id: nameMatch.id, name: nameMatch.name };
-    return { id: '', name: rawName };
+    return null;
   }
 
   onMount(() => {
@@ -274,18 +276,21 @@
   }
 
   $: if (!hasAppliedDefault && !referralVenueId && venues.length > 0) {
-    if (disableStoredVenuePrefill) {
-      hasAppliedDefault = true;
-    } else {
+    if (!disableStoredVenuePrefill) {
       const storedId =
         typeof localStorage !== 'undefined' ? localStorage.getItem(lastSelectedVenueKey) : null;
-      if (storedId === '') {
-        referralVenueId = '';
-      } else if (storedId && venues.some((venue) => venue.id === storedId)) {
+      if (storedId && venues.some((venue) => venue.id === storedId)) {
         referralVenueId = storedId;
       }
-      hasAppliedDefault = true;
     }
+    if (!referralVenueId) {
+      referralVenueId = venues[0]?.id ?? '';
+    }
+    hasAppliedDefault = true;
+  }
+
+  $: if (!referralVenueId && venues.length > 0) {
+    referralVenueId = venues[0]?.id ?? '';
   }
 
   $: if (typeof localStorage !== 'undefined') {
@@ -303,7 +308,7 @@
     class="bg-zinc-900 w-full max-w-md rounded-t-[2.5rem] relative pb-12 transition-transform overflow-hidden overscroll-contain"
     style={`transform: translateY(${Math.max(0, currentYOffset)}px); transition: ${currentYOffset === 0 ? 'transform 0.3s ease-out' : 'none'}; max-height: calc(100vh - 64px); margin-top: 4px; padding-top: 4px; padding-bottom: ${referralInputFocused ? '55vh' : '32px'};`}
     in:fly={{ y: 600, duration: 500, opacity: 1 }} 
-    out:fly={{ y: 600, duration: 400, opacity: 1 }}
+    out:fly={{ y: 600, duration: 300, opacity: 1 }}
     on:touchstart={handleTouchStart}
     on:touchmove={handleTouchMove}
     on:touchend={handleTouchEnd}
@@ -311,7 +316,7 @@
     <button
       type="button"
       on:click={onClose}
-      class="absolute right-5 top-5 z-20 inline-flex h-10 w-10 items-center justify-center text-zinc-400 transition-colors hover:text-white"
+      class="absolute right-5 top-5 z-20 inline-flex h-12 w-12 items-center justify-center text-zinc-400 transition-colors hover:text-white"
       aria-label="Close referral modal"
     >
       <svg viewBox="0 0 24 24" aria-hidden="true" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -356,7 +361,7 @@
                   (typeof document !== 'undefined' && document.activeElement?.id === 'ref-venue');
               }}
               on:click={() => {
-                clearVenueSelection(venueClearKeepsOpen);
+                clearVenueSearch(venueClearKeepsOpen);
                 if (venueClearKeepsOpen) {
                   venueOpen = true;
                   venueInputFocused = true;
@@ -507,7 +512,13 @@
           </div>
           {#if !referralEditing}
             <div class="flex items-center gap-2 shrink-0 mr-1">
-              <button on:click={copyToClipboard} class="bg-zinc-800 text-white text-[10px] font-black px-4 py-2 rounded-xl uppercase hover:bg-zinc-700">Copy</button>
+              <button
+                on:click={copyToClipboard}
+                disabled={!referralVenueId}
+                class="bg-zinc-800 text-white text-[10px] font-black px-4 py-2 rounded-xl uppercase hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Copy
+              </button>
             </div>
           {/if}
           </div>
@@ -519,7 +530,8 @@
         <button 
           bind:this={shareButtonEl}
           on:click={shareLink}
-          class="w-full bg-orange-500 text-black font-black py-5 rounded-[2rem] text-xl uppercase tracking-tight active:scale-95 transition-all"
+          disabled={!referralVenueId}
+          class="w-full bg-orange-500 text-black font-black py-5 rounded-[2rem] text-xl uppercase tracking-tight active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
         >
           Share My Link
         </button>
