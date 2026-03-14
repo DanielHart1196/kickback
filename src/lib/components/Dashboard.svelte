@@ -36,7 +36,6 @@
   export let userId = '';
   export let claimantCodes: Record<string, string> = {};
   export let highlightClaimKey: string | null = null;
-  export let onNewClaim: () => void = () => {};
   export let onDeleteClaim: (claim: Claim) => void = () => {};
   export let onLogout: () => void = () => {};
   export let onOpenRefer: () => void = () => {};
@@ -84,7 +83,6 @@
   let listContainer: HTMLDivElement | null = null;
   let filterMenuEl: HTMLDivElement | null = null;
   let filterButtonEl: HTMLButtonElement | null = null;
-  let referButtonEl: HTMLButtonElement | null = null;
   let showSettings = false;
   let showDeleteWarning = false;
   let deleteStatus: 'idle' | 'loading' | 'error' = 'idle';
@@ -163,10 +161,9 @@
   let showPasswordChange = false;
   let payoutStripeOnboarded = false;
   const notifyEssential = true;
-  const REFER_BUTTON_GAP_PX = 32;
-  const REFER_BUTTON_HEIGHT_PX = 56;
+  const FILTER_MENU_VIEWPORT_GAP_PX = 16;
   const CLAIM_SLOT_HEIGHT_PX = 88;
-  const BASE_HISTORY_BOTTOM_PADDING_PX = REFER_BUTTON_HEIGHT_PX + REFER_BUTTON_GAP_PX * 2;
+  const BASE_HISTORY_BOTTOM_PADDING_PX = 24;
   let filterMenuExtraPaddingPx = 0;
   let historyPaddingBottomPx = BASE_HISTORY_BOTTOM_PADDING_PX;
   let filterMenuWasOpen = false;
@@ -1360,7 +1357,7 @@
   async function ensureFilterMenuClearance() {
     if (typeof window === 'undefined') return;
     await tick();
-    if (!showFilterMenu || !filterMenuEl || !referButtonEl) {
+    if (!showFilterMenu || !filterMenuEl) {
       if (filterMenuExtraPaddingPx !== 0) filterMenuExtraPaddingPx = 0;
       return;
     }
@@ -1382,7 +1379,7 @@
       const popupHeight = filterMenuEl.offsetHeight;
       const requiredExtraPadding = Math.max(
         0,
-        Math.ceil(popupHeight + REFER_BUTTON_GAP_PX - cappedItemCount * CLAIM_SLOT_HEIGHT_PX)
+        Math.ceil(popupHeight + FILTER_MENU_VIEWPORT_GAP_PX - cappedItemCount * CLAIM_SLOT_HEIGHT_PX)
       );
       if (requiredExtraPadding !== filterMenuExtraPaddingPx) {
         filterMenuExtraPaddingPx = requiredExtraPadding;
@@ -1860,7 +1857,7 @@
         <button
           type="button"
           on:click={closeSettings}
-          class="inline-flex h-8 w-8 items-center justify-center rounded-full border border-zinc-700 text-zinc-400 hover:text-white hover:border-zinc-500 transition-colors"
+          class="inline-flex h-8 w-8 items-center justify-center text-zinc-400 hover:text-white transition-colors"
           aria-label="Close user settings"
         >
           <svg viewBox="0 0 24 24" aria-hidden="true" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
@@ -2341,13 +2338,3 @@
     </div>
   </div>
 {/if}
-
-<button 
-  on:click={onNewClaim}
-  bind:this={referButtonEl}
-  class="fixed h-14 -translate-x-1/2 w-[calc(100%-3rem)] max-w-sm z-50 bg-zinc-900/80 backdrop-blur-xl border border-zinc-700 text-white font-black rounded-2xl flex items-center justify-center gap-3 shadow-2xl active:scale-95 transition-all uppercase text-xs tracking-[0.2em]"
-  style="left: calc(50% - (var(--scrollbar-width) / 2)); bottom: calc(2rem + env(safe-area-inset-bottom));"
-  in:fly={{ y: 100 }}
->
-  Activate Venue
-</button>

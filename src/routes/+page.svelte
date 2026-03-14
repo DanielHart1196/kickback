@@ -2627,7 +2627,6 @@
         payoutHistory={payoutHistory}
         pendingInvitations={pendingInvitations}
         acceptedInvitations={acceptedInvitations}
-        onNewClaim={startNewClaim}
         onDeleteClaim={handleDeleteClaim}
         onOpenRefer={openReferModal}
         onRequestInstall={triggerInstallBanner}
