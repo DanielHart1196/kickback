@@ -205,10 +205,10 @@
       <div class="space-y-10">
         <h1 class="text-4xl font-extrabold uppercase tracking-tight text-white text-center sm:text-5xl lg:text-6xl">
           <span class="sm:hidden">
-            <span class="whitespace-nowrap">BRING A MATE</span><br /><span class="text-orange-500">GET 5%<br />FOR 30 DAYS</span>
+            <span class="whitespace-nowrap">BRING A MATE</span><br /><span class="text-white">GET 5%<br />FOR 30 DAYS</span>
           </span>
           <span class="hidden sm:inline">
-            BRING A MATE <br /><span class="text-orange-500">GET 5% FOR 30 DAYS</span>
+            BRING A MATE <br /><span class="text-white">GET 5% FOR 30 DAYS</span>
           </span>
         </h1>
         <div class="flex justify-center">

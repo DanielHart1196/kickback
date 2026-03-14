@@ -49,6 +49,7 @@
   import GuestWarningModal from '$lib/components/GuestWarningModal.svelte';
   import PaymentVerificationModal from '$lib/components/PaymentVerificationModal.svelte';
   import InvitationExistsModal from '$lib/components/InvitationExistsModal.svelte';
+  import InvitationRecentPaymentModal from '$lib/components/InvitationRecentPaymentModal.svelte';
   import ReferralModal from '$lib/components/ReferralModal.svelte';
   import PayoutSetupModal from '$lib/components/PayoutSetupModal.svelte';
   import { onDestroy } from 'svelte';
@@ -185,6 +186,21 @@
   let paymentVerificationMode: 'retry' | 'nomatch' = 'retry';
   let showInvitationExistsWarning = false;
   let invitationExistsVenue = '';
+  type InvitationRecentPaymentCandidate = {
+    paymentId: string;
+    amount: number;
+    createdAt: string;
+    venueId: string;
+    venueName: string;
+    referrerCode: string;
+  };
+  let invitationRecentPaymentCandidates: InvitationRecentPaymentCandidate[] = [];
+  let invitationRecentPaymentSelectedId = '';
+  let invitationRecentPaymentLast4 = '';
+  let showInvitationRecentPaymentModal = false;
+  let invitationRecentPaymentConfirming = false;
+  let invitationRecentPaymentSuccess = false;
+  let invitationRecentPaymentError = '';
   let forceInvitationOnly: boolean | null = null;
   let inviteDebugState: Record<string, any> | null = null;
   const showInviteDebug = false;
@@ -1142,6 +1158,129 @@
 
   function dismissInvitationExistsWarning() {
     showInvitationExistsWarning = false;
+  }
+
+  function resetInvitationRecentPaymentState() {
+    invitationRecentPaymentCandidates = [];
+    invitationRecentPaymentSelectedId = '';
+    invitationRecentPaymentLast4 = '';
+    showInvitationRecentPaymentModal = false;
+    invitationRecentPaymentConfirming = false;
+    invitationRecentPaymentSuccess = false;
+    invitationRecentPaymentError = '';
+  }
+
+  async function maybePromptInvitationRecentPayment(payload: {
+    venueId: string;
+    venueName: string;
+    referrerCode: string;
+  }) {
+    if (!session?.user?.id) return;
+    try {
+      const { data } = await supabase.auth.getSession();
+      const accessToken = data.session?.access_token;
+      if (!accessToken) return;
+      const response = await fetch('/api/square/invitation-recent-payment', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`
+        },
+        body: JSON.stringify({
+          venue_id: payload.venueId,
+          referrer_code: payload.referrerCode
+        })
+      });
+      const result = await response.json().catch(() => null);
+      if (!response.ok || !result?.ok) return;
+      const candidates = Array.isArray(result?.candidates)
+        ? result.candidates
+            .filter((candidate: any) => candidate?.payment_id)
+            .map((candidate: any) => ({
+              paymentId: String(candidate.payment_id),
+              amount: Number(candidate.amount ?? 0),
+              createdAt: String(candidate.created_at ?? ''),
+              venueId: payload.venueId,
+              venueName: String(candidate.venue_name ?? payload.venueName),
+              referrerCode: payload.referrerCode
+            }))
+        : [];
+      if (candidates.length === 0) return;
+      invitationRecentPaymentCandidates = candidates;
+      invitationRecentPaymentSelectedId = String(candidates[0]?.paymentId ?? '');
+      invitationRecentPaymentLast4 = '';
+      invitationRecentPaymentError = '';
+      invitationRecentPaymentSuccess = false;
+      showInvitationRecentPaymentModal = true;
+    } catch (error) {
+      console.error('Error checking for recent invitation payment:', error);
+    }
+  }
+
+  async function confirmInvitationRecentPayment() {
+    const selectedCandidate =
+      invitationRecentPaymentCandidates.find(
+        (candidate) => candidate.paymentId === invitationRecentPaymentSelectedId
+      ) ?? null;
+    if (!session?.user?.id || !selectedCandidate) return;
+    const normalizedLast4 = invitationRecentPaymentLast4.replace(/\D/g, '').slice(-4);
+    if (normalizedLast4.length !== 4) {
+      invitationRecentPaymentError = 'Enter the last 4 digits of the card to confirm.';
+      return;
+    }
+    invitationRecentPaymentConfirming = true;
+    invitationRecentPaymentError = '';
+    try {
+      const { data } = await supabase.auth.getSession();
+      const accessToken = data.session?.access_token;
+      if (!accessToken) {
+        invitationRecentPaymentError = 'Please sign in again and retry.';
+        return;
+      }
+      const response = await fetch('/api/square/link-invitation-card', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`
+        },
+        body: JSON.stringify({
+          venue_id: selectedCandidate.venueId,
+          payment_id: selectedCandidate.paymentId,
+          referrer_code: selectedCandidate.referrerCode,
+          last_4: normalizedLast4
+        })
+      });
+      const result = await response.json().catch(() => null);
+      if (!response.ok || !result?.ok) {
+        const code = String(result?.error ?? '');
+        if (code === 'card_bound_to_other_user') {
+          invitationRecentPaymentError = 'That card is already linked to another member at this venue.';
+        } else if (code === 'new_customer_only_blocked') {
+          invitationRecentPaymentError = 'That card has already been used at this venue, so it cannot be linked here.';
+        } else if (code === 'payment_already_linked') {
+          invitationRecentPaymentError = 'That purchase is already linked to another claim.';
+        } else if (code === 'last4_mismatch') {
+          invitationRecentPaymentError = 'Those last 4 digits do not match that card.';
+        } else {
+          invitationRecentPaymentError = 'Could not link that card. Please try again.';
+        }
+        return;
+      }
+      invitationRecentPaymentSuccess = true;
+      if (result.claim_id) {
+        highlightClaimKey = String(result.claim_id);
+      }
+      await Promise.all([
+        fetchPendingInvitations(session.user.id),
+        fetchAcceptedInvitations(session.user.id, userRefCode, referralOriginalCode),
+        fetchDashboardData()
+      ]);
+    } catch (error) {
+      console.error('Error confirming recent invitation payment:', error);
+      invitationRecentPaymentError = 'Could not link that card. Please try again.';
+    } finally {
+      invitationRecentPaymentConfirming = false;
+    }
   }
 
   function handleVerificationFailure(mode: 'retry' | 'nomatch') {
@@ -2360,6 +2499,11 @@
       const state = getHistoryState();
       replaceState('', { ...state, [historyViewKey]: 'dashboard' });
     }
+    await maybePromptInvitationRecentPayment({
+      venueId: resolvedVenueId,
+      venueName: resolvedVenueName,
+      referrerCode
+    });
   }
 
   function handleContinueInvitation(invite: PendingInvitation) {
@@ -2575,6 +2719,29 @@
         onDismiss={() => (showClaimWindowExpired = false)}
       />
     {/if}
+  {/if}
+
+  {#if showInvitationRecentPaymentModal && invitationRecentPaymentCandidates.length > 0}
+    <InvitationRecentPaymentModal
+      venueName={invitationRecentPaymentCandidates[0].venueName}
+      referrerCode={invitationRecentPaymentCandidates[0].referrerCode}
+      candidates={invitationRecentPaymentCandidates}
+      selectedPaymentId={invitationRecentPaymentSelectedId}
+      enteredLast4={invitationRecentPaymentLast4}
+      confirming={invitationRecentPaymentConfirming}
+      success={invitationRecentPaymentSuccess}
+      errorMessage={invitationRecentPaymentError}
+      onSelectPayment={(paymentId) => {
+        invitationRecentPaymentSelectedId = paymentId;
+        invitationRecentPaymentError = '';
+      }}
+      onLast4Input={(value) => {
+        invitationRecentPaymentLast4 = value;
+        invitationRecentPaymentError = '';
+      }}
+      onConfirm={confirmInvitationRecentPayment}
+      onDismiss={resetInvitationRecentPaymentState}
+    />
   {/if}
 
   {#if showReferModal}
