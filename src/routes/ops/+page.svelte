@@ -1892,7 +1892,7 @@
                   on:click={backfillSelectedVenueFingerprints}
                   disabled={fingerprintBackfillStatus === 'running' || !squareConnections.has(selectedVenue.id)}
                 >
-                  {fingerprintBackfillStatus === 'running' ? 'Backfilling...' : 'Backfill Card Fingerprints'}
+                  {fingerprintBackfillStatus === 'running' ? 'Backfilling...' : 'Backfill'}
                 </button>
                 <button
                   type="button"

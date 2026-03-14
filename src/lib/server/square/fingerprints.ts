@@ -2,6 +2,7 @@ import { supabaseAdmin } from '$lib/server/supabaseAdmin';
 import type { SquarePayment } from '$lib/server/square/payments';
 
 const dayMs = 24 * 60 * 60 * 1000;
+const selectBatchSize = 200;
 
 export function getFingerprintCutoffs(now = new Date()) {
   const minAgeCutoff = new Date(now.getTime() - dayMs);
@@ -21,6 +22,14 @@ function updateWindow(existing: FingerprintWindow | undefined, seenAt: string): 
   const first = !Number.isFinite(existingFirst) || seenTime < existingFirst ? seenAt : existing.first;
   const last = !Number.isFinite(existingLast) || seenTime > existingLast ? seenAt : existing.last;
   return { first, last };
+}
+
+function chunkArray<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+  return chunks;
 }
 
 export async function cleanupOldFingerprints(venueId: string, cutoff: Date) {
@@ -57,14 +66,24 @@ export async function upsertVenueFingerprints(args: {
   const fingerprints = Array.from(windows.keys());
   if (fingerprints.length === 0) return { upserted: 0 };
 
-  const { data: existing, error: existingError } = await supabaseAdmin
-    .from('venue_card_fingerprints')
-    .select('card_fingerprint,first_seen_at,last_seen_at')
-    .eq('venue_id', args.venueId)
-    .in('card_fingerprint', fingerprints);
+  const existing: Array<{
+    card_fingerprint: string | null;
+    first_seen_at: string | null;
+    last_seen_at: string | null;
+  }> = [];
 
-  if (existingError) {
-    throw existingError;
+  for (const fingerprintBatch of chunkArray(fingerprints, selectBatchSize)) {
+    const { data: existingBatch, error: existingError } = await supabaseAdmin
+      .from('venue_card_fingerprints')
+      .select('card_fingerprint,first_seen_at,last_seen_at')
+      .eq('venue_id', args.venueId)
+      .in('card_fingerprint', fingerprintBatch);
+
+    if (existingError) {
+      throw existingError;
+    }
+
+    existing.push(...(existingBatch ?? []));
   }
 
   const existingMap = new Map<string, FingerprintWindow>();
