@@ -600,6 +600,7 @@
     const reason = url.searchParams.get('reason');
     const merchant = url.searchParams.get('merchant');
     const merchantName = url.searchParams.get('merchant_name');
+    const fingerprintBackfill = url.searchParams.get('fingerprint_backfill');
 
     if (squareStatus === 'connected') {
       squareBanner = {
@@ -610,6 +611,11 @@
             ? `Square connected (merchant ${merchant}).`
             : 'Square connected.'
       };
+      if (fingerprintBackfill === 'done') {
+        squareBanner.message += ' Card fingerprint backfill started.';
+      } else if (fingerprintBackfill === 'failed') {
+        squareBanner.message += ' Card fingerprint backfill failed.';
+      }
     } else if (squareStatus === 'error') {
       squareBanner = {
         type: 'error',
@@ -622,6 +628,7 @@
       url.searchParams.delete('reason');
       url.searchParams.delete('merchant');
       url.searchParams.delete('merchant_name');
+      url.searchParams.delete('fingerprint_backfill');
       replaceState(url.toString(), window.history.state ?? {});
     }
   });

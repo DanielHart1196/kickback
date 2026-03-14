@@ -156,6 +156,9 @@
   let squareAutoStatus: 'idle' | 'running' | 'error' | 'success' = 'idle';
   let squareAutoMessage = '';
   let squareAutoError = '';
+  let fingerprintBackfillStatus: 'idle' | 'running' | 'error' | 'success' = 'idle';
+  let fingerprintBackfillMessage = '';
+  let fingerprintBackfillError = '';
 
   function buildMaps() {
     venueById.clear();
@@ -370,6 +373,9 @@
   }
 
   function selectVenue(venueId: string | null, venueName?: string | null) {
+    fingerprintBackfillStatus = 'idle';
+    fingerprintBackfillMessage = '';
+    fingerprintBackfillError = '';
     if (venueId) {
       selectedVenueId = venueId;
       return;
@@ -608,6 +614,40 @@
       await loadAll();
     } catch (error) {
       alert(error instanceof Error ? error.message : 'Failed to delete venue');
+    }
+  }
+
+  async function backfillSelectedVenueFingerprints() {
+    if (!selectedVenueId) return;
+    fingerprintBackfillStatus = 'running';
+    fingerprintBackfillMessage = '';
+    fingerprintBackfillError = '';
+    try {
+      const { data, error } = await supabase.auth.getSession();
+      if (error || !data.session?.access_token) {
+        fingerprintBackfillStatus = 'error';
+        fingerprintBackfillError = 'Session expired. Please sign in again.';
+        return;
+      }
+      const response = await fetch('/api/venue-fingerprints/backfill', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${data.session.access_token}`
+        },
+        body: JSON.stringify({ venue_id: selectedVenueId })
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload?.ok) {
+        fingerprintBackfillStatus = 'error';
+        fingerprintBackfillError = payload?.error ?? 'Failed to backfill venue card fingerprints';
+        return;
+      }
+      fingerprintBackfillStatus = 'success';
+      fingerprintBackfillMessage = `Backfilled ${Number(payload?.upserted ?? 0)} card fingerprints${payload?.truncated ? ' (truncated)' : ''}.`;
+    } catch (error) {
+      fingerprintBackfillStatus = 'error';
+      fingerprintBackfillError = error instanceof Error ? error.message : 'Failed to backfill venue card fingerprints';
     }
   }
 
@@ -1845,13 +1885,29 @@
               </div>
             </div>
             <div class="mt-4">
-              <button
-                type="button"
-                class="px-3 py-1 rounded-lg bg-red-500 text-black text-xs font-black uppercase tracking-widest"
-                on:click={deleteSelectedVenue}
-              >
-                Delete Venue
-              </button>
+              <div class="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  class="px-3 py-1 rounded-lg border border-blue-500/40 text-blue-200 text-xs font-black uppercase tracking-widest disabled:opacity-50"
+                  on:click={backfillSelectedVenueFingerprints}
+                  disabled={fingerprintBackfillStatus === 'running' || !squareConnections.has(selectedVenue.id)}
+                >
+                  {fingerprintBackfillStatus === 'running' ? 'Backfilling...' : 'Backfill Card Fingerprints'}
+                </button>
+                <button
+                  type="button"
+                  class="px-3 py-1 rounded-lg bg-red-500 text-black text-xs font-black uppercase tracking-widest"
+                  on:click={deleteSelectedVenue}
+                >
+                  Delete Venue
+                </button>
+              </div>
+              {#if fingerprintBackfillMessage}
+                <p class="mt-3 text-[10px] font-bold uppercase tracking-widest text-green-400">{fingerprintBackfillMessage}</p>
+              {/if}
+              {#if fingerprintBackfillError}
+                <p class="mt-3 text-[10px] font-bold uppercase tracking-widest text-red-400">{fingerprintBackfillError}</p>
+              {/if}
             </div>
           {:else}
             <p class="text-sm text-zinc-500 mt-3">Select a venue to see details.</p>

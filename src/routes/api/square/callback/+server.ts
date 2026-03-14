@@ -9,6 +9,7 @@ import {
   PUBLIC_SQUARE_APP_ID_SANDBOX
 } from '$env/static/public';
 import { supabaseAdmin } from '$lib/server/supabaseAdmin';
+import { backfillVenueFingerprintsForVenue } from '$lib/server/square/backfillVenueFingerprints';
 
 const squareAppId = dev ? PUBLIC_SQUARE_APP_ID_SANDBOX : PUBLIC_SQUARE_APP_ID_PROD;
 const squareAppSecret = dev ? PRIVATE_SQUARE_APP_SECRET_SANDBOX : PRIVATE_SQUARE_APP_SECRET_PROD;
@@ -139,10 +140,22 @@ export async function GET({ url, cookies }: RequestEvent) {
       throw redirect(302, `/admin?square=error&reason=${reason}`);
     }
 
+    let backfillStatus = 'failed';
+    try {
+      await backfillVenueFingerprintsForVenue(venueId);
+      backfillStatus = 'done';
+    } catch (error) {
+      console.error('[square callback] fingerprint backfill failed', {
+        venueId,
+        error: getErrorMessage(error)
+      });
+    }
+
     const merchantNameParam = merchantName ? `&merchant_name=${encodeURIComponent(merchantName)}` : '';
+    const backfillStatusParam = `&fingerprint_backfill=${encodeURIComponent(backfillStatus)}`;
     throw redirect(
       302,
-      `/admin?square=connected${merchantNameParam}&merchant=${encodeURIComponent(payload.merchant_id ?? '')}`
+      `/admin?square=connected${merchantNameParam}&merchant=${encodeURIComponent(payload.merchant_id ?? '')}${backfillStatusParam}`
     );
   } catch (error) {
     if (
